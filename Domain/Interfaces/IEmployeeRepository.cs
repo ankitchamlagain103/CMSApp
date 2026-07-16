@@ -1,0 +1,59 @@
+using Domain.Common;
+using Domain.Common.Filters;
+using Domain.Entities;
+
+namespace Domain.Interfaces
+{
+    // Aggregate repository: Employee plus its EmployeeSalary (and that salary's component/
+    // deduction/insurance-premium children).
+    public interface IEmployeeRepository : IRepository<Employee, Guid>
+    {
+        Task<PagedResult<Employee>> GetPagedByFilterAsync(EmployeeFilter filter, int pageNumber, int pageSize, CancellationToken cancellationToken = default);
+
+        Task<Employee> GetByIdWithTeacherAsync(Guid id, CancellationToken cancellationToken = default);
+
+        Task<bool> EmployeeCodeExistsAsync(string employeeCode, CancellationToken cancellationToken = default);
+
+        Task<IReadOnlyList<string>> GetEmployeeCodesByPrefixAsync(string prefix, CancellationToken cancellationToken = default);
+
+        Task<bool> UserIdExistsAsync(Guid userId, CancellationToken cancellationToken = default);
+
+        Task<bool> HasSalariesAsync(Guid employeeId, CancellationToken cancellationToken = default);
+
+        Task<IReadOnlyList<EmployeeSalary>> GetSalaryHistoryAsync(Guid employeeId, CancellationToken cancellationToken = default);
+
+        Task<EmployeeSalary> GetCurrentSalaryAsync(Guid employeeId, CancellationToken cancellationToken = default);
+
+        Task<EmployeeSalary> GetSalaryByIdAsync(Guid salaryId, CancellationToken cancellationToken = default);
+
+        Task<EmployeeSalary> GetSalaryWithLineItemsAsync(Guid salaryId, CancellationToken cancellationToken = default);
+
+        Task<bool> SalaryExistsForDateAsync(Guid employeeId, DateTime effectiveFromDate, CancellationToken cancellationToken = default);
+
+        Task AddSalaryAsync(EmployeeSalary salary, CancellationToken cancellationToken = default);
+
+        Task<EmployeeSalaryComponent> GetSalaryComponentByIdAsync(Guid componentId, CancellationToken cancellationToken = default);
+
+        Task AddSalaryComponentAsync(EmployeeSalaryComponent component, CancellationToken cancellationToken = default);
+
+        void RemoveSalaryComponent(EmployeeSalaryComponent component);
+
+        Task<EmployeeSalaryDeduction> GetSalaryDeductionByIdAsync(Guid deductionId, CancellationToken cancellationToken = default);
+
+        Task AddSalaryDeductionAsync(EmployeeSalaryDeduction deduction, CancellationToken cancellationToken = default);
+
+        void RemoveSalaryDeduction(EmployeeSalaryDeduction deduction);
+
+        Task<EmployeeInsurancePremium> GetInsurancePremiumByIdAsync(Guid premiumId, CancellationToken cancellationToken = default);
+
+        Task AddInsurancePremiumAsync(EmployeeInsurancePremium premium, CancellationToken cancellationToken = default);
+
+        void RemoveInsurancePremium(EmployeeInsurancePremium premium);
+
+        Task<IReadOnlyList<EmployeeLoan>> GetLoansByEmployeeIdAsync(Guid employeeId, CancellationToken cancellationToken = default);
+
+        Task<EmployeeLoan> GetLoanByIdAsync(Guid loanId, CancellationToken cancellationToken = default);
+
+        Task AddLoanAsync(EmployeeLoan loan, CancellationToken cancellationToken = default);
+    }
+}

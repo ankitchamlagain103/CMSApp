@@ -20,6 +20,14 @@ namespace Infrastructure.Persistence.Repositories
             return configs;
         }
 
+        public async Task<Config> GetByTypeCodeAndCodeAsync(int typeCode, string code, CancellationToken cancellationToken = default)
+        {
+            var config = await DbSet
+                .FirstOrDefaultAsync(c => c.TypeCode == typeCode && c.Code == code, cancellationToken);
+
+            return config;
+        }
+
         public async Task<bool> CodeExistsAsync(int typeCode, string code, CancellationToken cancellationToken = default)
         {
             var codeExists = await DbSet.AnyAsync(config => config.TypeCode == typeCode && config.Code == code, cancellationToken);

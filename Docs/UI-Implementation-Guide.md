@@ -524,9 +524,9 @@ A typical role-permission editor: list all `PERMISSION`-type menus from `/api/me
 
 **Response** (`200`): `data` = `MenuDto`. **Failure**: `404 NOT_FOUND` `"Menu with id '...' was not found."`
 
-## GET /api/menus?page=1&pageSize=20&menuType=MAIN_MENU&menuFor=ADMIN
+## GET /api/menus?page=1&pageSize=20&menuType=MAIN_MENU&menuFor=ADMIN&search=user&parentId=2&isHidden=false
 
-`menuType` and `menuFor` are **optional, independent filters** — omit either (or both) to not filter on it. Allowed values are the same enums as create: `menuType` = `MAIN_MENU` | `SUB_MENU` | `PERMISSION`, `menuFor` = `ADMIN` | `USER` | `BOTH` (exact match — a menu created as `BOTH` is only returned by `menuFor=BOTH`, not by `menuFor=ADMIN`). Results are sorted by `order`.
+`menuType` and `menuFor` are **optional, independent filters** — omit either (or both) to not filter on it. Allowed values are the same enums as create: `menuType` = `MAIN_MENU` | `SUB_MENU` | `PERMISSION`, `menuFor` = `ADMIN` | `USER` | `BOTH` (exact match — a menu created as `BOTH` is only returned by `menuFor=BOTH`, not by `menuFor=ADMIN`). Results are sorted by `order`. **New (2026-07-15)**: `search` (matches `code`/`displayName`, case-insensitive), `parentId` (exact match, direct children only), `isHidden` (exact match) — see `filters_update.md`.
 
 **Response** (`200`): same pagination wrapper, `items` = `MenuDto[]` (`totalCount` reflects the filtered count). **Failure** (`400 VALIDATION_ERROR`): an unknown filter value — `"MenuType must be one of: MAIN_MENU, SUB_MENU, PERMISSION."` / `"MenuFor must be one of: ADMIN, USER, BOTH."`
 
@@ -740,6 +740,106 @@ Audit trail of who executed which critical action (only actions listed in the se
 }
 ```
 
+## GET /api/dashboard/enrollment-stats — student/enrollment widget
+
+**Response** (`200`): `data` =
+```json
+{
+  "totalStudents": 100,
+  "totalActiveEnrollments": 96,
+  "enrollmentsByStatus": [
+    { "status": 1, "count": 96 },
+    { "status": 2, "count": 2 },
+    { "status": 3, "count": 1 },
+    { "status": 4, "count": 1 }
+  ],
+  "enrollmentsByGrade": [
+    { "gradeCode": "NUR", "gradeLabel": "Nursery", "count": 20 },
+    { "gradeCode": "LKG", "gradeLabel": "LKG", "count": 18 }
+  ]
+}
+```
+`status` is `EnrollmentStatus` (1 Enrolled / 2 Transferred / 3 Withdrawn / 4 Completed). `enrollmentsByGrade` is scoped to the **current** academic year's `Enrolled`-status rows only, one entry per seeded Grade config option ordered by its `order` (zero-count grades still appear). Empty array if no academic year is marked current.
+
+## GET /api/dashboard/teachers?take=5 — teacher list widget
+
+**Response** (`200`): `data` =
+```json
+{
+  "totalTeachers": 20,
+  "activeTeachers": 19,
+  "recentTeachers": [
+    { "id": "...", "employeeCode": "EMP2026020", "firstName": "Anita", "middleName": null, "lastName": "Sharma", "status": 1, "joiningDate": "2026-04-01T00:00:00" }
+  ]
+}
+```
+`recentTeachers` is the `take` most recently created teachers (default 5), newest first, joined through the teacher's owning `Employee` row (2026-07-15 Employee split — `employeeCode` was `employeeNo` before the split). `status` is `EmploymentStatus` (1 Active / 2 OnLeave / 3 Suspended / 4 Resigned / 5 Terminated / 6 Retired) — `activeTeachers`/the `TeachersByStatus` bar graph below still treat it as a 2-bucket Active/"anything else" split for display purposes.
+
+## GET /api/dashboard/users?take=5 — user list widget
+
+**Response** (`200`): `data` =
+```json
+{
+  "totalUsers": 42,
+  "activeUsers": 39,
+  "recentUsers": [
+    { "id": "...", "userName": "jdoe", "email": "jdoe@example.com", "firstName": "John", "lastName": "Doe", "userType": 2, "isActive": true, "createdTs": "2026-07-13T09:00:00+00:00" }
+  ]
+}
+```
+`recentUsers` is the `take` most recently created users (default 5), newest first, soft-deleted excluded. `userType` is `UserType` (0 SuperAdmin / 1 Admin / 2 User).
+
+## GET /api/dashboard/bar-graph?metric={metric} — chart data
+
+`metric` is required, one of `EnrollmentsByGrade`, `EnrollmentsByMonth`, `StudentsByStatus`, `TeachersByStatus`. Unknown/missing value → `400 VALIDATION_ERROR`. Shape is deliberately generic (`labels` + one or more named `series`) so one chart component on the frontend can render any of them, and new metrics can be added later without a new response shape.
+
+**Response** (`200`): `data` =
+```json
+{
+  "metric": "EnrollmentsByMonth",
+  "title": "New Enrollments (Last 6 Months)",
+  "labels": ["Feb 2026", "Mar 2026", "Apr 2026", "May 2026", "Jun 2026", "Jul 2026"],
+  "series": [
+    { "name": "New Enrollments", "data": [3, 5, 2, 8, 6, 4] }
+  ]
+}
+```
+- `EnrollmentsByGrade` — active enrollments in the current academic year, one bar per Grade config option (same data as `enrollment-stats.enrollmentsByGrade`, chart-ready).
+- `EnrollmentsByMonth` — count of enrollments by `enrollmentDate`, last 6 calendar months including the current one, zero-filled for months with no activity.
+- `StudentsByStatus` / `TeachersByStatus` — two bars, `["Active", "Inactive"]` (`TeachersByStatus` buckets the 6-value `EmploymentStatus` on the owning `Employee` into Active vs. anything else).
+
+## GET /api/dashboard/current-academic-year — current year widget
+
+**Response** (`200`): `data` =
+```json
+{
+  "id": "...",
+  "code": "2026",
+  "name": "Academic Year 2026",
+  "startDate": "2026-01-01T00:00:00",
+  "endDate": "2026-12-31T00:00:00",
+  "totalClasses": 13,
+  "totalSections": 26,
+  "totalActiveEnrollments": 96
+}
+```
+**Failure**: `404 NOT_FOUND` if no `AcademicYear` currently has `isCurrent: true`.
+
+## GET /api/dashboard/quick-menus?take=8 — quick menu suggestions
+
+Shortcut links to the feature list pages (menu catalog `SUB_MENU` rows) the **current logged-in user** actually has permission to open — resolved the same way as `GET /api/roles/user-menus`, filtered to visible rows that carry a `url`. Zero grants returns an empty list, not a 403.
+
+**Response** (`200`): `data` =
+```json
+[
+  { "id": 12, "code": "STUDENT_LIST", "displayName": "Students", "url": "/apps/student/list", "icon": "icons.student", "order": 1 },
+  { "id": 20, "code": "TEACHER_LIST", "displayName": "Teachers", "url": "/apps/teacher/list", "icon": "icons.teacher", "order": 2 }
+]
+```
+**Failure**: `401 UNAUTHORIZED` if not authenticated; `404 NOT_FOUND` if the caller's user row can't be found.
+
+Full request/response reference and design notes for these six endpoints: `Docs/dashboard_updated_file.md`.
+
 ---
 
 # Student Management (2026-07-12, restructured 2026-07-13)
@@ -750,21 +850,58 @@ Full sub-system for academic years, classes (with sections), subjects, teachers,
 - **Endpoints** (all permission-gated, standard envelope):
   - `/api/academicyears` — CRUD; unique `code`; one `isCurrent` year (setting it demotes the others); code immutable on update. `POST /{id}/clone-structure` copies another year's classes/sections/subject mappings into it (existing grades skipped) — the one-click new-year setup.
   - `/api/academicclasses` — CRUD + `/{id}/sections` (add/list/update/remove sections; capacity lives on the section, `0` = unlimited) + `/{id}/subjects` (assign/list/remove class subjects — **shared by every section of the class**; an *optional* subject may instead be scoped to a single section via `classSectionId`, and `GET …/subjects?classSectionId=…` returns one section's effective list); a class = year+grade (unique pair, immutable after create), with its `sections` nested in every response.
-  - `/api/teachers` — CRUD (`employeeNo` unique/immutable, `search` filter) + `/{id}/qualifications` (qualification records: code from catalog 1005 + course/institution/year/score) + `/{id}/assignments` (link to a classSubject, optionally narrowed to one `classSectionId` — null = all sections; `isClassTeacher` requires a section, at most one class teacher per **section**) + `/{id}/documents` (multipart upload of PDF/JPG/PNG ≤10 MB, type from catalog 1006, optional `validUntil` expiry; list/download/delete — see `teacher_documents_implementation_guide.md`).
+  - `/api/teachers` — CRUD (`employeeCode` optional on create — blank = auto-generated `EMP{year}{seq}`; unique/immutable, `search` filter) + `/{id}/qualifications` (qualification records: code from catalog 1005 + course/institution/year/score) + `/{id}/assignments` (link to a classSubject, optionally narrowed to one `classSectionId` — null = all sections; `isClassTeacher` requires a section, at most one class teacher per **section**) + `/{id}/documents` (multipart upload of PDF/JPG/PNG ≤10 MB, type from catalog 1006, optional `validUntil` expiry; list/download/delete — see `teacher_documents_implementation_guide.md`). The teacher detail response adds `serviceHistory` (assignments with academic years, oldest first). **2026-07-15**: a `Teacher` is now a thin teaching-specific profile (`teachingLicenseNo`/`experienceYears`/`specialization`) sharing its id with an `Employee` row that owns identity/HR/bank fields — `POST /api/teachers` creates both together, and `TeacherDto` still returns one flattened object so this is not a breaking response shape, just a larger one (adds `gender`, `dateOfBirth`, `jobPositionCode`, `employmentStatus`, `bankName`, `bankAccountNumber`, `paymentMode`). See "Employee Management & Payroll" below.
   - `/api/guardians` — CRUD; standalone records shared across students.
-  - `/api/students` — CRUD (`admissionNo` unique/immutable, `search` filter); `POST` accepts an optional `guardians` array (existing `guardianId` or inline new-guardian fields, `relationshipCode`, at most one `isPrimary`) so onboarding captures guardians in one call; `PUT` takes the same `guardians` list with three-way semantics (null = unchanged, `[]` = unlink all, list = replace-sync); the detail response returns `guardians` inline plus `currentEnrollment` (current year/grade/section/roll + subjects studying — see `student_profile_enhancements_implementation_guide.md`); `/{id}/guardians` still links/unlinks individually (one primary per student, auto-demoted).
+  - `/api/students` — CRUD (`admissionNo` optional on create — blank = auto-generated `ADM{year}{seq}`; unique/immutable, `search` filter); `POST` accepts an optional `guardians` array (existing `guardianId` or inline new-guardian fields, `relationshipCode`, at most one `isPrimary`) so onboarding captures guardians in one call; `PUT` takes the same `guardians` list with three-way semantics (null = unchanged, `[]` = unlink all, list = replace-sync); the detail response returns `guardians` inline plus `currentEnrollment` (current year/grade/section/roll + subjects studying, each subject with its `teacherName`) and `enrollmentHistory` (all enrollments, oldest year first — see `profile_history_and_documents_implementation_guide.md`); `/{id}/guardians` still links/unlinks individually (one primary per student, auto-demoted); `/{id}/documents` mirrors teacher documents (multipart upload, catalog 1007, list/download/delete).
   - `/api/enrollments` — CRUD against a **section** (`classSectionId`; unique student+section; **one active enrollment per student per academic year**; per-section capacity and roll-number uniqueness; student/section immutable — move = status `2` Transferred + new enrollment) + `/{id}/subjects/{classSubjectId}` electives (non-mandatory subjects of the enrollment's class only). Rows flatten grade/section/year ids and codes.
 - **Enums**: `status` on records — `1` Active / `2` Inactive; enrollment `status` — `1` Enrolled / `2` Transferred / `3` Withdrawn / `4` Completed.
 - **No logins for students/teachers** — they're records only; account linkage is a later phase.
 - Deletes of the main records are **soft** (codes/pairs stay reserved → clean `409` on re-create); child links (class subjects, assignments, guardian links, electives) are hard deletes, refused with `409` while dependents exist.
+- **Grading metadata (2026-07-15)**: `ClassSubject` (and `POST`/new `PUT /api/academicclasses/{id}/subjects/{classSubjectId}`) gained optional `creditHours`/`fullMarks`/`passMarks`/`theoryMarks`/`practicalMarks` — see `student_management_implementation_guide.md`.
+
+---
+
+# Fee, Discount & Scholarship Management (2026-07-15, redesigned three times same day)
+
+Full reference in `fee_management_implementation_guide.md`; orientation summary: `/api/feestructures` is a **header per class** (`academicClassId` unique) owning a child `items` array — `POST /api/feestructures` creates the header **and every submitted item in one call** (`{ academicClassId, items: [{ feeCategoryCode, amount, frequencyType, isOptional, isRefundable }, ...] }`), fixing the earlier one-call-per-category flow. `feeCategoryCode` must be a known option in the `FeeCategory` Config catalog (`1010`, all 11 "permitted" categories seeded: Tuition/Annual/Admission/Deposit/Examination/Computer/SpecialTraining/Hostel/Meal/Transportation/EducationalTour) — this is the **authoritative whitelist**, not a free-text field (a same-day detour briefly allowed free-text `name` here; reverted the same day). A school needing a category outside the 11 seeded ones adds it via plain `POST /api/configs` first, then references its code. `/api/feestructures/{id}/items` (`POST`/`PUT /{itemId}`/`DELETE /{itemId}`) manages items one at a time after the initial bulk create — `feeCategoryCode` is immutable once set. `/api/enrollments/{id}/fee-selections/{feeStructureItemId}` — how an enrollment opts into an optional item (by its id — a class can only charge a given category once, but the selection still keys off the item's own id). `/api/enrollments/{id}/discounts` and `/{id}/scholarships` — awards (percentage or fixed amount) against a specific enrollment, unaffected by any of the fee-structure redesigns; discount/scholarship "reason" is a Config code (catalog `1008`/`1009`, admin-extensible — this is the configurable eligibility-criteria mechanism, e.g. class topper, exam merit, social category, sibling) that can carry a **global default rate**; omit `valueType`/`value` on the award to use it, or supply both for an individual override. `GET /api/enrollments/{id}/fee-structure` composes all of this into one priced view for the student detail page (fee items + discounts + scholarships + a frequency-grouped summary). `GET /api/enrollments/scholarships/summary` (and the discount equivalent) report student counts per type. Discounts/scholarships are soft-deleted (financial-audit records); fee structure items and fee-selections are hard-deleted, refused with `409` while an enrollment still references an item.
+
+---
+
+# Employee Management & Component-Based Payroll (2026-07-15, redesigned same day from teacher-only)
+
+Full reference in `employee_management_implementation_guide.md`; orientation summary: every staff member (teacher, principal, accountant, receptionist, librarian, IT officer, driver, security guard, office assistant, cleaner, office help) is now an `Employee` (`/api/employees` — CRUD, `employeeCode` optional/auto-generated `EMP{year}{seq}`, filters by category/position/status/gender/date-range/search/phone). `employeeCategoryCode`/`jobPositionCode` are Config codes (catalog `1011`/`1012`); `employmentStatus` is a 6-value enum (Active/OnLeave/Suspended/Resigned/Terminated/Retired). `Teacher` (`/api/teachers`) is a thin teaching-profile sharing its id with an `Employee` row — `POST /api/teachers` creates both together; `POST /api/employees/{id}/teacher-profile` promotes an existing employee instead (must be Academic category + Teacher/Principal/Vice Principal position).
+
+**Compensation plan** — `/api/employees/{id}/salaries` (also reachable via the unchanged `/api/teachers/{id}/salaries` alias): one row per salary revision, each holding named **components** (income — `componentCode` from catalog `1013`, e.g. `BASIC`/`SSF_CONTRIBUTION`/allowances; `valueType` Fixed or Percentage-of-`BASIC`; `frequencyType` Monthly/Annual/OneTime; `isTaxable`/`isRetirementContribution` flags), **deductions** (catalog `1014`, same shape minus `isTaxable`), and **insurance premiums** (catalog `1015`: Life/Health/Housing, each with a configured tax-deduction cap). `GET .../salaries/tax-calculation?fiscalYearId=` runs the full computation: gross annual taxable income → Nepal's retirement-fund "least of three" exemption (actual contributions vs. ⅓ of gross vs. the fiscal year's configured cap) → capped insurance deduction → the existing progressive `TaxSlab` bracket walker → annual/monthly tax and net pay.
+
+`/api/fiscalyears` — a payroll-specific year concept (separate from `AcademicYear`, since Nepal's government fiscal year doesn't align with the school's academic calendar), with nested `/{id}/taxslabs` (progressive Individual/Couple tax brackets, `taxRate` as a fraction) and a `retirementExemptionCapAmount` field (the configurable "C" in the exemption rule). Full fiscal-year/tax-slab reference stays in `payroll_implementation_guide.md`.
+
+**The seeded `FY-SAMPLE` fiscal year/slabs/retirement cap and the seeded insurance-type caps are illustrative placeholders** — verify against the current government of Nepal budget before relying on them for real payroll.
+
+---
+
+# Document Preview (payslip / fee receipt / ID cards) (2026-07-15)
+
+Full reference in `document_preview_implementation_guide.md`; orientation summary: an admin edits an HTML template per document type via `/api/documenttemplates` (`templateType` unique: `1` Payslip / `2` FeeReceipt / `3` StudentIdCard / `4` TeacherIdCard) containing `{{Token}}` placeholders; `GET /api/documenttemplates/placeholders/{templateType}` returns the backend-authoritative list of tokens each type supports. Four preview endpoints compute the real data and return the fully-substituted HTML string, ready to display/print — no PDF generation, the frontend prints via the browser:
+
+- `GET /api/employees/{id}/salaries/payslip-preview?fiscalYearId=` (and the `/api/teachers/{id}/salaries/payslip-preview` alias) — always the employee's **latest** salary revision.
+- `GET /api/enrollments/{id}/fee-receipt-preview` — same composed data as `GET /api/enrollments/{id}/fee-structure`.
+- `GET /api/students/{id}/id-card-preview` and `GET /api/teachers/{id}/id-card-preview`.
+
+All five return `CommonResponse<{ templateType, html }>`; `404` if no template is configured for that type yet (a default is seeded on first boot for every type). No photo/image support today — `StudentDto`/`TeacherDto` have no photo field.
+
+---
+
+# Pay & Taxes (2026-07-15)
+
+Full reference in `pay_and_taxes_implementation_guide.md`; orientation summary: three additions on top of the existing compensation-plan endpoints above, all `Employees`/`Teachers`-aliased as usual. `GET /api/employees/{id}/salaries/tax-calculation/monthly?fiscalYearId=` returns the same annual `taxCalculation` plus `months`: 12 fiscal-month rows (`{ monthIndex, monthName, periodStartDate, periodEndDate, monthDays, incomeLines, deductionLines, monthGrossIncome, monthTax, monthNet }`) — fiscal-month boundaries are an **approximation** (`FiscalYear.startDate`..`endDate` split into 12 equal Gregorian segments, labeled Shrawan..Ashad) and `monthTax` is a **flat** `annualTax / 12` every row, not a cumulative rest-of-year re-projection. `GET /api/employees/{id}/payslips?fiscalYearId=` lists only fiscal months whose pay period has already started (`PayslipSummaryDto[]`, `payDays`/`upl` simplified — no attendance module exists); `GET /api/employees/{id}/payslips/{fiscalYearId}/{monthIndex}` returns the structured line-item detail behind it (`PayslipDetailDto`) — a separate, non-HTML path from the existing `.../payslip-preview`. `POST /api/employees/{id}/loans` / `GET .../loans` / `POST .../loans/{loanId}/approve|reject|cancel` manage a request → approve/reject/cancel workflow (`EmployeeLoanDto`, `LoanStatus` 1–5); repayment progress (`amountRepaid`/`remainingBalance`/`isFullyRepaid`) is computed from `startDate`/`emiAmount`/`principalAmount` against today, not stored, and an `Approved` loan's EMI is automatically folded into the Payslip/Tax-Details deduction lines for any month on/after `startDate` — no separate "activate deduction" step. **`dbo.employee_loans` needs a migration that doesn't exist yet** — every `/loans` endpoint 500s until it's applied.
 
 ---
 
 # Seeded data (first run against a migrated DB)
 
 - Roles `SuperAdmin` / `Admin` / `User`, one account per role (credentials from the `Seed` config section).
-- Main menus `USER_MANAGEMENT` / `ROLE_MANAGEMENT` / `MENU_MANAGEMENT` / `CONFIG_MANAGEMENT` / `DASHBOARD` / `ACADEMIC_MANAGEMENT` / `TEACHER_MANAGEMENT` / `STUDENT_MANAGEMENT` with permission leaves covering every protected endpoint; **all permissions granted to the SuperAdmin role** — and SuperAdmin-typed accounts additionally bypass the permission check entirely, so the seeded superadmin works everywhere immediately.
-- Config catalogs for student management (`typeCode` 1001–1006) plus default guardian-relationship, teacher-qualification, and document-type options; a baseline of app-config settings (`GENERAL`/`THEME`/`ANNOUNCEMENT`).
+- Main menus `USER_MANAGEMENT` / `ROLE_MANAGEMENT` / `MENU_MANAGEMENT` / `CONFIG_MANAGEMENT` / `DASHBOARD` / `ACADEMIC_MANAGEMENT` / `TEACHER_MANAGEMENT` / `STUDENT_MANAGEMENT` / `FEE_MANAGEMENT` / `PAYROLL_MANAGEMENT` / `EMPLOYEE_MANAGEMENT` with permission leaves covering every protected endpoint; **all permissions granted to the SuperAdmin role** — and SuperAdmin-typed accounts additionally bypass the permission check entirely, so the seeded superadmin works everywhere immediately.
+- Config catalogs for student management (`typeCode` 1001–1007) plus discount/scholarship/fee-category types (`1008`/`1009`/`1010`) plus employee-category/job-position/salary-component/deduction/insurance-type (`1011`–`1015`); default guardian-relationship, teacher-qualification, document-type (teacher + student), discount/scholarship-type (with default rates), all 11 fee-category options, and all employee-side options (categories, positions, salary components, deductions, insurance types with tax-deduction caps); a baseline of app-config settings (`GENERAL`/`THEME`/`ANNOUNCEMENT`); one placeholder `FY-SAMPLE` fiscal year with illustrative Individual/Couple tax slabs and retirement-exemption cap (verify before real payroll use); one default `DocumentTemplate` HTML row per type (Payslip/FeeReceipt/StudentIdCard/TeacherIdCard) so the preview endpoints work out of the box.
 - `Admin`/`User` roles start with **zero** permissions; grant via `POST /api/roles/claims` while signed in as superadmin.
 
 # Error-handling checklist for the UI

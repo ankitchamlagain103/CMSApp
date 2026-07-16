@@ -1,9 +1,10 @@
-# CMSApp — Student Profile Enhancements (UI)
+# CMSApp — Student & Teacher Profile Enhancements (UI)
 
-**What shipped (2026-07-13)**: two additions to the existing student endpoints — no new routes.
+**What shipped (2026-07-13)**: additions to the existing student/teacher endpoints — no new routes.
 
 1. `GET /api/students/{id}` now returns a **`currentEnrollment`** block: the student's current class/section/year, roll number, and the subjects they are studying.
 2. `PUT /api/students/{id}` now accepts a **`guardians`** list with the same entry shape as the create form, so the profile's guardian table can be edited through the normal update call.
+3. `GET /api/students/{id}` also returns **`enrollmentHistory`** and `GET /api/teachers/{id}` returns **`serviceHistory`** — documented in `profile_history_and_documents_implementation_guide.md` (which also covers `teacherName` on subjects and student documents).
 
 ## 1. `currentEnrollment` on the student detail
 
@@ -18,8 +19,8 @@
     "classSectionId": "…", "sectionCode": "SECTION_A",
     "rollNumber": "1", "enrollmentDate": "2026-07-13",
     "subjects": [
-      { "classSubjectId": "…", "subjectCode": "NEPALI",  "isMandatory": true,  "displayOrder": 1 },
-      { "classSubjectId": "…", "subjectCode": "DANCE",   "isMandatory": false, "displayOrder": 9 }
+      { "classSubjectId": "…", "subjectCode": "NEPALI",  "isMandatory": true,  "displayOrder": 1, "teacherName": "Ankit Chamlagain" },
+      { "classSubjectId": "…", "subjectCode": "DANCE",   "isMandatory": false, "displayOrder": 9, "teacherName": null }
     ]
   }
 }
@@ -53,4 +54,8 @@ Replace-sync details worth knowing in the UI:
 
 The standalone link/unlink endpoints (`POST/DELETE /api/students/{id}/guardians…`) still exist and are fine for single-row actions like the profile's delete icon.
 
-No migration needed for either change; no new permissions (rides on `STUDENT_DETAIL`/`STUDENT_UPDATE`).
+## 3. History blocks (`enrollmentHistory` / `serviceHistory`)
+
+Both detail responses also carry a history list — full shapes, ordering rules, and UI notes live in **`profile_history_and_documents_implementation_guide.md`** (kept there to avoid drift; that guide also documents `teacherName` on the subjects rows and the student documents endpoints).
+
+No migration needed for the enhancements on this page; no new permissions (rides on `STUDENT_DETAIL`/`STUDENT_UPDATE`/`TEACHER_DETAIL`).

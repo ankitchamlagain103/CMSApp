@@ -4,10 +4,14 @@ using Application.AcademicYears;
 using Application.AccessLogs;
 using Application.AppConfigs;
 using Application.Configs;
+using Application.DocumentTemplates;
+using Application.Employees;
 using Application.Enrollments;
 using Application.ErrorLogs;
+using Application.Fees;
 using Application.Guardians;
 using Application.Menus;
+using Application.Payroll.FiscalYears;
 using Application.Students;
 using Application.Teachers;
 using FluentValidation;
@@ -37,6 +41,10 @@ namespace Application
             services.AddScoped<IGuardianService, GuardianService>();
             services.AddScoped<IStudentService, StudentService>();
             services.AddScoped<IEnrollmentService, EnrollmentService>();
+            services.AddScoped<IFeeStructureService, FeeStructureService>();
+            services.AddScoped<IFiscalYearService, FiscalYearService>();
+            services.AddScoped<IEmployeeService, EmployeeService>();
+            services.AddScoped<IDocumentTemplateService, DocumentTemplateService>();
         }
 
         private static void RegisterMenuServices(IServiceCollection services)

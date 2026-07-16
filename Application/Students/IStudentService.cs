@@ -22,5 +22,15 @@ namespace Application.Students
         Task<CommonResponse<bool>> UnlinkGuardianAsync(Guid studentId, Guid linkId, CancellationToken cancellationToken = default);
 
         Task<CommonResponse<List<StudentGuardianDto>>> GetGuardiansAsync(Guid studentId, CancellationToken cancellationToken = default);
+
+        Task<CommonResponse<StudentDocumentDto>> UploadDocumentAsync(Guid studentId, UploadStudentDocumentCommand command, Stream fileContent, string originalFileName, string contentType, long fileSizeBytes, CancellationToken cancellationToken = default);
+
+        Task<CommonResponse<List<StudentDocumentDto>>> GetDocumentsAsync(Guid studentId, CancellationToken cancellationToken = default);
+
+        Task<CommonResponse<StudentDocumentFileDto>> GetDocumentFileAsync(Guid studentId, Guid documentId, CancellationToken cancellationToken = default);
+
+        Task<CommonResponse<bool>> DeleteDocumentAsync(Guid studentId, Guid documentId, CancellationToken cancellationToken = default);
+
+        Task<CommonResponse<DocumentPreviewDto>> GetIdCardPreviewAsync(Guid studentId, CancellationToken cancellationToken = default);
     }
 }

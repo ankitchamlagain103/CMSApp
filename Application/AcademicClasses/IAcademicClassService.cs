@@ -27,6 +27,8 @@ namespace Application.AcademicClasses
 
         Task<CommonResponse<ClassSubjectDto>> AssignSubjectAsync(Guid academicClassId, AssignClassSubjectCommand command, CancellationToken cancellationToken = default);
 
+        Task<CommonResponse<ClassSubjectDto>> UpdateSubjectAsync(Guid academicClassId, Guid classSubjectId, UpdateClassSubjectCommand command, CancellationToken cancellationToken = default);
+
         Task<CommonResponse<bool>> RemoveSubjectAsync(Guid academicClassId, Guid classSubjectId, CancellationToken cancellationToken = default);
 
         Task<CommonResponse<List<ClassSubjectDto>>> GetClassSubjectsAsync(Guid academicClassId, Guid? classSectionId, CancellationToken cancellationToken = default);

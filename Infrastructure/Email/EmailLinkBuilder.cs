@@ -8,7 +8,7 @@ namespace Infrastructure.Email
         {
             var encodedToken = Uri.EscapeDataString(token);
             var clientBaseUrl = configuration["App:ClientBaseUrl"];
-            if (string.IsNullOrEmpty(clientBaseUrl))
+            if (string.IsNullOrWhiteSpace(clientBaseUrl))
             {
                 return "userId=" + userId + "&token=" + encodedToken;
             }
@@ -21,7 +21,7 @@ namespace Infrastructure.Email
         {
             var encodedToken = Uri.EscapeDataString(token);
             var clientBaseUrl = configuration["App:ClientBaseUrl"];
-            if (string.IsNullOrEmpty(clientBaseUrl))
+            if (string.IsNullOrWhiteSpace(clientBaseUrl))
             {
                 return "userId=" + userId + "&token=" + encodedToken;
             }

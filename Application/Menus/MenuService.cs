@@ -4,6 +4,7 @@ using Application.Menus.Commands;
 using Application.Menus.Dtos;
 using Application.Menus.Queries;
 using Application.Menus.Validators;
+using Domain.Common.Filters;
 using Domain.Constants;
 using Domain.Entities;
 using FluentValidation.Results;
@@ -102,7 +103,16 @@ namespace Application.Menus
                 return validationFailureResponse;
             }
 
-            var pagedMenus = await _unitOfWork.Menus.GetPagedByFilterAsync(query.MenuType, query.MenuFor, query.Page, query.PageSize, cancellationToken);
+            var filter = new MenuFilter
+            {
+                MenuType = query.MenuType,
+                MenuFor = query.MenuFor,
+                Search = query.Search,
+                ParentId = query.ParentId,
+                IsHidden = query.IsHidden
+            };
+
+            var pagedMenus = await _unitOfWork.Menus.GetPagedByFilterAsync(filter, query.Page, query.PageSize, cancellationToken);
 
             var menuDtos = new List<MenuDto>();
             foreach (var menu in pagedMenus.Items)

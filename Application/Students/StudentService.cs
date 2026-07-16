@@ -1,9 +1,13 @@
+using Application.Common.Helpers;
 using Application.Common.Interfaces;
 using Application.Common.Models;
+using Application.Common.Validation;
+using Application.DocumentTemplates;
 using Application.Students.Commands;
 using Application.Students.Dtos;
 using Application.Students.Queries;
 using Application.Students.Validators;
+using Domain.Common.Filters;
 using Domain.Constants;
 using Domain.Entities;
 using Domain.Enums;
@@ -14,20 +18,26 @@ namespace Application.Students
     public class StudentService : IStudentService
     {
         private readonly IUnitOfWork _unitOfWork;
+        private readonly IFileStorageService _fileStorage;
         private readonly CreateStudentCommandValidator _createValidator;
         private readonly UpdateStudentCommandValidator _updateValidator;
         private readonly LinkGuardianCommandValidator _linkGuardianValidator;
+        private readonly UploadStudentDocumentCommandValidator _uploadDocumentValidator;
 
         public StudentService(
             IUnitOfWork unitOfWork,
+            IFileStorageService fileStorage,
             CreateStudentCommandValidator createValidator,
             UpdateStudentCommandValidator updateValidator,
-            LinkGuardianCommandValidator linkGuardianValidator)
+            LinkGuardianCommandValidator linkGuardianValidator,
+            UploadStudentDocumentCommandValidator uploadDocumentValidator)
         {
             _unitOfWork = unitOfWork;
+            _fileStorage = fileStorage;
             _createValidator = createValidator;
             _updateValidator = updateValidator;
             _linkGuardianValidator = linkGuardianValidator;
+            _uploadDocumentValidator = uploadDocumentValidator;
         }
 
         public async Task<CommonResponse<StudentDto>> CreateStudentAsync(CreateStudentCommand command, CancellationToken cancellationToken = default)
@@ -40,12 +50,24 @@ namespace Application.Students
                 return validationFailureResponse;
             }
 
-            var trimmedAdmissionNo = command.AdmissionNo.Trim();
-            var admissionNoExists = await _unitOfWork.Students.AdmissionNoExistsAsync(trimmedAdmissionNo, cancellationToken);
-            if (admissionNoExists)
+            // Blank admission number = backend-generated (ADM{year}{seq}); a supplied one (e.g.
+            // migrated from an old system) is honored after the usual uniqueness check.
+            //var trimmedAdmissionNo = command.AdmissionNo?.Trim();
+            var trimmedAdmissionNo = string.Empty;
+            if (string.IsNullOrWhiteSpace(trimmedAdmissionNo))
             {
-                var conflictResponse = CommonResponse<StudentDto>.Fail(ResponseCodes.Conflict, "Admission number '" + trimmedAdmissionNo + "' is already in use (possibly by a soft-deleted student).");
-                return conflictResponse;
+                var admissionNoPrefix = "ADM" + DateTime.UtcNow.Year;
+                var existingAdmissionNos = await _unitOfWork.Students.GetAdmissionNosByPrefixAsync(admissionNoPrefix, cancellationToken);
+                trimmedAdmissionNo = NumberSequenceHelper.Next(admissionNoPrefix, existingAdmissionNos, 3);
+            }
+            else
+            {
+                var admissionNoExists = await _unitOfWork.Students.AdmissionNoExistsAsync(trimmedAdmissionNo, cancellationToken);
+                if (admissionNoExists)
+                {
+                    var conflictResponse = CommonResponse<StudentDto>.Fail(ResponseCodes.Conflict, "Admission number '" + trimmedAdmissionNo + "' is already in use (possibly by a soft-deleted student).");
+                    return conflictResponse;
+                }
             }
 
             // Guardians come with onboarding: resolve every entry (existing guardian by id, or a
@@ -155,8 +177,79 @@ namespace Application.Students
             var studentDto = StudentMapper.ToDto(student, guardianLinks);
             studentDto.CurrentEnrollment = await BuildCurrentEnrollmentAsync(id, cancellationToken);
 
+            // Schooling history: every enrollment ever, oldest year first -- the first row is
+            // "studying here since".
+            var enrollmentHistory = await _unitOfWork.Enrollments.GetHistoryByStudentAsync(id, cancellationToken);
+            foreach (var enrollment in enrollmentHistory)
+            {
+                var historyDto = StudentMapper.ToEnrollmentHistoryDto(enrollment);
+                studentDto.EnrollmentHistory.Add(historyDto);
+            }
+
             var successResponse = CommonResponse<StudentDto>.Success(studentDto);
             return successResponse;
+        }
+
+        public async Task<CommonResponse<DocumentPreviewDto>> GetIdCardPreviewAsync(Guid studentId, CancellationToken cancellationToken = default)
+        {
+            var studentResponse = await GetStudentByIdAsync(studentId, cancellationToken);
+            if (studentResponse.Data == null)
+            {
+                var studentFailureResponse = CommonResponse<DocumentPreviewDto>.Fail(studentResponse.ResponseCode, studentResponse.ResponseMessage);
+                return studentFailureResponse;
+            }
+
+            var documentTemplate = await _unitOfWork.DocumentTemplates.GetByTemplateTypeAsync(DocumentTemplateType.StudentIdCard, cancellationToken);
+            if (documentTemplate == null)
+            {
+                var noTemplateResponse = CommonResponse<DocumentPreviewDto>.Fail(ResponseCodes.NotFound, "No document template is configured for '" + DocumentTemplateType.StudentIdCard + "' yet.");
+                return noTemplateResponse;
+            }
+
+            var studentDto = studentResponse.Data;
+            var studentName = studentDto.FirstName + " " + studentDto.LastName;
+
+            var primaryGuardian = FindPrimaryGuardian(studentDto.Guardians);
+            var guardianName = primaryGuardian != null ? primaryGuardian.GuardianFirstName + " " + primaryGuardian.GuardianLastName : string.Empty;
+            var guardianPhone = primaryGuardian != null ? primaryGuardian.GuardianPhone : string.Empty;
+
+            var currentEnrollment = studentDto.CurrentEnrollment;
+
+            var placeholderValues = new Dictionary<string, string>
+            {
+                { "StudentName", studentName },
+                { "AdmissionNo", studentDto.AdmissionNo },
+                { "GradeCode", currentEnrollment != null ? currentEnrollment.GradeCode : string.Empty },
+                { "SectionCode", currentEnrollment != null ? currentEnrollment.SectionCode : string.Empty },
+                { "RollNumber", currentEnrollment != null ? currentEnrollment.RollNumber : string.Empty },
+                { "DateOfBirth", studentDto.DateOfBirth.HasValue ? studentDto.DateOfBirth.Value.ToString("yyyy-MM-dd") : string.Empty },
+                { "GuardianName", guardianName },
+                { "GuardianPhone", guardianPhone }
+            };
+
+            var renderedHtml = TemplateRenderer.Render(documentTemplate.HtmlContent, placeholderValues);
+
+            var documentPreviewDto = new DocumentPreviewDto
+            {
+                TemplateType = DocumentTemplateType.StudentIdCard,
+                Html = renderedHtml
+            };
+
+            var previewSuccessResponse = CommonResponse<DocumentPreviewDto>.Success(documentPreviewDto);
+            return previewSuccessResponse;
+        }
+
+        private static StudentGuardianDto FindPrimaryGuardian(List<StudentGuardianDto> guardians)
+        {
+            foreach (var guardian in guardians)
+            {
+                if (guardian.IsPrimary)
+                {
+                    return guardian;
+                }
+            }
+
+            return null;
         }
 
         // The profile's "current class" block: the active enrollment (preferring the IsCurrent
@@ -208,7 +301,7 @@ namespace Application.Students
                 electedClassSubjectIds.Add(electiveSubject.ClassSubjectId);
             }
 
-            var subjectDtos = new List<StudentSubjectDto>();
+            var studyingSubjects = new List<ClassSubject>();
             foreach (var classSubject in sectionSubjects)
             {
                 if (!classSubject.IsMandatory && !electedClassSubjectIds.Contains(classSubject.Id))
@@ -216,12 +309,30 @@ namespace Application.Students
                     continue;
                 }
 
+                studyingSubjects.Add(classSubject);
+            }
+
+            // Who teaches each subject: one batched assignment query, then per subject pick the
+            // teachers relevant to this student's section (section-scoped assignments win over
+            // all-section ones).
+            var studyingSubjectIds = new List<Guid>();
+            foreach (var classSubject in studyingSubjects)
+            {
+                studyingSubjectIds.Add(classSubject.Id);
+            }
+
+            var subjectAssignments = await _unitOfWork.Teachers.GetAssignmentsByClassSubjectIdsAsync(studyingSubjectIds, cancellationToken);
+
+            var subjectDtos = new List<StudentSubjectDto>();
+            foreach (var classSubject in studyingSubjects)
+            {
                 var subjectDto = new StudentSubjectDto
                 {
                     ClassSubjectId = classSubject.Id,
                     SubjectCode = classSubject.SubjectCode,
                     IsMandatory = classSubject.IsMandatory,
-                    DisplayOrder = classSubject.DisplayOrder
+                    DisplayOrder = classSubject.DisplayOrder,
+                    TeacherName = ResolveTeacherName(subjectAssignments, classSubject.Id, classSection.Id)
                 };
                 subjectDtos.Add(subjectDto);
             }
@@ -246,7 +357,21 @@ namespace Application.Students
 
         public async Task<CommonResponse<PaginatedResponse<StudentDto>>> GetStudentsAsync(GetStudentsQuery query, CancellationToken cancellationToken = default)
         {
-            var pagedStudents = await _unitOfWork.Students.GetPagedByFilterAsync(query.Search, query.Page, query.PageSize, cancellationToken);
+            var filter = new StudentFilter
+            {
+                Search = query.Search,
+                Phone = query.Phone,
+                GradeCode = query.GradeCode,
+                AcademicYearId = query.AcademicYearId,
+                ClassSectionId = query.ClassSectionId,
+                Status = query.Status,
+                Gender = query.Gender,
+                DateField = query.DateField,
+                FromDate = query.FromDate,
+                ToDate = query.ToDate
+            };
+
+            var pagedStudents = await _unitOfWork.Students.GetPagedByFilterAsync(filter, query.Page, query.PageSize, cancellationToken);
 
             var studentDtos = new List<StudentDto>();
             foreach (var student in pagedStudents.Items)
@@ -313,6 +438,66 @@ namespace Application.Students
             var studentDto = StudentMapper.ToDto(student, guardianLinks);
             var successResponse = CommonResponse<StudentDto>.Success(studentDto, "Student updated successfully.");
             return successResponse;
+        }
+
+        // Picks who teaches one class subject for one section: assignments scoped to the section
+        // win; otherwise all-section (null-section) assignments apply. Several teachers sharing
+        // a subject come back comma-joined; null means nobody is assigned yet.
+        private static string ResolveTeacherName(IReadOnlyList<TeacherAssignment> assignments, Guid classSubjectId, Guid classSectionId)
+        {
+            var sectionTeacherNames = new List<string>();
+            var allSectionTeacherNames = new List<string>();
+            foreach (var assignment in assignments)
+            {
+                if (assignment.ClassSubjectId != classSubjectId || assignment.Teacher == null)
+                {
+                    continue;
+                }
+
+                if (assignment.ClassSectionId == classSectionId)
+                {
+                    var fullName = BuildTeacherFullName(assignment.Teacher);
+                    if (!sectionTeacherNames.Contains(fullName))
+                    {
+                        sectionTeacherNames.Add(fullName);
+                    }
+                }
+                else if (assignment.ClassSectionId == null)
+                {
+                    var fullName = BuildTeacherFullName(assignment.Teacher);
+                    if (!allSectionTeacherNames.Contains(fullName))
+                    {
+                        allSectionTeacherNames.Add(fullName);
+                    }
+                }
+            }
+
+            var relevantNames = sectionTeacherNames.Count > 0 ? sectionTeacherNames : allSectionTeacherNames;
+            if (relevantNames.Count == 0)
+            {
+                return null;
+            }
+
+            var joinedNames = string.Join(", ", relevantNames);
+            return joinedNames;
+        }
+
+        private static string BuildTeacherFullName(Teacher teacher)
+        {
+            // Identity fields moved to Employee in the Employee/Teacher split -- the assignment
+            // query includes Teacher.Employee for this reason (ITeacherRepository.
+            // GetAssignmentsByClassSubjectIdsAsync).
+            var employee = teacher.Employee;
+            var nameParts = new List<string>();
+            nameParts.Add(employee.FirstName);
+            if (!string.IsNullOrWhiteSpace(employee.MiddleName))
+            {
+                nameParts.Add(employee.MiddleName);
+            }
+            nameParts.Add(employee.LastName);
+
+            var fullName = string.Join(" ", nameParts);
+            return fullName;
         }
 
         // Replace-sync of a student's guardian links against the submitted list. Everything is
@@ -555,6 +740,149 @@ namespace Application.Students
             }
 
             var successResponse = CommonResponse<List<StudentGuardianDto>>.Success(linkDtos);
+            return successResponse;
+        }
+
+        public async Task<CommonResponse<StudentDocumentDto>> UploadDocumentAsync(Guid studentId, UploadStudentDocumentCommand command, Stream fileContent, string originalFileName, string contentType, long fileSizeBytes, CancellationToken cancellationToken = default)
+        {
+            var validationResult = _uploadDocumentValidator.Validate(command);
+            if (!validationResult.IsValid)
+            {
+                var errorMessage = BuildValidationErrorMessage(validationResult);
+                var validationFailureResponse = CommonResponse<StudentDocumentDto>.Fail(ResponseCodes.ValidationError, errorMessage);
+                return validationFailureResponse;
+            }
+
+            if (fileContent == null || fileSizeBytes <= 0)
+            {
+                var noFileResponse = CommonResponse<StudentDocumentDto>.Fail(ResponseCodes.ValidationError, "A document file is required.");
+                return noFileResponse;
+            }
+
+            if (!DocumentFileRules.IsAllowedExtension(originalFileName))
+            {
+                var extensionResponse = CommonResponse<StudentDocumentDto>.Fail(ResponseCodes.ValidationError, "Unsupported file type. Allowed: " + DocumentFileRules.AllowedExtensionsDisplay() + ".");
+                return extensionResponse;
+            }
+
+            if (fileSizeBytes > DocumentFileRules.MaxFileSizeBytes)
+            {
+                var sizeResponse = CommonResponse<StudentDocumentDto>.Fail(ResponseCodes.ValidationError, "File exceeds the maximum size of " + (DocumentFileRules.MaxFileSizeBytes / (1024 * 1024)) + " MB.");
+                return sizeResponse;
+            }
+
+            var student = await _unitOfWork.Students.GetByIdAsync(studentId, cancellationToken);
+            if (student == null)
+            {
+                var notFoundResponse = CommonResponse<StudentDocumentDto>.Fail(ResponseCodes.NotFound, "Student with id '" + studentId + "' was not found.");
+                return notFoundResponse;
+            }
+
+            var documentTypeCode = command.DocumentTypeCode.Trim();
+            var typeExists = await _unitOfWork.Configs.CodeExistsAsync(ConfigTypeCodes.StudentDocumentType, documentTypeCode, cancellationToken);
+            if (!typeExists)
+            {
+                var typeInvalidResponse = CommonResponse<StudentDocumentDto>.Fail(ResponseCodes.ValidationError, "DocumentTypeCode '" + documentTypeCode + "' is not a known student document type option.");
+                return typeInvalidResponse;
+            }
+
+            var storedPath = await _fileStorage.SaveAsync(fileContent, originalFileName, "student-documents/" + studentId, cancellationToken);
+
+            var document = new StudentDocument
+            {
+                StudentId = studentId,
+                DocumentTypeCode = documentTypeCode,
+                DocumentName = command.DocumentName.Trim(),
+                FileName = originalFileName,
+                FilePath = storedPath,
+                ContentType = contentType,
+                FileSizeBytes = fileSizeBytes,
+                ValidUntil = command.ValidUntil,
+                Remarks = command.Remarks?.Trim()
+            };
+
+            await _unitOfWork.Students.AddDocumentAsync(document, cancellationToken);
+            try
+            {
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+            }
+            catch
+            {
+                // The row didn't land, so the stored file must not linger as an orphan.
+                _fileStorage.Delete(storedPath);
+                throw;
+            }
+
+            var documentDto = StudentMapper.ToDocumentDto(document);
+            var successResponse = CommonResponse<StudentDocumentDto>.Success(documentDto, "Document uploaded successfully.");
+            return successResponse;
+        }
+
+        public async Task<CommonResponse<List<StudentDocumentDto>>> GetDocumentsAsync(Guid studentId, CancellationToken cancellationToken = default)
+        {
+            var student = await _unitOfWork.Students.GetByIdAsync(studentId, cancellationToken);
+            if (student == null)
+            {
+                var notFoundResponse = CommonResponse<List<StudentDocumentDto>>.Fail(ResponseCodes.NotFound, "Student with id '" + studentId + "' was not found.");
+                return notFoundResponse;
+            }
+
+            var documents = await _unitOfWork.Students.GetDocumentsAsync(studentId, cancellationToken);
+
+            var documentDtos = new List<StudentDocumentDto>();
+            foreach (var document in documents)
+            {
+                var documentDto = StudentMapper.ToDocumentDto(document);
+                documentDtos.Add(documentDto);
+            }
+
+            var successResponse = CommonResponse<List<StudentDocumentDto>>.Success(documentDtos);
+            return successResponse;
+        }
+
+        public async Task<CommonResponse<StudentDocumentFileDto>> GetDocumentFileAsync(Guid studentId, Guid documentId, CancellationToken cancellationToken = default)
+        {
+            var document = await _unitOfWork.Students.GetDocumentByIdAsync(documentId, cancellationToken);
+            if (document == null || document.StudentId != studentId)
+            {
+                var notFoundResponse = CommonResponse<StudentDocumentFileDto>.Fail(ResponseCodes.NotFound, "Document was not found on this student.");
+                return notFoundResponse;
+            }
+
+            var contentStream = await _fileStorage.OpenReadAsync(document.FilePath, cancellationToken);
+            if (contentStream == null)
+            {
+                var fileMissingResponse = CommonResponse<StudentDocumentFileDto>.Fail(ResponseCodes.NotFound, "The stored file for this document is missing.");
+                return fileMissingResponse;
+            }
+
+            var fileDto = new StudentDocumentFileDto
+            {
+                Content = contentStream,
+                ContentType = string.IsNullOrWhiteSpace(document.ContentType) ? "application/octet-stream" : document.ContentType,
+                FileName = document.FileName
+            };
+
+            var successResponse = CommonResponse<StudentDocumentFileDto>.Success(fileDto);
+            return successResponse;
+        }
+
+        public async Task<CommonResponse<bool>> DeleteDocumentAsync(Guid studentId, Guid documentId, CancellationToken cancellationToken = default)
+        {
+            var document = await _unitOfWork.Students.GetDocumentByIdAsync(documentId, cancellationToken);
+            if (document == null || document.StudentId != studentId)
+            {
+                var notFoundResponse = CommonResponse<bool>.Fail(ResponseCodes.NotFound, "Document was not found on this student.");
+                return notFoundResponse;
+            }
+
+            _unitOfWork.Students.RemoveDocument(document);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            // Only after the row is gone -- best-effort by contract.
+            _fileStorage.Delete(document.FilePath);
+
+            var successResponse = CommonResponse<bool>.Success(true, "Document deleted successfully.");
             return successResponse;
         }
 

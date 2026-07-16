@@ -23,7 +23,7 @@ namespace Application.Menus.Validators
             RuleFor(command => command.MenuType)
                 .Must(menuType => MenuTypes.All.Contains(menuType))
                     .WithMessage("MenuType must be one of: " + string.Join(", ", MenuTypes.All) + ".")
-                .When(command => !string.IsNullOrEmpty(command.MenuType));
+                .When(command => !string.IsNullOrWhiteSpace(command.MenuType));
 
             RuleFor(command => command.MenuFor)
                 .NotEmpty()
@@ -32,7 +32,7 @@ namespace Application.Menus.Validators
             RuleFor(command => command.MenuFor)
                 .Must(menuFor => MenuAudience.All.Contains(menuFor))
                     .WithMessage("MenuFor must be one of: " + string.Join(", ", MenuAudience.All) + ".")
-                .When(command => !string.IsNullOrEmpty(command.MenuFor));
+                .When(command => !string.IsNullOrWhiteSpace(command.MenuFor));
 
             RuleFor(command => command.Order)
                 .GreaterThanOrEqualTo(0);

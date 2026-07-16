@@ -1,15 +1,18 @@
 using Domain.Common;
+using Domain.Common.Filters;
 using Domain.Entities;
 
 namespace Domain.Interfaces
 {
     // Aggregate repository: Teacher plus its TeacherQualification, TeacherAssignment, and
-    // TeacherDocument children.
+    // TeacherDocument children -- unchanged since the Employee/Teacher split. Identity fields
+    // (name/phone/status/employee code/join date) and salary now live on Employee, so
+    // GetPagedByFilterAsync/GetByIdWithEmployeeAsync join across via the shared-PK Employee nav.
     public interface ITeacherRepository : IRepository<Teacher, Guid>
     {
-        Task<PagedResult<Teacher>> GetPagedByFilterAsync(string search, int pageNumber, int pageSize, CancellationToken cancellationToken = default);
+        Task<PagedResult<Teacher>> GetPagedByFilterAsync(TeacherFilter filter, int pageNumber, int pageSize, CancellationToken cancellationToken = default);
 
-        Task<bool> EmployeeNoExistsAsync(string employeeNo, CancellationToken cancellationToken = default);
+        Task<Teacher> GetByIdWithEmployeeAsync(Guid id, CancellationToken cancellationToken = default);
 
         Task<bool> HasAssignmentsAsync(Guid teacherId, CancellationToken cancellationToken = default);
 
@@ -22,6 +25,8 @@ namespace Domain.Interfaces
         void RemoveQualification(TeacherQualification qualification);
 
         Task<IReadOnlyList<TeacherAssignment>> GetAssignmentsAsync(Guid teacherId, CancellationToken cancellationToken = default);
+
+        Task<IReadOnlyList<TeacherAssignment>> GetAssignmentsByClassSubjectIdsAsync(IReadOnlyCollection<Guid> classSubjectIds, CancellationToken cancellationToken = default);
 
         Task<TeacherAssignment> GetAssignmentByIdAsync(Guid assignmentId, CancellationToken cancellationToken = default);
 

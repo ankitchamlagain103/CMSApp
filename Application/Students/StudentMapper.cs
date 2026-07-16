@@ -43,6 +43,52 @@ namespace Application.Students
             return studentDto;
         }
 
+        public static StudentDocumentDto ToDocumentDto(StudentDocument document)
+        {
+            var documentDto = new StudentDocumentDto
+            {
+                Id = document.Id,
+                StudentId = document.StudentId,
+                DocumentTypeCode = document.DocumentTypeCode,
+                DocumentName = document.DocumentName,
+                FileName = document.FileName,
+                ContentType = document.ContentType,
+                FileSizeBytes = document.FileSizeBytes,
+                ValidUntil = document.ValidUntil,
+                Remarks = document.Remarks,
+                UploadedTs = document.CreatedTs
+            };
+
+            return documentDto;
+        }
+
+        // Expects the enrollment's ClassSection -> AcademicClass -> AcademicYear chain to be
+        // loaded (the history repository query includes it).
+        public static StudentEnrollmentHistoryDto ToEnrollmentHistoryDto(Enrollment enrollment)
+        {
+            var classSection = enrollment.ClassSection;
+            var academicClass = classSection.AcademicClass;
+            var academicYear = academicClass.AcademicYear;
+
+            var historyDto = new StudentEnrollmentHistoryDto
+            {
+                EnrollmentId = enrollment.Id,
+                AcademicYearId = academicYear.Id,
+                AcademicYearCode = academicYear.Code,
+                AcademicYearName = academicYear.Name,
+                AcademicYearStartDate = academicYear.StartDate,
+                AcademicClassId = academicClass.Id,
+                GradeCode = academicClass.GradeCode,
+                ClassSectionId = classSection.Id,
+                SectionCode = classSection.SectionCode,
+                RollNumber = enrollment.RollNumber,
+                EnrollmentDate = enrollment.EnrollmentDate,
+                Status = enrollment.Status
+            };
+
+            return historyDto;
+        }
+
         // Expects the link's Guardian navigation to be loaded (the repository includes it).
         public static StudentGuardianDto ToGuardianLinkDto(StudentGuardian link)
         {

@@ -18,7 +18,7 @@ namespace Application.Guardians.Validators
             RuleFor(command => command.Email)
                 .EmailAddress()
                 .MaximumLength(255)
-                .When(command => !string.IsNullOrEmpty(command.Email));
+                .When(command => !string.IsNullOrWhiteSpace(command.Email));
 
             RuleFor(command => command.Phone)
                 .MaximumLength(20);

@@ -7,9 +7,9 @@ namespace Application.Students.Validators
     {
         public CreateStudentCommandValidator()
         {
-            RuleFor(command => command.AdmissionNo)
-                .NotEmpty()
-                .MaximumLength(30);
+            // Optional: blank means the service generates the next ADM{year}{seq} number.
+            //RuleFor(command => command.AdmissionNo)
+            //    .MaximumLength(30);
 
             RuleFor(command => command.FirstName)
                 .NotEmpty()
@@ -33,7 +33,7 @@ namespace Application.Students.Validators
             RuleFor(command => command.Email)
                 .EmailAddress()
                 .MaximumLength(255)
-                .When(command => !string.IsNullOrEmpty(command.Email));
+                .When(command => !string.IsNullOrWhiteSpace(command.Email));
 
             RuleFor(command => command.Phone)
                 .MaximumLength(20);

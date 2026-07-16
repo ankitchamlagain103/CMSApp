@@ -321,9 +321,17 @@ namespace Infrastructure.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_ts");
 
+                    b.Property<decimal?>("CreditHours")
+                        .HasColumnType("decimal(4,2)")
+                        .HasColumnName("credit_hours");
+
                     b.Property<int>("DisplayOrder")
                         .HasColumnType("integer")
                         .HasColumnName("display_order");
+
+                    b.Property<int?>("FullMarks")
+                        .HasColumnType("integer")
+                        .HasColumnName("full_marks");
 
                     b.Property<bool>("IsMandatory")
                         .ValueGeneratedOnAdd()
@@ -331,11 +339,23 @@ namespace Infrastructure.Migrations
                         .HasDefaultValue(true)
                         .HasColumnName("is_mandatory");
 
+                    b.Property<int?>("PassMarks")
+                        .HasColumnType("integer")
+                        .HasColumnName("pass_marks");
+
+                    b.Property<int?>("PracticalMarks")
+                        .HasColumnType("integer")
+                        .HasColumnName("practical_marks");
+
                     b.Property<string>("SubjectCode")
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)")
                         .HasColumnName("subject_code");
+
+                    b.Property<int?>("TheoryMarks")
+                        .HasColumnType("integer")
+                        .HasColumnName("theory_marks");
 
                     b.Property<string>("UpdatedBy")
                         .HasMaxLength(50)
@@ -350,11 +370,21 @@ namespace Infrastructure.Migrations
 
                     b.HasIndex("ClassSectionId");
 
+                    b.HasIndex("AcademicClassId", "SubjectCode")
+                        .IsUnique()
+                        .HasDatabaseName("ix_class_subjects_classwide_unique")
+                        .HasFilter("class_section_id IS NULL");
+
                     b.HasIndex("AcademicClassId", "SubjectCode", "ClassSectionId")
                         .IsUnique()
                         .HasDatabaseName("ix_class_subjects_class_subject_section");
 
-                    b.ToTable("class_subjects", "dbo");
+                    b.ToTable("class_subjects", "dbo", t =>
+                        {
+                            t.HasCheckConstraint("ck_class_subjects_mandatory_classwide", "is_mandatory = false OR class_section_id IS NULL");
+
+                            t.HasCheckConstraint("ck_class_subjects_marks_range", "pass_marks IS NULL OR full_marks IS NULL OR pass_marks <= full_marks");
+                        });
                 });
 
             modelBuilder.Entity("Domain.Entities.Config", b =>
@@ -477,6 +507,437 @@ namespace Infrastructure.Migrations
                     b.ToTable("config_types", "dbo");
                 });
 
+            modelBuilder.Entity("Domain.Entities.DocumentTemplate", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("CreatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_ts");
+
+                    b.Property<string>("HtmlContent")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("html_content");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("name");
+
+                    b.Property<int>("TemplateType")
+                        .HasColumnType("integer")
+                        .HasColumnName("template_type");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateTimeOffset?>("UpdatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_ts");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TemplateType")
+                        .IsUnique()
+                        .HasDatabaseName("ix_document_templates_template_type");
+
+                    b.ToTable("document_templates", "dbo");
+                });
+
+            modelBuilder.Entity("Domain.Entities.Employee", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("BankAccountNumber")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("bank_account_number");
+
+                    b.Property<string>("BankName")
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("bank_name");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("CreatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_ts");
+
+                    b.Property<DateTime?>("DateOfBirth")
+                        .HasColumnType("date")
+                        .HasColumnName("date_of_birth");
+
+                    b.Property<string>("DeletedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("deleted_by");
+
+                    b.Property<DateTimeOffset?>("DeletedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_ts");
+
+                    b.Property<string>("Email")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)")
+                        .HasColumnName("email");
+
+                    b.Property<string>("EmployeeCategoryCode")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("employee_category_code");
+
+                    b.Property<string>("EmployeeCode")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("employee_code");
+
+                    b.Property<int>("EmploymentStatus")
+                        .HasColumnType("integer")
+                        .HasColumnName("employment_status");
+
+                    b.Property<string>("FirstName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("first_name");
+
+                    b.Property<int>("Gender")
+                        .HasColumnType("integer")
+                        .HasColumnName("gender");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_deleted");
+
+                    b.Property<string>("JobPositionCode")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("job_position_code");
+
+                    b.Property<DateTime?>("JoinDate")
+                        .HasColumnType("date")
+                        .HasColumnName("join_date");
+
+                    b.Property<string>("LastName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("last_name");
+
+                    b.Property<string>("MiddleName")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("middle_name");
+
+                    b.Property<int>("PaymentMode")
+                        .HasColumnType("integer")
+                        .HasColumnName("payment_mode");
+
+                    b.Property<string>("Phone")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("phone");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateTimeOffset?>("UpdatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_ts");
+
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EmployeeCode")
+                        .IsUnique()
+                        .HasDatabaseName("ix_employees_employee_code");
+
+                    b.HasIndex("IsDeleted");
+
+                    b.HasIndex("UserId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_employees_user_id")
+                        .HasFilter("user_id IS NOT NULL");
+
+                    b.ToTable("employees", "dbo");
+                });
+
+            modelBuilder.Entity("Domain.Entities.EmployeeInsurancePremium", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<decimal>("AnnualPremiumAmount")
+                        .HasColumnType("decimal(12,2)")
+                        .HasColumnName("annual_premium_amount");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("CreatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_ts");
+
+                    b.Property<Guid>("EmployeeSalaryId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("employee_salary_id");
+
+                    b.Property<string>("InsuranceTypeCode")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("insurance_type_code");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateTimeOffset?>("UpdatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_ts");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EmployeeSalaryId", "InsuranceTypeCode")
+                        .IsUnique()
+                        .HasDatabaseName("ix_employee_insurance_premiums_salary_type");
+
+                    b.ToTable("employee_insurance_premiums", "dbo");
+                });
+
+            modelBuilder.Entity("Domain.Entities.EmployeeSalary", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int>("AssessmentType")
+                        .HasColumnType("integer")
+                        .HasColumnName("assessment_type");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("CreatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_ts");
+
+                    b.Property<string>("DeletedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("deleted_by");
+
+                    b.Property<DateTimeOffset?>("DeletedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_ts");
+
+                    b.Property<DateTime>("EffectiveFromDate")
+                        .HasColumnType("date")
+                        .HasColumnName("effective_from_date");
+
+                    b.Property<Guid>("EmployeeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("employee_id");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_deleted");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateTimeOffset?>("UpdatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_ts");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IsDeleted");
+
+                    b.HasIndex("EmployeeId", "EffectiveFromDate")
+                        .IsUnique()
+                        .HasDatabaseName("ix_employee_salaries_employee_effective_date");
+
+                    b.ToTable("employee_salaries", "dbo");
+                });
+
+            modelBuilder.Entity("Domain.Entities.EmployeeSalaryComponent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ComponentCode")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("component_code");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("CreatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_ts");
+
+                    b.Property<Guid>("EmployeeSalaryId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("employee_salary_id");
+
+                    b.Property<int>("FrequencyType")
+                        .HasColumnType("integer")
+                        .HasColumnName("frequency_type");
+
+                    b.Property<bool>("IsRetirementContribution")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_retirement_contribution");
+
+                    b.Property<bool>("IsTaxable")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("is_taxable");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateTimeOffset?>("UpdatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_ts");
+
+                    b.Property<decimal>("Value")
+                        .HasColumnType("decimal(12,2)")
+                        .HasColumnName("value");
+
+                    b.Property<int>("ValueType")
+                        .HasColumnType("integer")
+                        .HasColumnName("value_type");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EmployeeSalaryId", "ComponentCode")
+                        .IsUnique()
+                        .HasDatabaseName("ix_employee_salary_components_salary_component");
+
+                    b.ToTable("employee_salary_components", "dbo");
+                });
+
+            modelBuilder.Entity("Domain.Entities.EmployeeSalaryDeduction", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("CreatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_ts");
+
+                    b.Property<string>("DeductionCode")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("deduction_code");
+
+                    b.Property<Guid>("EmployeeSalaryId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("employee_salary_id");
+
+                    b.Property<int>("FrequencyType")
+                        .HasColumnType("integer")
+                        .HasColumnName("frequency_type");
+
+                    b.Property<bool>("IsRetirementContribution")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_retirement_contribution");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateTimeOffset?>("UpdatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_ts");
+
+                    b.Property<decimal>("Value")
+                        .HasColumnType("decimal(12,2)")
+                        .HasColumnName("value");
+
+                    b.Property<int>("ValueType")
+                        .HasColumnType("integer")
+                        .HasColumnName("value_type");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EmployeeSalaryId", "DeductionCode")
+                        .IsUnique()
+                        .HasDatabaseName("ix_employee_salary_deductions_salary_deduction");
+
+                    b.ToTable("employee_salary_deductions", "dbo");
+                });
+
             modelBuilder.Entity("Domain.Entities.Enrollment", b =>
                 {
                     b.Property<Guid>("Id")
@@ -551,6 +1012,51 @@ namespace Infrastructure.Migrations
                         .HasDatabaseName("ix_enrollments_student_section");
 
                     b.ToTable("enrollments", "dbo");
+                });
+
+            modelBuilder.Entity("Domain.Entities.EnrollmentFeeSelection", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("CreatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_ts");
+
+                    b.Property<Guid>("EnrollmentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("enrollment_id");
+
+                    b.Property<Guid>("FeeStructureItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("fee_structure_item_id");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateTimeOffset?>("UpdatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_ts");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FeeStructureItemId");
+
+                    b.HasIndex("EnrollmentId", "FeeStructureItemId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_enrollment_fee_selections_enrollment_item");
+
+                    b.ToTable("enrollment_fee_selections", "dbo");
                 });
 
             modelBuilder.Entity("Domain.Entities.EnrollmentSubject", b =>
@@ -664,6 +1170,217 @@ namespace Infrastructure.Migrations
                         .HasDatabaseName("ix_error_logs_fingerprint_hash");
 
                     b.ToTable("error_logs", "dbo");
+                });
+
+            modelBuilder.Entity("Domain.Entities.FeeStructure", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("AcademicClassId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("academic_class_id");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("CreatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_ts");
+
+                    b.Property<string>("DeletedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("deleted_by");
+
+                    b.Property<DateTimeOffset?>("DeletedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_ts");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_deleted");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer")
+                        .HasColumnName("status");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateTimeOffset?>("UpdatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_ts");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AcademicClassId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_fee_structures_academic_class");
+
+                    b.HasIndex("IsDeleted");
+
+                    b.ToTable("fee_structures", "dbo");
+                });
+
+            modelBuilder.Entity("Domain.Entities.FeeStructureItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<decimal>("Amount")
+                        .HasColumnType("decimal(10,2)")
+                        .HasColumnName("amount");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("CreatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_ts");
+
+                    b.Property<string>("FeeCategoryCode")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("fee_category_code");
+
+                    b.Property<Guid>("FeeStructureId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("fee_structure_id");
+
+                    b.Property<int>("FrequencyType")
+                        .HasColumnType("integer")
+                        .HasColumnName("frequency_type");
+
+                    b.Property<bool>("IsOptional")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_optional");
+
+                    b.Property<bool>("IsRefundable")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_refundable");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateTimeOffset?>("UpdatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_ts");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FeeStructureId", "FeeCategoryCode")
+                        .IsUnique()
+                        .HasDatabaseName("ix_fee_structure_items_structure_category");
+
+                    b.ToTable("fee_structure_items", "dbo");
+                });
+
+            modelBuilder.Entity("Domain.Entities.FiscalYear", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("code");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("CreatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_ts");
+
+                    b.Property<string>("DeletedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("deleted_by");
+
+                    b.Property<DateTimeOffset?>("DeletedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_ts");
+
+                    b.Property<DateTime>("EndDate")
+                        .HasColumnType("date")
+                        .HasColumnName("end_date");
+
+                    b.Property<bool>("IsCurrent")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_current");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_deleted");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("name");
+
+                    b.Property<decimal>("RetirementExemptionCapAmount")
+                        .HasColumnType("decimal(12,2)")
+                        .HasColumnName("retirement_exemption_cap_amount");
+
+                    b.Property<DateTime>("StartDate")
+                        .HasColumnType("date")
+                        .HasColumnName("start_date");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer")
+                        .HasColumnName("status");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateTimeOffset?>("UpdatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_ts");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Code")
+                        .IsUnique()
+                        .HasDatabaseName("ix_fiscal_years_code");
+
+                    b.HasIndex("IsDeleted");
+
+                    b.ToTable("fiscal_years", "dbo");
                 });
 
             modelBuilder.Entity("Domain.Entities.Guardian", b =>
@@ -967,6 +1684,160 @@ namespace Infrastructure.Migrations
                     b.ToTable("students", "dbo");
                 });
 
+            modelBuilder.Entity("Domain.Entities.StudentDiscount", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("CreatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_ts");
+
+                    b.Property<string>("DeletedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("deleted_by");
+
+                    b.Property<DateTimeOffset?>("DeletedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_ts");
+
+                    b.Property<string>("DiscountTypeCode")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("discount_type_code");
+
+                    b.Property<Guid>("EnrollmentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("enrollment_id");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_deleted");
+
+                    b.Property<string>("Remarks")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("remarks");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateTimeOffset?>("UpdatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_ts");
+
+                    b.Property<decimal>("Value")
+                        .HasColumnType("decimal(10,2)")
+                        .HasColumnName("value");
+
+                    b.Property<int>("ValueType")
+                        .HasColumnType("integer")
+                        .HasColumnName("value_type");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EnrollmentId")
+                        .HasDatabaseName("ix_student_discounts_enrollment_id");
+
+                    b.HasIndex("IsDeleted");
+
+                    b.ToTable("student_discounts", "dbo");
+                });
+
+            modelBuilder.Entity("Domain.Entities.StudentDocument", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ContentType")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("content_type");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("CreatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_ts");
+
+                    b.Property<string>("DocumentName")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("document_name");
+
+                    b.Property<string>("DocumentTypeCode")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("document_type_code");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)")
+                        .HasColumnName("file_name");
+
+                    b.Property<string>("FilePath")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("file_path");
+
+                    b.Property<long>("FileSizeBytes")
+                        .HasColumnType("bigint")
+                        .HasColumnName("file_size_bytes");
+
+                    b.Property<string>("Remarks")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("remarks");
+
+                    b.Property<Guid>("StudentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("student_id");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateTimeOffset?>("UpdatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_ts");
+
+                    b.Property<DateTime?>("ValidUntil")
+                        .HasColumnType("date")
+                        .HasColumnName("valid_until");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("StudentId")
+                        .HasDatabaseName("ix_student_documents_student_id");
+
+                    b.ToTable("student_documents", "dbo");
+                });
+
             modelBuilder.Entity("Domain.Entities.StudentGuardian", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1022,6 +1893,80 @@ namespace Infrastructure.Migrations
                         .HasDatabaseName("ix_student_guardians_student_guardian");
 
                     b.ToTable("student_guardians", "dbo");
+                });
+
+            modelBuilder.Entity("Domain.Entities.StudentScholarship", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("CreatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_ts");
+
+                    b.Property<string>("DeletedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("deleted_by");
+
+                    b.Property<DateTimeOffset?>("DeletedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_ts");
+
+                    b.Property<Guid>("EnrollmentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("enrollment_id");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_deleted");
+
+                    b.Property<string>("Remarks")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("remarks");
+
+                    b.Property<string>("ScholarshipTypeCode")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("scholarship_type_code");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateTimeOffset?>("UpdatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_ts");
+
+                    b.Property<decimal>("Value")
+                        .HasColumnType("decimal(10,2)")
+                        .HasColumnName("value");
+
+                    b.Property<int>("ValueType")
+                        .HasColumnType("integer")
+                        .HasColumnName("value_type");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EnrollmentId")
+                        .HasDatabaseName("ix_student_scholarships_enrollment_id");
+
+                    b.HasIndex("IsDeleted");
+
+                    b.ToTable("student_scholarships", "dbo");
                 });
 
             modelBuilder.Entity("Domain.Entities.SystemAccessLog", b =>
@@ -1096,10 +2041,71 @@ namespace Infrastructure.Migrations
                     b.ToTable("system_access_logs", "dbo");
                 });
 
-            modelBuilder.Entity("Domain.Entities.Teacher", b =>
+            modelBuilder.Entity("Domain.Entities.TaxSlab", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int>("AssessmentType")
+                        .HasColumnType("integer")
+                        .HasColumnName("assessment_type");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("CreatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_ts");
+
+                    b.Property<Guid>("FiscalYearId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("fiscal_year_id");
+
+                    b.Property<decimal?>("MaxAmount")
+                        .HasColumnType("decimal(12,2)")
+                        .HasColumnName("max_amount");
+
+                    b.Property<decimal>("MinAmount")
+                        .HasColumnType("decimal(12,2)")
+                        .HasColumnName("min_amount");
+
+                    b.Property<int>("SlabOrder")
+                        .HasColumnType("integer")
+                        .HasColumnName("slab_order");
+
+                    b.Property<decimal>("TaxRate")
+                        .HasColumnType("decimal(5,4)")
+                        .HasColumnName("tax_rate");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateTimeOffset?>("UpdatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_ts");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FiscalYearId", "AssessmentType", "SlabOrder")
+                        .IsUnique()
+                        .HasDatabaseName("ix_tax_slabs_year_assessment_order");
+
+                    b.ToTable("tax_slabs", "dbo", t =>
+                        {
+                            t.HasCheckConstraint("ck_tax_slabs_amount_range", "max_amount IS NULL OR max_amount > min_amount");
+                        });
+                });
+
+            modelBuilder.Entity("Domain.Entities.Teacher", b =>
+                {
+                    b.Property<Guid>("Id")
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
@@ -1113,61 +2119,19 @@ namespace Infrastructure.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_ts");
 
-                    b.Property<string>("DeletedBy")
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)")
-                        .HasColumnName("deleted_by");
+                    b.Property<int?>("ExperienceYears")
+                        .HasColumnType("integer")
+                        .HasColumnName("experience_years");
 
-                    b.Property<DateTimeOffset?>("DeletedTs")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("deleted_ts");
-
-                    b.Property<string>("Email")
+                    b.Property<string>("Specialization")
                         .HasMaxLength(255)
                         .HasColumnType("character varying(255)")
-                        .HasColumnName("email");
+                        .HasColumnName("specialization");
 
-                    b.Property<string>("EmployeeNo")
-                        .IsRequired()
-                        .HasMaxLength(30)
-                        .HasColumnType("character varying(30)")
-                        .HasColumnName("employee_no");
-
-                    b.Property<string>("FirstName")
-                        .IsRequired()
+                    b.Property<string>("TeachingLicenseNo")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)")
-                        .HasColumnName("first_name");
-
-                    b.Property<bool>("IsDeleted")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("boolean")
-                        .HasDefaultValue(false)
-                        .HasColumnName("is_deleted");
-
-                    b.Property<DateTime?>("JoiningDate")
-                        .HasColumnType("date")
-                        .HasColumnName("joining_date");
-
-                    b.Property<string>("LastName")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("last_name");
-
-                    b.Property<string>("MiddleName")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("middle_name");
-
-                    b.Property<string>("Phone")
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)")
-                        .HasColumnName("phone");
-
-                    b.Property<int>("Status")
-                        .HasColumnType("integer")
-                        .HasColumnName("status");
+                        .HasColumnName("teaching_license_no");
 
                     b.Property<string>("UpdatedBy")
                         .HasMaxLength(50)
@@ -1179,12 +2143,6 @@ namespace Infrastructure.Migrations
                         .HasColumnName("updated_ts");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("EmployeeNo")
-                        .IsUnique()
-                        .HasDatabaseName("ix_teachers_employee_no");
-
-                    b.HasIndex("IsDeleted");
 
                     b.ToTable("teachers", "dbo");
                 });
@@ -1962,6 +2920,50 @@ namespace Infrastructure.Migrations
                     b.Navigation("ConfigType");
                 });
 
+            modelBuilder.Entity("Domain.Entities.EmployeeInsurancePremium", b =>
+                {
+                    b.HasOne("Domain.Entities.EmployeeSalary", "EmployeeSalary")
+                        .WithMany("InsurancePremiums")
+                        .HasForeignKey("EmployeeSalaryId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("EmployeeSalary");
+                });
+
+            modelBuilder.Entity("Domain.Entities.EmployeeSalary", b =>
+                {
+                    b.HasOne("Domain.Entities.Employee", "Employee")
+                        .WithMany("Salaries")
+                        .HasForeignKey("EmployeeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Employee");
+                });
+
+            modelBuilder.Entity("Domain.Entities.EmployeeSalaryComponent", b =>
+                {
+                    b.HasOne("Domain.Entities.EmployeeSalary", "EmployeeSalary")
+                        .WithMany("Components")
+                        .HasForeignKey("EmployeeSalaryId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("EmployeeSalary");
+                });
+
+            modelBuilder.Entity("Domain.Entities.EmployeeSalaryDeduction", b =>
+                {
+                    b.HasOne("Domain.Entities.EmployeeSalary", "EmployeeSalary")
+                        .WithMany("Deductions")
+                        .HasForeignKey("EmployeeSalaryId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("EmployeeSalary");
+                });
+
             modelBuilder.Entity("Domain.Entities.Enrollment", b =>
                 {
                     b.HasOne("Domain.Entities.ClassSection", "ClassSection")
@@ -1979,6 +2981,25 @@ namespace Infrastructure.Migrations
                     b.Navigation("ClassSection");
 
                     b.Navigation("Student");
+                });
+
+            modelBuilder.Entity("Domain.Entities.EnrollmentFeeSelection", b =>
+                {
+                    b.HasOne("Domain.Entities.Enrollment", "Enrollment")
+                        .WithMany("FeeSelections")
+                        .HasForeignKey("EnrollmentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Domain.Entities.FeeStructureItem", "FeeStructureItem")
+                        .WithMany()
+                        .HasForeignKey("FeeStructureItemId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Enrollment");
+
+                    b.Navigation("FeeStructureItem");
                 });
 
             modelBuilder.Entity("Domain.Entities.EnrollmentSubject", b =>
@@ -2000,6 +3021,28 @@ namespace Infrastructure.Migrations
                     b.Navigation("Enrollment");
                 });
 
+            modelBuilder.Entity("Domain.Entities.FeeStructure", b =>
+                {
+                    b.HasOne("Domain.Entities.AcademicClass", "AcademicClass")
+                        .WithMany()
+                        .HasForeignKey("AcademicClassId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("AcademicClass");
+                });
+
+            modelBuilder.Entity("Domain.Entities.FeeStructureItem", b =>
+                {
+                    b.HasOne("Domain.Entities.FeeStructure", "FeeStructure")
+                        .WithMany("Items")
+                        .HasForeignKey("FeeStructureId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("FeeStructure");
+                });
+
             modelBuilder.Entity("Domain.Entities.Menu", b =>
                 {
                     b.HasOne("Domain.Entities.Menu", "MainMenu")
@@ -2008,6 +3051,28 @@ namespace Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Restrict);
 
                     b.Navigation("MainMenu");
+                });
+
+            modelBuilder.Entity("Domain.Entities.StudentDiscount", b =>
+                {
+                    b.HasOne("Domain.Entities.Enrollment", "Enrollment")
+                        .WithMany("Discounts")
+                        .HasForeignKey("EnrollmentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Enrollment");
+                });
+
+            modelBuilder.Entity("Domain.Entities.StudentDocument", b =>
+                {
+                    b.HasOne("Domain.Entities.Student", "Student")
+                        .WithMany("Documents")
+                        .HasForeignKey("StudentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Student");
                 });
 
             modelBuilder.Entity("Domain.Entities.StudentGuardian", b =>
@@ -2027,6 +3092,39 @@ namespace Infrastructure.Migrations
                     b.Navigation("Guardian");
 
                     b.Navigation("Student");
+                });
+
+            modelBuilder.Entity("Domain.Entities.StudentScholarship", b =>
+                {
+                    b.HasOne("Domain.Entities.Enrollment", "Enrollment")
+                        .WithMany("Scholarships")
+                        .HasForeignKey("EnrollmentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Enrollment");
+                });
+
+            modelBuilder.Entity("Domain.Entities.TaxSlab", b =>
+                {
+                    b.HasOne("Domain.Entities.FiscalYear", "FiscalYear")
+                        .WithMany("TaxSlabs")
+                        .HasForeignKey("FiscalYearId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("FiscalYear");
+                });
+
+            modelBuilder.Entity("Domain.Entities.Teacher", b =>
+                {
+                    b.HasOne("Domain.Entities.Employee", "Employee")
+                        .WithOne("Teacher")
+                        .HasForeignKey("Domain.Entities.Teacher", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Employee");
                 });
 
             modelBuilder.Entity("Domain.Entities.TeacherAssignment", b =>
@@ -2187,9 +3285,41 @@ namespace Infrastructure.Migrations
                     b.Navigation("Configs");
                 });
 
+            modelBuilder.Entity("Domain.Entities.Employee", b =>
+                {
+                    b.Navigation("Salaries");
+
+                    b.Navigation("Teacher");
+                });
+
+            modelBuilder.Entity("Domain.Entities.EmployeeSalary", b =>
+                {
+                    b.Navigation("Components");
+
+                    b.Navigation("Deductions");
+
+                    b.Navigation("InsurancePremiums");
+                });
+
             modelBuilder.Entity("Domain.Entities.Enrollment", b =>
                 {
+                    b.Navigation("Discounts");
+
                     b.Navigation("ElectiveSubjects");
+
+                    b.Navigation("FeeSelections");
+
+                    b.Navigation("Scholarships");
+                });
+
+            modelBuilder.Entity("Domain.Entities.FeeStructure", b =>
+                {
+                    b.Navigation("Items");
+                });
+
+            modelBuilder.Entity("Domain.Entities.FiscalYear", b =>
+                {
+                    b.Navigation("TaxSlabs");
                 });
 
             modelBuilder.Entity("Domain.Entities.Guardian", b =>
@@ -2204,6 +3334,8 @@ namespace Infrastructure.Migrations
 
             modelBuilder.Entity("Domain.Entities.Student", b =>
                 {
+                    b.Navigation("Documents");
+
                     b.Navigation("Enrollments");
 
                     b.Navigation("GuardianLinks");

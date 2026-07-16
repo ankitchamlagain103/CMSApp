@@ -1,5 +1,7 @@
 using Domain.Common;
+using Domain.Common.Filters;
 using Domain.Entities;
+using Domain.Enums;
 using Domain.Interfaces;
 using Microsoft.EntityFrameworkCore;
 
@@ -11,24 +13,47 @@ namespace Infrastructure.Persistence.Repositories
         {
         }
 
-        public async Task<PagedResult<Teacher>> GetPagedByFilterAsync(string search, int pageNumber, int pageSize, CancellationToken cancellationToken = default)
+        public async Task<PagedResult<Teacher>> GetPagedByFilterAsync(TeacherFilter filter, int pageNumber, int pageSize, CancellationToken cancellationToken = default)
         {
-            IQueryable<Teacher> teachersQuery = DbSet;
+            // Identity fields (name/phone/status/join date) live on Employee since the split --
+            // filters join across the shared-PK nav.
+            IQueryable<Teacher> teachersQuery = DbSet.Include(teacher => teacher.Employee);
 
-            if (!string.IsNullOrWhiteSpace(search))
+            if (!string.IsNullOrWhiteSpace(filter.Search))
             {
-                var searchPattern = "%" + search.Trim() + "%";
+                var searchPattern = "%" + filter.Search.Trim() + "%";
                 teachersQuery = teachersQuery.Where(teacher =>
-                    EF.Functions.ILike(teacher.FirstName, searchPattern)
-                    || EF.Functions.ILike(teacher.LastName, searchPattern)
-                    || EF.Functions.ILike(teacher.EmployeeNo, searchPattern));
+                    EF.Functions.ILike(teacher.Employee.FirstName, searchPattern)
+                    || EF.Functions.ILike(teacher.Employee.LastName, searchPattern)
+                    || EF.Functions.ILike(teacher.Employee.EmployeeCode, searchPattern));
+            }
+
+            if (!string.IsNullOrWhiteSpace(filter.Phone))
+            {
+                var phonePattern = "%" + filter.Phone.Trim() + "%";
+                teachersQuery = teachersQuery.Where(teacher => EF.Functions.ILike(teacher.Employee.Phone, phonePattern));
+            }
+
+            if (filter.Status.HasValue)
+            {
+                teachersQuery = teachersQuery.Where(teacher => teacher.Employee.EmploymentStatus == filter.Status.Value);
+            }
+
+            if (!string.IsNullOrWhiteSpace(filter.QualificationCode))
+            {
+                teachersQuery = teachersQuery.Where(teacher => teacher.Qualifications.Any(qualification => qualification.QualificationCode == filter.QualificationCode));
+            }
+
+            if (filter.FromDate.HasValue || filter.ToDate.HasValue)
+            {
+                teachersQuery = ApplyDateRange(teachersQuery, filter);
             }
 
             var totalCount = await teachersQuery.CountAsync(cancellationToken);
             var skipCount = (pageNumber - 1) * pageSize;
             var items = await teachersQuery
-                .OrderBy(teacher => teacher.FirstName)
-                .ThenBy(teacher => teacher.LastName)
+                .OrderBy(teacher => teacher.Employee.FirstName)
+                .ThenBy(teacher => teacher.Employee.LastName)
                 .Skip(skipCount)
                 .Take(pageSize)
                 .ToListAsync(cancellationToken);
@@ -42,14 +67,47 @@ namespace Infrastructure.Persistence.Repositories
             return pagedResult;
         }
 
-        public async Task<bool> EmployeeNoExistsAsync(string employeeNo, CancellationToken cancellationToken = default)
+        // CreatedDate compares against the Employee audit column; JoiningDate compares against
+        // Employee.JoinDate (ToDate is inclusive of the whole day).
+        private static IQueryable<Teacher> ApplyDateRange(IQueryable<Teacher> query, TeacherFilter filter)
         {
-            // IgnoreQueryFilters: the unique index still sees soft-deleted rows.
-            var employeeNoExists = await DbSet
-                .IgnoreQueryFilters()
-                .AnyAsync(teacher => teacher.EmployeeNo == employeeNo, cancellationToken);
+            if (filter.DateField == TeacherDateField.JoiningDate)
+            {
+                if (filter.FromDate.HasValue)
+                {
+                    query = query.Where(teacher => teacher.Employee.JoinDate.HasValue && teacher.Employee.JoinDate.Value >= filter.FromDate.Value.Date);
+                }
 
-            return employeeNoExists;
+                if (filter.ToDate.HasValue)
+                {
+                    query = query.Where(teacher => teacher.Employee.JoinDate.HasValue && teacher.Employee.JoinDate.Value < filter.ToDate.Value.Date.AddDays(1));
+                }
+
+                return query;
+            }
+
+            if (filter.FromDate.HasValue)
+            {
+                var fromTs = new DateTimeOffset(filter.FromDate.Value.Date, TimeSpan.Zero);
+                query = query.Where(teacher => teacher.Employee.CreatedTs >= fromTs);
+            }
+
+            if (filter.ToDate.HasValue)
+            {
+                var toTs = new DateTimeOffset(filter.ToDate.Value.Date.AddDays(1), TimeSpan.Zero);
+                query = query.Where(teacher => teacher.Employee.CreatedTs < toTs);
+            }
+
+            return query;
+        }
+
+        public async Task<Teacher> GetByIdWithEmployeeAsync(Guid id, CancellationToken cancellationToken = default)
+        {
+            var teacher = await DbSet
+                .Include(t => t.Employee)
+                .FirstOrDefaultAsync(t => t.Id == id, cancellationToken);
+
+            return teacher;
         }
 
         public async Task<bool> HasAssignmentsAsync(Guid teacherId, CancellationToken cancellationToken = default)
@@ -90,10 +148,29 @@ namespace Infrastructure.Persistence.Repositories
 
         public async Task<IReadOnlyList<TeacherAssignment>> GetAssignmentsAsync(Guid teacherId, CancellationToken cancellationToken = default)
         {
+            // The year chain is included so the teacher detail can build service history from
+            // the same query the assignments tab uses.
             var assignments = await DbContext.Set<TeacherAssignment>()
                 .Include(assignment => assignment.ClassSubject)
+                    .ThenInclude(cs => cs.AcademicClass)
+                        .ThenInclude(c => c.AcademicYear)
                 .Include(assignment => assignment.ClassSection)
                 .Where(assignment => assignment.TeacherId == teacherId)
+                .OrderBy(assignment => assignment.ClassSubject.AcademicClass.AcademicYear.StartDate)
+                .ThenBy(assignment => assignment.ClassSubject.SubjectCode)
+                .ToListAsync(cancellationToken);
+
+            return assignments;
+        }
+
+        public async Task<IReadOnlyList<TeacherAssignment>> GetAssignmentsByClassSubjectIdsAsync(IReadOnlyCollection<Guid> classSubjectIds, CancellationToken cancellationToken = default)
+        {
+            // Who teaches these subjects -- one batched query for the student profile's
+            // subjects-studying block, Teacher (and its Employee, for the name) included.
+            var assignments = await DbContext.Set<TeacherAssignment>()
+                .Include(assignment => assignment.Teacher)
+                    .ThenInclude(teacher => teacher.Employee)
+                .Where(assignment => classSubjectIds.Contains(assignment.ClassSubjectId))
                 .ToListAsync(cancellationToken);
 
             return assignments;

@@ -22,12 +22,12 @@ namespace Infrastructure.Identity.Services
                 // default inbound claim mapping renames "sub" to ClaimTypes.NameIdentifier before
                 // it reaches HttpContext.User -- so check the mapped name first, raw "sub" second.
                 var userIdClaimValue = GetClaimValue(ClaimTypes.NameIdentifier);
-                if (string.IsNullOrEmpty(userIdClaimValue))
+                if (string.IsNullOrWhiteSpace(userIdClaimValue))
                 {
                     userIdClaimValue = GetClaimValue(JwtRegisteredClaimNames.Sub);
                 }
 
-                if (string.IsNullOrEmpty(userIdClaimValue))
+                if (string.IsNullOrWhiteSpace(userIdClaimValue))
                 {
                     return null;
                 }

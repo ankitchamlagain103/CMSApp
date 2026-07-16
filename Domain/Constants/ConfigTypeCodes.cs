@@ -13,5 +13,14 @@ namespace Domain.Constants
         public const int GuardianRelationship = 1004;
         public const int TeacherQualification = 1005;
         public const int DocumentType = 1006;
+        public const int StudentDocumentType = 1007;
+        public const int DiscountType = 1008;
+        public const int ScholarshipType = 1009;
+        public const int FeeCategory = 1010;
+        public const int EmployeeCategory = 1011;
+        public const int JobPosition = 1012;
+        public const int SalaryComponentType = 1013;
+        public const int DeductionType = 1014;
+        public const int InsuranceType = 1015;
     }
 }

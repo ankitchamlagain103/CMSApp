@@ -11,12 +11,12 @@ namespace Application.Menus.Validators
             RuleFor(query => query.MenuType)
                 .Must(menuType => MenuTypes.All.Contains(menuType))
                     .WithMessage("MenuType must be one of: " + string.Join(", ", MenuTypes.All) + ".")
-                .When(query => !string.IsNullOrEmpty(query.MenuType));
+                .When(query => !string.IsNullOrWhiteSpace(query.MenuType));
 
             RuleFor(query => query.MenuFor)
                 .Must(menuFor => MenuAudience.All.Contains(menuFor))
                     .WithMessage("MenuFor must be one of: " + string.Join(", ", MenuAudience.All) + ".")
-                .When(query => !string.IsNullOrEmpty(query.MenuFor));
+                .When(query => !string.IsNullOrWhiteSpace(query.MenuFor));
         }
     }
 }

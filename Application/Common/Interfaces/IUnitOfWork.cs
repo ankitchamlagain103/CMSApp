@@ -28,6 +28,14 @@ namespace Application.Common.Interfaces
 
         IEnrollmentRepository Enrollments { get; }
 
+        IFeeStructureRepository FeeStructures { get; }
+
+        IFiscalYearRepository FiscalYears { get; }
+
+        IEmployeeRepository Employees { get; }
+
+        IDocumentTemplateRepository DocumentTemplates { get; }
+
         Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
     }
 }

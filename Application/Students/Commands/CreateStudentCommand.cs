@@ -4,7 +4,9 @@ namespace Application.Students.Commands
 {
     public class CreateStudentCommand
     {
-        public string AdmissionNo { get; set; }
+        // Optional: leave null/blank and the backend generates the next ADM{year}{seq} number
+        // (e.g. ADM2026001); supply a value only for records migrated from an older system.
+        //public string AdmissionNo { get; set; }
         public string FirstName { get; set; }
         public string MiddleName { get; set; }
         public string LastName { get; set; }

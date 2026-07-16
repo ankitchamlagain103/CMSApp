@@ -29,7 +29,7 @@ namespace Application.Auth.Validators
                     .WithMessage("Password is too common. Choose a stronger password.")
                 .NotEqual(command => command.CurrentPassword)
                     .WithMessage("New password must be different from your current password.")
-                .When(command => !string.IsNullOrEmpty(command.NewPassword));
+                .When(command => !string.IsNullOrWhiteSpace(command.NewPassword));
         }
     }
 }

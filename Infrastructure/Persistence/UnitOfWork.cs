@@ -19,6 +19,11 @@ namespace Infrastructure.Persistence
         private IGuardianRepository _guardianRepository;
         private IStudentRepository _studentRepository;
         private IEnrollmentRepository _enrollmentRepository;
+        private IFeeStructureRepository _feeStructureRepository;
+        private IFiscalYearRepository _fiscalYearRepository;
+        private IEmployeeRepository _employeeRepository;
+
+        private IDocumentTemplateRepository _documentTemplateRepository;
 
         public UnitOfWork(ApplicationDbContext dbContext)
         {
@@ -178,6 +183,58 @@ namespace Infrastructure.Persistence
                 }
 
                 return _enrollmentRepository;
+            }
+        }
+
+        public IFeeStructureRepository FeeStructures
+        {
+            get
+            {
+                if (_feeStructureRepository == null)
+                {
+                    _feeStructureRepository = new FeeStructureRepository(_dbContext);
+                }
+
+                return _feeStructureRepository;
+            }
+        }
+
+        public IFiscalYearRepository FiscalYears
+        {
+            get
+            {
+                if (_fiscalYearRepository == null)
+                {
+                    _fiscalYearRepository = new FiscalYearRepository(_dbContext);
+                }
+
+                return _fiscalYearRepository;
+            }
+        }
+
+        public IEmployeeRepository Employees
+        {
+            get
+            {
+                if (_employeeRepository == null)
+                {
+                    _employeeRepository = new EmployeeRepository(_dbContext);
+                }
+
+                return _employeeRepository;
+            }
+        }
+
+        public IDocumentTemplateRepository DocumentTemplates
+        {
+            get
+            {
+                if (_documentTemplateRepository == null)
+                {
+                    _documentTemplateRepository = new DocumentTemplateRepository(_dbContext);
+                }
+
+                return _documentTemplateRepository;
             }
         }
 

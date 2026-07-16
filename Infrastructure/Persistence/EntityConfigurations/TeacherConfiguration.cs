@@ -4,7 +4,11 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 namespace Infrastructure.Persistence.EntityConfigurations
 {
-    public class TeacherConfiguration : SoftDeleteAuditableEntityConfiguration<Teacher>
+    // Shared-primary-key 1:1 with Employee: Teacher.Id is always equal to its owning
+    // Employee.Id (never independently generated) -- this is what lets
+    // TeacherAssignment/TeacherDocument/TeacherQualification keep their TeacherId FK unchanged
+    // across the Employee/Teacher split.
+    public class TeacherConfiguration : AuditableEntityConfiguration<Teacher>
     {
         public override void Configure(EntityTypeBuilder<Teacher> builder)
         {
@@ -15,46 +19,24 @@ namespace Infrastructure.Persistence.EntityConfigurations
             builder.HasKey(t => t.Id);
 
             builder.Property(t => t.Id)
-                    .HasColumnName("id");
+                    .HasColumnName("id")
+                    .ValueGeneratedNever();
 
-            builder.Property(t => t.EmployeeNo)
-                    .HasColumnName("employee_no")
-                    .IsRequired()
-                    .HasMaxLength(30);
-
-            builder.Property(t => t.FirstName)
-                    .HasColumnName("first_name")
-                    .IsRequired()
+            builder.Property(t => t.TeachingLicenseNo)
+                    .HasColumnName("teaching_license_no")
                     .HasMaxLength(100);
 
-            builder.Property(t => t.MiddleName)
-                    .HasColumnName("middle_name")
-                    .HasMaxLength(100);
+            builder.Property(t => t.ExperienceYears)
+                    .HasColumnName("experience_years");
 
-            builder.Property(t => t.LastName)
-                    .HasColumnName("last_name")
-                    .IsRequired()
-                    .HasMaxLength(100);
-
-            builder.Property(t => t.Email)
-                    .HasColumnName("email")
+            builder.Property(t => t.Specialization)
+                    .HasColumnName("specialization")
                     .HasMaxLength(255);
 
-            builder.Property(t => t.Phone)
-                    .HasColumnName("phone")
-                    .HasMaxLength(20);
-
-            builder.Property(t => t.JoiningDate)
-                    .HasColumnName("joining_date")
-                    .HasColumnType("date");
-
-            builder.Property(t => t.Status)
-                    .HasColumnName("status")
-                    .IsRequired();
-
-            builder.HasIndex(t => t.EmployeeNo)
-                    .IsUnique()
-                    .HasDatabaseName("ix_teachers_employee_no");
+            builder.HasOne(t => t.Employee)
+                    .WithOne(e => e.Teacher)
+                    .HasForeignKey<Teacher>(t => t.Id)
+                    .OnDelete(DeleteBehavior.Restrict);
         }
     }
 }

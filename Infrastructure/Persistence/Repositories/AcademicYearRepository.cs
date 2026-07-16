@@ -1,4 +1,5 @@
 using Domain.Common;
+using Domain.Common.Filters;
 using Domain.Entities;
 using Domain.Interfaces;
 using Microsoft.EntityFrameworkCore;
@@ -11,11 +12,31 @@ namespace Infrastructure.Persistence.Repositories
         {
         }
 
-        public async Task<PagedResult<AcademicYear>> GetPagedOrderedAsync(int pageNumber, int pageSize, CancellationToken cancellationToken = default)
+        public async Task<PagedResult<AcademicYear>> GetPagedByFilterAsync(AcademicYearFilter filter, int pageNumber, int pageSize, CancellationToken cancellationToken = default)
         {
-            var totalCount = await DbSet.CountAsync(cancellationToken);
+            IQueryable<AcademicYear> yearsQuery = DbSet;
+
+            if (!string.IsNullOrWhiteSpace(filter.Search))
+            {
+                var searchPattern = "%" + filter.Search.Trim() + "%";
+                yearsQuery = yearsQuery.Where(year =>
+                    EF.Functions.ILike(year.Code, searchPattern)
+                    || EF.Functions.ILike(year.Name, searchPattern));
+            }
+
+            if (filter.IsCurrent.HasValue)
+            {
+                yearsQuery = yearsQuery.Where(year => year.IsCurrent == filter.IsCurrent.Value);
+            }
+
+            if (filter.Status.HasValue)
+            {
+                yearsQuery = yearsQuery.Where(year => year.Status == filter.Status.Value);
+            }
+
+            var totalCount = await yearsQuery.CountAsync(cancellationToken);
             var skipCount = (pageNumber - 1) * pageSize;
-            var items = await DbSet
+            var items = await yearsQuery
                 .OrderByDescending(year => year.StartDate)
                 .Skip(skipCount)
                 .Take(pageSize)

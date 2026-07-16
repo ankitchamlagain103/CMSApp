@@ -4,6 +4,7 @@ using Application.AcademicClasses.Queries;
 using Application.AcademicClasses.Validators;
 using Application.Common.Interfaces;
 using Application.Common.Models;
+using Domain.Common.Filters;
 using Domain.Constants;
 using Domain.Entities;
 using Domain.Enums;
@@ -19,6 +20,7 @@ namespace Application.AcademicClasses
         private readonly CreateClassSectionCommandValidator _createSectionValidator;
         private readonly UpdateClassSectionCommandValidator _updateSectionValidator;
         private readonly AssignClassSubjectCommandValidator _assignSubjectValidator;
+        private readonly UpdateClassSubjectCommandValidator _updateSubjectValidator;
 
         public AcademicClassService(
             IUnitOfWork unitOfWork,
@@ -26,7 +28,8 @@ namespace Application.AcademicClasses
             UpdateAcademicClassCommandValidator updateValidator,
             CreateClassSectionCommandValidator createSectionValidator,
             UpdateClassSectionCommandValidator updateSectionValidator,
-            AssignClassSubjectCommandValidator assignSubjectValidator)
+            AssignClassSubjectCommandValidator assignSubjectValidator,
+            UpdateClassSubjectCommandValidator updateSubjectValidator)
         {
             _unitOfWork = unitOfWork;
             _createValidator = createValidator;
@@ -34,6 +37,7 @@ namespace Application.AcademicClasses
             _createSectionValidator = createSectionValidator;
             _updateSectionValidator = updateSectionValidator;
             _assignSubjectValidator = assignSubjectValidator;
+            _updateSubjectValidator = updateSubjectValidator;
         }
 
         public async Task<CommonResponse<AcademicClassDto>> CreateAcademicClassAsync(CreateAcademicClassCommand command, CancellationToken cancellationToken = default)
@@ -134,7 +138,14 @@ namespace Application.AcademicClasses
 
         public async Task<CommonResponse<PaginatedResponse<AcademicClassDto>>> GetAcademicClassesAsync(GetAcademicClassesQuery query, CancellationToken cancellationToken = default)
         {
-            var pagedClasses = await _unitOfWork.AcademicClasses.GetPagedByFilterAsync(query.AcademicYearId, query.Page, query.PageSize, cancellationToken);
+            var filter = new AcademicClassFilter
+            {
+                AcademicYearId = query.AcademicYearId,
+                GradeCode = query.GradeCode,
+                Status = query.Status
+            };
+
+            var pagedClasses = await _unitOfWork.AcademicClasses.GetPagedByFilterAsync(filter, query.Page, query.PageSize, cancellationToken);
 
             var academicClassDtos = new List<AcademicClassDto>();
             foreach (var academicClass in pagedClasses.Items)
@@ -425,7 +436,12 @@ namespace Application.AcademicClasses
                 SubjectCode = subjectCode,
                 IsMandatory = command.IsMandatory,
                 DisplayOrder = command.DisplayOrder,
-                ClassSection = scopedSection
+                ClassSection = scopedSection,
+                CreditHours = command.CreditHours,
+                FullMarks = command.FullMarks,
+                PassMarks = command.PassMarks,
+                TheoryMarks = command.TheoryMarks,
+                PracticalMarks = command.PracticalMarks
             };
 
             await _unitOfWork.AcademicClasses.AddClassSubjectAsync(classSubject, cancellationToken);
@@ -433,6 +449,39 @@ namespace Application.AcademicClasses
 
             var classSubjectDto = AcademicClassMapper.ToClassSubjectDto(classSubject);
             var successResponse = CommonResponse<ClassSubjectDto>.Success(classSubjectDto, "Subject assigned to class successfully.");
+            return successResponse;
+        }
+
+        public async Task<CommonResponse<ClassSubjectDto>> UpdateSubjectAsync(Guid academicClassId, Guid classSubjectId, UpdateClassSubjectCommand command, CancellationToken cancellationToken = default)
+        {
+            var validationResult = _updateSubjectValidator.Validate(command);
+            if (!validationResult.IsValid)
+            {
+                var errorMessage = BuildValidationErrorMessage(validationResult);
+                var validationFailureResponse = CommonResponse<ClassSubjectDto>.Fail(ResponseCodes.ValidationError, errorMessage);
+                return validationFailureResponse;
+            }
+
+            var classSubject = await _unitOfWork.AcademicClasses.GetClassSubjectByIdAsync(classSubjectId, cancellationToken);
+            if (classSubject == null || classSubject.AcademicClassId != academicClassId)
+            {
+                var notFoundResponse = CommonResponse<ClassSubjectDto>.Fail(ResponseCodes.NotFound, "Class subject was not found on this class.");
+                return notFoundResponse;
+            }
+
+            // SubjectCode/IsMandatory/ClassSectionId are identity-like and stay immutable -- only
+            // grading metadata and display order can change here.
+            classSubject.DisplayOrder = command.DisplayOrder;
+            classSubject.CreditHours = command.CreditHours;
+            classSubject.FullMarks = command.FullMarks;
+            classSubject.PassMarks = command.PassMarks;
+            classSubject.TheoryMarks = command.TheoryMarks;
+            classSubject.PracticalMarks = command.PracticalMarks;
+
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            var classSubjectDto = AcademicClassMapper.ToClassSubjectDto(classSubject);
+            var successResponse = CommonResponse<ClassSubjectDto>.Success(classSubjectDto, "Class subject updated successfully.");
             return successResponse;
         }
 

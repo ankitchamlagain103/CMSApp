@@ -31,7 +31,7 @@ namespace Application.Students.Validators
             RuleFor(input => input.Email)
                 .EmailAddress()
                 .MaximumLength(255)
-                .When(input => !string.IsNullOrEmpty(input.Email));
+                .When(input => !string.IsNullOrWhiteSpace(input.Email));
 
             RuleFor(input => input.Phone)
                 .MaximumLength(20);

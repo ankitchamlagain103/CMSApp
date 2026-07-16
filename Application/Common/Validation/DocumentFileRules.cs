@@ -12,7 +12,7 @@ namespace Application.Common.Validation
         public static bool IsAllowedExtension(string fileName)
         {
             var extension = Path.GetExtension(fileName);
-            if (string.IsNullOrEmpty(extension))
+            if (string.IsNullOrWhiteSpace(extension))
             {
                 return false;
             }

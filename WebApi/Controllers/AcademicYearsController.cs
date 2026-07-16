@@ -1,6 +1,7 @@
 using Application.AcademicYears;
 using Application.AcademicYears.Commands;
 using Application.AcademicYears.Dtos;
+using Application.AcademicYears.Queries;
 using Application.Common.Models;
 using Microsoft.AspNetCore.Mvc;
 
@@ -30,9 +31,9 @@ namespace WebApi.Controllers
         }
 
         [HttpGet]
-        public async Task<ActionResult<CommonResponse<PaginatedResponse<AcademicYearDto>>>> GetAcademicYears([FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken cancellationToken = default)
+        public async Task<ActionResult<CommonResponse<PaginatedResponse<AcademicYearDto>>>> GetAcademicYears([FromQuery] GetAcademicYearsQuery query, CancellationToken cancellationToken)
         {
-            var response = await _academicYearService.GetAcademicYearsAsync(page, pageSize, cancellationToken);
+            var response = await _academicYearService.GetAcademicYearsAsync(query, cancellationToken);
             return Ok(response);
         }
 

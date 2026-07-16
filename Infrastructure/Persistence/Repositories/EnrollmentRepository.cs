@@ -1,4 +1,5 @@
 using Domain.Common;
+using Domain.Common.Filters;
 using Domain.Entities;
 using Domain.Enums;
 using Domain.Interfaces;
@@ -12,7 +13,7 @@ namespace Infrastructure.Persistence.Repositories
         {
         }
 
-        public async Task<PagedResult<Enrollment>> GetPagedByFilterAsync(Guid? studentId, Guid? academicClassId, Guid? classSectionId, int pageNumber, int pageSize, CancellationToken cancellationToken = default)
+        public async Task<PagedResult<Enrollment>> GetPagedByFilterAsync(EnrollmentFilter filter, int pageNumber, int pageSize, CancellationToken cancellationToken = default)
         {
             // ClassSection + its AcademicClass are included so the DTO can flatten grade/section
             // info without a second call per row.
@@ -21,19 +22,34 @@ namespace Infrastructure.Persistence.Repositories
                 .Include(enrollment => enrollment.ClassSection)
                     .ThenInclude(section => section.AcademicClass);
 
-            if (studentId.HasValue)
+            if (filter.StudentId.HasValue)
             {
-                enrollmentsQuery = enrollmentsQuery.Where(enrollment => enrollment.StudentId == studentId.Value);
+                enrollmentsQuery = enrollmentsQuery.Where(enrollment => enrollment.StudentId == filter.StudentId.Value);
             }
 
-            if (academicClassId.HasValue)
+            if (filter.AcademicClassId.HasValue)
             {
-                enrollmentsQuery = enrollmentsQuery.Where(enrollment => enrollment.ClassSection.AcademicClassId == academicClassId.Value);
+                enrollmentsQuery = enrollmentsQuery.Where(enrollment => enrollment.ClassSection.AcademicClassId == filter.AcademicClassId.Value);
             }
 
-            if (classSectionId.HasValue)
+            if (filter.ClassSectionId.HasValue)
             {
-                enrollmentsQuery = enrollmentsQuery.Where(enrollment => enrollment.ClassSectionId == classSectionId.Value);
+                enrollmentsQuery = enrollmentsQuery.Where(enrollment => enrollment.ClassSectionId == filter.ClassSectionId.Value);
+            }
+
+            if (filter.AcademicYearId.HasValue)
+            {
+                enrollmentsQuery = enrollmentsQuery.Where(enrollment => enrollment.ClassSection.AcademicClass.AcademicYearId == filter.AcademicYearId.Value);
+            }
+
+            if (filter.Status.HasValue)
+            {
+                enrollmentsQuery = enrollmentsQuery.Where(enrollment => enrollment.Status == filter.Status.Value);
+            }
+
+            if (filter.FromDate.HasValue || filter.ToDate.HasValue)
+            {
+                enrollmentsQuery = ApplyDateRange(enrollmentsQuery, filter);
             }
 
             var totalCount = await enrollmentsQuery.CountAsync(cancellationToken);
@@ -52,6 +68,40 @@ namespace Infrastructure.Persistence.Repositories
             };
 
             return pagedResult;
+        }
+
+        // EnrollmentDate compares against the enrollment's own date; CreatedDate compares against
+        // the audit column (ToDate is inclusive of the whole day).
+        private static IQueryable<Enrollment> ApplyDateRange(IQueryable<Enrollment> query, EnrollmentFilter filter)
+        {
+            if (filter.DateField == EnrollmentDateField.CreatedDate)
+            {
+                if (filter.FromDate.HasValue)
+                {
+                    var fromTs = new DateTimeOffset(filter.FromDate.Value.Date, TimeSpan.Zero);
+                    query = query.Where(enrollment => enrollment.CreatedTs >= fromTs);
+                }
+
+                if (filter.ToDate.HasValue)
+                {
+                    var toTs = new DateTimeOffset(filter.ToDate.Value.Date.AddDays(1), TimeSpan.Zero);
+                    query = query.Where(enrollment => enrollment.CreatedTs < toTs);
+                }
+
+                return query;
+            }
+
+            if (filter.FromDate.HasValue)
+            {
+                query = query.Where(enrollment => enrollment.EnrollmentDate.HasValue && enrollment.EnrollmentDate.Value >= filter.FromDate.Value.Date);
+            }
+
+            if (filter.ToDate.HasValue)
+            {
+                query = query.Where(enrollment => enrollment.EnrollmentDate.HasValue && enrollment.EnrollmentDate.Value < filter.ToDate.Value.Date.AddDays(1));
+            }
+
+            return query;
         }
 
         public async Task<Enrollment> GetWithDetailsAsync(Guid id, CancellationToken cancellationToken = default)
@@ -77,6 +127,21 @@ namespace Infrastructure.Persistence.Repositories
                 .ToListAsync(cancellationToken);
 
             return activeEnrollments;
+        }
+
+        public async Task<IReadOnlyList<Enrollment>> GetHistoryByStudentAsync(Guid studentId, CancellationToken cancellationToken = default)
+        {
+            // Full schooling history: every enrollment regardless of status, oldest year first.
+            var history = await DbSet
+                .Include(e => e.ClassSection)
+                    .ThenInclude(section => section.AcademicClass)
+                        .ThenInclude(academicClass => academicClass.AcademicYear)
+                .Where(e => e.StudentId == studentId)
+                .OrderBy(e => e.ClassSection.AcademicClass.AcademicYear.StartDate)
+                .ThenBy(e => e.EnrollmentDate)
+                .ToListAsync(cancellationToken);
+
+            return history;
         }
 
         public async Task<bool> EnrollmentExistsAsync(Guid studentId, Guid classSectionId, CancellationToken cancellationToken = default)
@@ -166,6 +231,149 @@ namespace Infrastructure.Persistence.Repositories
         public void RemoveElectiveSubject(EnrollmentSubject electiveSubject)
         {
             DbContext.Set<EnrollmentSubject>().Remove(electiveSubject);
+        }
+
+        public async Task<IReadOnlyList<StudentDiscount>> GetDiscountsAsync(Guid enrollmentId, CancellationToken cancellationToken = default)
+        {
+            var discounts = await DbContext.Set<StudentDiscount>()
+                .Where(discount => discount.EnrollmentId == enrollmentId)
+                .ToListAsync(cancellationToken);
+
+            return discounts;
+        }
+
+        public async Task<StudentDiscount> GetDiscountByIdAsync(Guid discountId, CancellationToken cancellationToken = default)
+        {
+            var discount = await DbContext.Set<StudentDiscount>()
+                .FirstOrDefaultAsync(d => d.Id == discountId, cancellationToken);
+
+            return discount;
+        }
+
+        public async Task AddDiscountAsync(StudentDiscount discount, CancellationToken cancellationToken = default)
+        {
+            await DbContext.Set<StudentDiscount>().AddAsync(discount, cancellationToken);
+        }
+
+        public void RemoveDiscount(StudentDiscount discount)
+        {
+            DbContext.Set<StudentDiscount>().Remove(discount);
+        }
+
+        public async Task<IReadOnlyList<AwardSummaryItem>> GetDiscountSummaryAsync(Guid? academicYearId, string discountTypeCode, CancellationToken cancellationToken = default)
+        {
+            IQueryable<StudentDiscount> discountsQuery = DbContext.Set<StudentDiscount>();
+
+            if (academicYearId.HasValue)
+            {
+                discountsQuery = discountsQuery.Where(discount => discount.Enrollment.ClassSection.AcademicClass.AcademicYearId == academicYearId.Value);
+            }
+
+            if (!string.IsNullOrWhiteSpace(discountTypeCode))
+            {
+                discountsQuery = discountsQuery.Where(discount => discount.DiscountTypeCode == discountTypeCode);
+            }
+
+            var summary = await discountsQuery
+                .GroupBy(discount => discount.DiscountTypeCode)
+                .Select(group => new AwardSummaryItem { TypeCode = group.Key, StudentCount = group.Count() })
+                .OrderBy(item => item.TypeCode)
+                .ToListAsync(cancellationToken);
+
+            return summary;
+        }
+
+        public async Task<IReadOnlyList<StudentScholarship>> GetScholarshipsAsync(Guid enrollmentId, CancellationToken cancellationToken = default)
+        {
+            var scholarships = await DbContext.Set<StudentScholarship>()
+                .Where(scholarship => scholarship.EnrollmentId == enrollmentId)
+                .ToListAsync(cancellationToken);
+
+            return scholarships;
+        }
+
+        public async Task<StudentScholarship> GetScholarshipByIdAsync(Guid scholarshipId, CancellationToken cancellationToken = default)
+        {
+            var scholarship = await DbContext.Set<StudentScholarship>()
+                .FirstOrDefaultAsync(s => s.Id == scholarshipId, cancellationToken);
+
+            return scholarship;
+        }
+
+        public async Task AddScholarshipAsync(StudentScholarship scholarship, CancellationToken cancellationToken = default)
+        {
+            await DbContext.Set<StudentScholarship>().AddAsync(scholarship, cancellationToken);
+        }
+
+        public void RemoveScholarship(StudentScholarship scholarship)
+        {
+            DbContext.Set<StudentScholarship>().Remove(scholarship);
+        }
+
+        public async Task<IReadOnlyList<AwardSummaryItem>> GetScholarshipSummaryAsync(Guid? academicYearId, string scholarshipTypeCode, CancellationToken cancellationToken = default)
+        {
+            IQueryable<StudentScholarship> scholarshipsQuery = DbContext.Set<StudentScholarship>();
+
+            if (academicYearId.HasValue)
+            {
+                scholarshipsQuery = scholarshipsQuery.Where(scholarship => scholarship.Enrollment.ClassSection.AcademicClass.AcademicYearId == academicYearId.Value);
+            }
+
+            if (!string.IsNullOrWhiteSpace(scholarshipTypeCode))
+            {
+                scholarshipsQuery = scholarshipsQuery.Where(scholarship => scholarship.ScholarshipTypeCode == scholarshipTypeCode);
+            }
+
+            var summary = await scholarshipsQuery
+                .GroupBy(scholarship => scholarship.ScholarshipTypeCode)
+                .Select(group => new AwardSummaryItem { TypeCode = group.Key, StudentCount = group.Count() })
+                .OrderBy(item => item.TypeCode)
+                .ToListAsync(cancellationToken);
+
+            return summary;
+        }
+
+        public async Task<IReadOnlyList<EnrollmentFeeSelection>> GetFeeSelectionsAsync(Guid enrollmentId, CancellationToken cancellationToken = default)
+        {
+            var feeSelections = await DbContext.Set<EnrollmentFeeSelection>()
+                .Where(selection => selection.EnrollmentId == enrollmentId)
+                .ToListAsync(cancellationToken);
+
+            return feeSelections;
+        }
+
+        public async Task<EnrollmentFeeSelection> GetFeeSelectionByIdAsync(Guid feeSelectionId, CancellationToken cancellationToken = default)
+        {
+            var feeSelection = await DbContext.Set<EnrollmentFeeSelection>()
+                .FirstOrDefaultAsync(selection => selection.Id == feeSelectionId, cancellationToken);
+
+            return feeSelection;
+        }
+
+        public async Task<bool> FeeSelectionExistsAsync(Guid enrollmentId, Guid feeStructureItemId, CancellationToken cancellationToken = default)
+        {
+            var exists = await DbContext.Set<EnrollmentFeeSelection>()
+                .AnyAsync(selection => selection.EnrollmentId == enrollmentId && selection.FeeStructureItemId == feeStructureItemId, cancellationToken);
+
+            return exists;
+        }
+
+        public async Task AddFeeSelectionAsync(EnrollmentFeeSelection feeSelection, CancellationToken cancellationToken = default)
+        {
+            await DbContext.Set<EnrollmentFeeSelection>().AddAsync(feeSelection, cancellationToken);
+        }
+
+        public void RemoveFeeSelection(EnrollmentFeeSelection feeSelection)
+        {
+            DbContext.Set<EnrollmentFeeSelection>().Remove(feeSelection);
+        }
+
+        public async Task<bool> FeeSelectionExistsForItemAsync(Guid feeStructureItemId, CancellationToken cancellationToken = default)
+        {
+            var exists = await DbContext.Set<EnrollmentFeeSelection>()
+                .AnyAsync(selection => selection.FeeStructureItemId == feeStructureItemId, cancellationToken);
+
+            return exists;
         }
     }
 }

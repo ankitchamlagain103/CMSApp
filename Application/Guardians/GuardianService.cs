@@ -2,7 +2,9 @@ using Application.Common.Interfaces;
 using Application.Common.Models;
 using Application.Guardians.Commands;
 using Application.Guardians.Dtos;
+using Application.Guardians.Queries;
 using Application.Guardians.Validators;
+using Domain.Common.Filters;
 using Domain.Entities;
 using FluentValidation.Results;
 
@@ -66,9 +68,17 @@ namespace Application.Guardians
             return successResponse;
         }
 
-        public async Task<CommonResponse<PaginatedResponse<GuardianDto>>> GetGuardiansAsync(int page, int pageSize, CancellationToken cancellationToken = default)
+        public async Task<CommonResponse<PaginatedResponse<GuardianDto>>> GetGuardiansAsync(GetGuardiansQuery query, CancellationToken cancellationToken = default)
         {
-            var pagedGuardians = await _unitOfWork.Guardians.GetPagedOrderedAsync(page, pageSize, cancellationToken);
+            var filter = new GuardianFilter
+            {
+                Search = query.Search,
+                Phone = query.Phone,
+                FromDate = query.FromDate,
+                ToDate = query.ToDate
+            };
+
+            var pagedGuardians = await _unitOfWork.Guardians.GetPagedByFilterAsync(filter, query.Page, query.PageSize, cancellationToken);
 
             var guardianDtos = new List<GuardianDto>();
             foreach (var guardian in pagedGuardians.Items)
@@ -80,8 +90,8 @@ namespace Application.Guardians
             var paginatedResponse = new PaginatedResponse<GuardianDto>
             {
                 Items = guardianDtos,
-                Page = page,
-                PageSize = pageSize,
+                Page = query.Page,
+                PageSize = query.PageSize,
                 TotalCount = pagedGuardians.TotalCount
             };
 

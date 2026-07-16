@@ -15,5 +15,8 @@ namespace Domain.Entities
         public virtual Student Student { get; set; }
         public virtual ClassSection ClassSection { get; set; }
         public virtual ICollection<EnrollmentSubject> ElectiveSubjects { get; set; } = new List<EnrollmentSubject>();
+        public virtual ICollection<StudentDiscount> Discounts { get; set; } = new List<StudentDiscount>();
+        public virtual ICollection<StudentScholarship> Scholarships { get; set; } = new List<StudentScholarship>();
+        public virtual ICollection<EnrollmentFeeSelection> FeeSelections { get; set; } = new List<EnrollmentFeeSelection>();
     }
 }

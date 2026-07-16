@@ -24,5 +24,9 @@ namespace Application.Students.Dtos
         // Detail endpoint only: the active enrollment (current class + subjects studying);
         // null when the student isn't actively enrolled anywhere.
         public StudentCurrentEnrollmentDto CurrentEnrollment { get; set; }
+
+        // Detail endpoint only: every enrollment ever, oldest academic year first -- the
+        // student's schooling history at this school.
+        public List<StudentEnrollmentHistoryDto> EnrollmentHistory { get; set; } = new List<StudentEnrollmentHistoryDto>();
     }
 }

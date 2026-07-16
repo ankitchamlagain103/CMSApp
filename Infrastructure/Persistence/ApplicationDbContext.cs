@@ -45,6 +45,10 @@ namespace Infrastructure.Persistence
 
         public DbSet<ClassSubject> ClassSubjects => Set<ClassSubject>();
 
+        public DbSet<Employee> Employees => Set<Employee>();
+
+        public DbSet<DocumentTemplate> DocumentTemplates => Set<DocumentTemplate>();
+
         public DbSet<Teacher> Teachers => Set<Teacher>();
 
         public DbSet<TeacherQualification> TeacherQualifications => Set<TeacherQualification>();

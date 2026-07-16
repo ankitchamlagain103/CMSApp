@@ -1,10 +1,16 @@
+using Application.Common.Helpers;
 using Application.Common.Interfaces;
 using Application.Common.Models;
 using Application.Common.Validation;
+using Application.DocumentTemplates;
+using Application.Employees;
+using Application.Employees.Commands;
+using Application.Employees.Dtos;
 using Application.Teachers.Commands;
 using Application.Teachers.Dtos;
 using Application.Teachers.Queries;
 using Application.Teachers.Validators;
+using Domain.Common.Filters;
 using Domain.Constants;
 using Domain.Entities;
 using Domain.Enums;
@@ -16,6 +22,7 @@ namespace Application.Teachers
     {
         private readonly IUnitOfWork _unitOfWork;
         private readonly IFileStorageService _fileStorage;
+        private readonly IEmployeeService _employeeService;
         private readonly CreateTeacherCommandValidator _createValidator;
         private readonly UpdateTeacherCommandValidator _updateValidator;
         private readonly AddTeacherQualificationCommandValidator _addQualificationValidator;
@@ -24,6 +31,7 @@ namespace Application.Teachers
         public TeacherService(
             IUnitOfWork unitOfWork,
             IFileStorageService fileStorage,
+            IEmployeeService employeeService,
             CreateTeacherCommandValidator createValidator,
             UpdateTeacherCommandValidator updateValidator,
             AddTeacherQualificationCommandValidator addQualificationValidator,
@@ -31,6 +39,7 @@ namespace Application.Teachers
         {
             _unitOfWork = unitOfWork;
             _fileStorage = fileStorage;
+            _employeeService = employeeService;
             _createValidator = createValidator;
             _updateValidator = updateValidator;
             _addQualificationValidator = addQualificationValidator;
@@ -47,27 +56,66 @@ namespace Application.Teachers
                 return validationFailureResponse;
             }
 
-            var trimmedEmployeeNo = command.EmployeeNo.Trim();
-            var employeeNoExists = await _unitOfWork.Teachers.EmployeeNoExistsAsync(trimmedEmployeeNo, cancellationToken);
-            if (employeeNoExists)
+            var jobPositionCode = command.JobPositionCode.Trim();
+            var positionExists = await _unitOfWork.Configs.CodeExistsAsync(ConfigTypeCodes.JobPosition, jobPositionCode, cancellationToken);
+            if (!positionExists)
             {
-                var conflictResponse = CommonResponse<TeacherDto>.Fail(ResponseCodes.Conflict, "Employee number '" + trimmedEmployeeNo + "' is already in use (possibly by a soft-deleted teacher).");
-                return conflictResponse;
+                var invalidPositionResponse = CommonResponse<TeacherDto>.Fail(ResponseCodes.ValidationError, "JobPositionCode '" + jobPositionCode + "' is not a known job position option.");
+                return invalidPositionResponse;
             }
 
-            var teacher = new Teacher
+            // Blank employee code = backend-generated (EMP{year}{seq}, shared sequence across
+            // every employee type); a supplied one (e.g. migrated from an old system) is honored
+            // after the usual uniqueness check.
+            var trimmedEmployeeCode = command.EmployeeCode?.Trim();
+            if (string.IsNullOrWhiteSpace(trimmedEmployeeCode))
             {
-                EmployeeNo = trimmedEmployeeNo,
+                var employeeCodePrefix = "EMP" + DateTime.UtcNow.Year;
+                var existingEmployeeCodes = await _unitOfWork.Employees.GetEmployeeCodesByPrefixAsync(employeeCodePrefix, cancellationToken);
+                trimmedEmployeeCode = NumberSequenceHelper.Next(employeeCodePrefix, existingEmployeeCodes, 3);
+            }
+            else
+            {
+                var employeeCodeExists = await _unitOfWork.Employees.EmployeeCodeExistsAsync(trimmedEmployeeCode, cancellationToken);
+                if (employeeCodeExists)
+                {
+                    var conflictResponse = CommonResponse<TeacherDto>.Fail(ResponseCodes.Conflict, "Employee code '" + trimmedEmployeeCode + "' is already in use (possibly by a soft-deleted employee).");
+                    return conflictResponse;
+                }
+            }
+
+            var employee = new Employee
+            {
+                EmployeeCode = trimmedEmployeeCode,
                 FirstName = command.FirstName.Trim(),
                 MiddleName = command.MiddleName?.Trim(),
                 LastName = command.LastName.Trim(),
+                Gender = command.Gender,
+                DateOfBirth = command.DateOfBirth,
                 Email = command.Email?.Trim(),
                 Phone = command.Phone?.Trim(),
-                JoiningDate = command.JoiningDate,
-                Status = RecordStatus.Active
+                JoinDate = command.JoinDate,
+                EmployeeCategoryCode = EmployeeCategoryCodes.Academic,
+                JobPositionCode = jobPositionCode,
+                EmploymentStatus = EmploymentStatus.Active,
+                BankName = command.BankName?.Trim(),
+                BankAccountNumber = command.BankAccountNumber?.Trim(),
+                PaymentMode = command.PaymentMode
             };
 
-            await _unitOfWork.Teachers.AddAsync(teacher, cancellationToken);
+            var teacher = new Teacher
+            {
+                TeachingLicenseNo = command.TeachingLicenseNo?.Trim(),
+                ExperienceYears = command.ExperienceYears,
+                Specialization = command.Specialization?.Trim(),
+                Employee = employee
+            };
+            employee.Teacher = teacher;
+
+            await _unitOfWork.Employees.AddAsync(employee, cancellationToken);
+            // Teacher.Id is assigned = Employee.Id via the shared-PK relationship fixup once
+            // SaveChanges resolves the generated Employee.Id -- no explicit Teachers.AddAsync
+            // needed, EF tracks it through the Employee.Teacher navigation.
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
             var teacherDto = TeacherMapper.ToDto(teacher);
@@ -77,7 +125,7 @@ namespace Application.Teachers
 
         public async Task<CommonResponse<TeacherDto>> GetTeacherByIdAsync(Guid id, CancellationToken cancellationToken = default)
         {
-            var teacher = await _unitOfWork.Teachers.GetByIdAsync(id, cancellationToken);
+            var teacher = await _unitOfWork.Teachers.GetByIdWithEmployeeAsync(id, cancellationToken);
             if (teacher == null)
             {
                 var notFoundResponse = CommonResponse<TeacherDto>.Fail(ResponseCodes.NotFound, "Teacher with id '" + id + "' was not found.");
@@ -85,13 +133,34 @@ namespace Application.Teachers
             }
 
             var teacherDto = TeacherMapper.ToDto(teacher);
+
+            // Service history: the assignments with their academic years, oldest first -- the
+            // first row (plus JoinDate) answers "teaching here since which year".
+            var assignments = await _unitOfWork.Teachers.GetAssignmentsAsync(id, cancellationToken);
+            foreach (var assignment in assignments)
+            {
+                var historyDto = TeacherMapper.ToServiceHistoryDto(assignment);
+                teacherDto.ServiceHistory.Add(historyDto);
+            }
+
             var successResponse = CommonResponse<TeacherDto>.Success(teacherDto);
             return successResponse;
         }
 
         public async Task<CommonResponse<PaginatedResponse<TeacherDto>>> GetTeachersAsync(GetTeachersQuery query, CancellationToken cancellationToken = default)
         {
-            var pagedTeachers = await _unitOfWork.Teachers.GetPagedByFilterAsync(query.Search, query.Page, query.PageSize, cancellationToken);
+            var filter = new TeacherFilter
+            {
+                Search = query.Search,
+                Phone = query.Phone,
+                QualificationCode = query.QualificationCode,
+                Status = query.Status,
+                DateField = query.DateField,
+                FromDate = query.FromDate,
+                ToDate = query.ToDate
+            };
+
+            var pagedTeachers = await _unitOfWork.Teachers.GetPagedByFilterAsync(filter, query.Page, query.PageSize, cancellationToken);
 
             var teacherDtos = new List<TeacherDto>();
             foreach (var teacher in pagedTeachers.Items)
@@ -122,21 +191,41 @@ namespace Application.Teachers
                 return validationFailureResponse;
             }
 
-            var teacher = await _unitOfWork.Teachers.GetByIdAsync(id, cancellationToken);
+            var teacher = await _unitOfWork.Teachers.GetByIdWithEmployeeAsync(id, cancellationToken);
             if (teacher == null)
             {
                 var notFoundResponse = CommonResponse<TeacherDto>.Fail(ResponseCodes.NotFound, "Teacher with id '" + id + "' was not found.");
                 return notFoundResponse;
             }
 
-            teacher.FirstName = command.FirstName.Trim();
-            teacher.MiddleName = command.MiddleName?.Trim();
-            teacher.LastName = command.LastName.Trim();
-            teacher.Email = command.Email?.Trim();
-            teacher.Phone = command.Phone?.Trim();
-            teacher.JoiningDate = command.JoiningDate;
-            teacher.Status = command.Status;
+            var jobPositionCode = command.JobPositionCode.Trim();
+            var positionExists = await _unitOfWork.Configs.CodeExistsAsync(ConfigTypeCodes.JobPosition, jobPositionCode, cancellationToken);
+            if (!positionExists)
+            {
+                var invalidPositionResponse = CommonResponse<TeacherDto>.Fail(ResponseCodes.ValidationError, "JobPositionCode '" + jobPositionCode + "' is not a known job position option.");
+                return invalidPositionResponse;
+            }
 
+            var employee = teacher.Employee;
+            employee.FirstName = command.FirstName.Trim();
+            employee.MiddleName = command.MiddleName?.Trim();
+            employee.LastName = command.LastName.Trim();
+            employee.Gender = command.Gender;
+            employee.DateOfBirth = command.DateOfBirth;
+            employee.Email = command.Email?.Trim();
+            employee.Phone = command.Phone?.Trim();
+            employee.JoinDate = command.JoinDate;
+            employee.JobPositionCode = jobPositionCode;
+            employee.EmploymentStatus = command.Status;
+            employee.BankName = command.BankName?.Trim();
+            employee.BankAccountNumber = command.BankAccountNumber?.Trim();
+            employee.PaymentMode = command.PaymentMode;
+
+            teacher.TeachingLicenseNo = command.TeachingLicenseNo?.Trim();
+            teacher.ExperienceYears = command.ExperienceYears;
+            teacher.Specialization = command.Specialization?.Trim();
+
+            _unitOfWork.Employees.Update(employee);
             _unitOfWork.Teachers.Update(teacher);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
@@ -161,7 +250,13 @@ namespace Application.Teachers
                 return conflictResponse;
             }
 
-            _unitOfWork.Teachers.Remove(teacher);
+            // Teacher itself has no soft-delete lifecycle anymore -- deleting a teacher soft-
+            // deletes the underlying Employee (same "records, not accounts" semantics as before:
+            // the teacher becomes invisible/inactive), leaving the Teacher profile row and its
+            // history (qualifications/documents) intact, consistent with how soft-deleting a
+            // parent elsewhere in this codebase preserves child history.
+            var employee = await _unitOfWork.Employees.GetByIdAsync(id, cancellationToken);
+            _unitOfWork.Employees.Remove(employee);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
             var successResponse = CommonResponse<bool>.Success(true, "Teacher deleted successfully.");
@@ -266,10 +361,28 @@ namespace Application.Teachers
                 return subjectNotFoundResponse;
             }
 
-            // A section, when given, must belong to the same class the subject hangs off --
-            // otherwise the assignment would straddle two classes.
+            // The assignment's section is DERIVED from the subject whenever the subject is
+            // itself section-scoped, rather than left for the caller to (possibly wrongly)
+            // repeat: a section-scoped subject can only ever be taught in its own section, so
+            // there is exactly one valid value and the caller doesn't need to supply it (the old
+            // code only rejected a *different* section, silently accepting a null one, which
+            // left the assignment looking like "every section" for a subject that isn't offered
+            // everywhere). A class-wide subject leaves the section optional as before -- null
+            // covers every section, or one specific section for a per-section teacher split.
+            Guid? effectiveClassSectionId = command.ClassSectionId;
             ClassSection classSection = null;
-            if (command.ClassSectionId.HasValue)
+            if (classSubject.ClassSectionId.HasValue)
+            {
+                if (command.ClassSectionId.HasValue && command.ClassSectionId.Value != classSubject.ClassSectionId.Value)
+                {
+                    var scopedMismatchResponse = CommonResponse<TeacherAssignmentDto>.Fail(ResponseCodes.ValidationError, "Subject '" + classSubject.SubjectCode + "' is only offered in a different section.");
+                    return scopedMismatchResponse;
+                }
+
+                effectiveClassSectionId = classSubject.ClassSectionId;
+                classSection = classSubject.ClassSection;
+            }
+            else if (command.ClassSectionId.HasValue)
             {
                 classSection = await _unitOfWork.AcademicClasses.GetSectionByIdAsync(command.ClassSectionId.Value, cancellationToken);
                 if (classSection == null)
@@ -283,33 +396,25 @@ namespace Application.Teachers
                     var sectionMismatchResponse = CommonResponse<TeacherAssignmentDto>.Fail(ResponseCodes.ValidationError, "That section belongs to a different class than the subject.");
                     return sectionMismatchResponse;
                 }
-
-                // A section-scoped subject is only taught in its own section -- an assignment
-                // for a different section would be teaching a subject that isn't offered there.
-                if (classSubject.ClassSectionId.HasValue && classSubject.ClassSectionId.Value != command.ClassSectionId.Value)
-                {
-                    var scopedMismatchResponse = CommonResponse<TeacherAssignmentDto>.Fail(ResponseCodes.ValidationError, "Subject '" + classSubject.SubjectCode + "' is only offered in a different section.");
-                    return scopedMismatchResponse;
-                }
             }
 
-            var assignmentExists = await _unitOfWork.Teachers.AssignmentExistsAsync(teacherId, command.ClassSubjectId, command.ClassSectionId, cancellationToken);
+            var assignmentExists = await _unitOfWork.Teachers.AssignmentExistsAsync(teacherId, command.ClassSubjectId, effectiveClassSectionId, cancellationToken);
             if (assignmentExists)
             {
-                var conflictResponse = CommonResponse<TeacherAssignmentDto>.Fail(ResponseCodes.Conflict, "This teacher is already assigned to that class subject" + (command.ClassSectionId.HasValue ? " for that section." : "."));
+                var conflictResponse = CommonResponse<TeacherAssignmentDto>.Fail(ResponseCodes.Conflict, "This teacher is already assigned to that class subject" + (effectiveClassSectionId.HasValue ? " for that section." : "."));
                 return conflictResponse;
             }
 
             // A class teacher belongs to exactly one section, and a section has at most one.
             if (command.IsClassTeacher)
             {
-                if (!command.ClassSectionId.HasValue)
+                if (!effectiveClassSectionId.HasValue)
                 {
                     var sectionRequiredResponse = CommonResponse<TeacherAssignmentDto>.Fail(ResponseCodes.ValidationError, "ClassSectionId is required when IsClassTeacher is true -- a class teacher is assigned to one section.");
                     return sectionRequiredResponse;
                 }
 
-                var classTeacherExists = await _unitOfWork.Teachers.ClassTeacherExistsForSectionAsync(command.ClassSectionId.Value, cancellationToken);
+                var classTeacherExists = await _unitOfWork.Teachers.ClassTeacherExistsForSectionAsync(effectiveClassSectionId.Value, cancellationToken);
                 if (classTeacherExists)
                 {
                     var classTeacherConflictResponse = CommonResponse<TeacherAssignmentDto>.Fail(ResponseCodes.Conflict, "This section already has a class teacher. Remove that assignment first.");
@@ -321,7 +426,7 @@ namespace Application.Teachers
             {
                 TeacherId = teacherId,
                 ClassSubjectId = command.ClassSubjectId,
-                ClassSectionId = command.ClassSectionId,
+                ClassSectionId = effectiveClassSectionId,
                 IsClassTeacher = command.IsClassTeacher,
                 ClassSubject = classSubject,
                 ClassSection = classSection
@@ -489,7 +594,7 @@ namespace Application.Teachers
             var fileDto = new TeacherDocumentFileDto
             {
                 Content = contentStream,
-                ContentType = string.IsNullOrEmpty(document.ContentType) ? "application/octet-stream" : document.ContentType,
+                ContentType = string.IsNullOrWhiteSpace(document.ContentType) ? "application/octet-stream" : document.ContentType,
                 FileName = document.FileName
             };
 
@@ -515,6 +620,134 @@ namespace Application.Teachers
 
             var successResponse = CommonResponse<bool>.Success(true, "Document deleted successfully.");
             return successResponse;
+        }
+
+        // The following three are thin convenience aliases over IEmployeeService's salary
+        // machinery -- a Teacher's Id IS its Employee's Id (shared-PK pattern), so these just
+        // forward. Kept so existing /api/teachers/{id}/salaries consumers don't break.
+
+        public Task<CommonResponse<EmployeeSalaryDto>> AddSalaryAsync(Guid teacherId, AddEmployeeSalaryCommand command, CancellationToken cancellationToken = default)
+        {
+            return _employeeService.AddSalaryAsync(teacherId, command, cancellationToken);
+        }
+
+        public Task<CommonResponse<List<EmployeeSalaryDto>>> GetSalaryHistoryAsync(Guid teacherId, CancellationToken cancellationToken = default)
+        {
+            return _employeeService.GetSalaryHistoryAsync(teacherId, cancellationToken);
+        }
+
+        public Task<CommonResponse<EmployeeTaxCalculationDto>> GetCurrentSalaryTaxCalculationAsync(Guid teacherId, Guid? fiscalYearId, CancellationToken cancellationToken = default)
+        {
+            return _employeeService.GetCurrentSalaryTaxCalculationAsync(teacherId, fiscalYearId, cancellationToken);
+        }
+
+        public Task<CommonResponse<EmployeeMonthlyTaxBreakdownDto>> GetMonthlySalaryTaxCalculationAsync(Guid teacherId, Guid? fiscalYearId, CancellationToken cancellationToken = default)
+        {
+            return _employeeService.GetMonthlySalaryTaxCalculationAsync(teacherId, fiscalYearId, cancellationToken);
+        }
+
+        public Task<CommonResponse<DocumentPreviewDto>> GetPayslipPreviewAsync(Guid teacherId, Guid? fiscalYearId, CancellationToken cancellationToken = default)
+        {
+            return _employeeService.GetPayslipPreviewAsync(teacherId, fiscalYearId, cancellationToken);
+        }
+
+        public Task<CommonResponse<List<PayslipSummaryDto>>> GetPayslipsAsync(Guid teacherId, Guid? fiscalYearId, CancellationToken cancellationToken = default)
+        {
+            return _employeeService.GetPayslipsAsync(teacherId, fiscalYearId, cancellationToken);
+        }
+
+        public Task<CommonResponse<PayslipDetailDto>> GetPayslipDetailAsync(Guid teacherId, Guid fiscalYearId, int monthIndex, CancellationToken cancellationToken = default)
+        {
+            return _employeeService.GetPayslipDetailAsync(teacherId, fiscalYearId, monthIndex, cancellationToken);
+        }
+
+        public Task<CommonResponse<EmployeeLoanDto>> RequestLoanAsync(Guid teacherId, RequestLoanCommand command, CancellationToken cancellationToken = default)
+        {
+            return _employeeService.RequestLoanAsync(teacherId, command, cancellationToken);
+        }
+
+        public Task<CommonResponse<List<EmployeeLoanDto>>> GetLoansAsync(Guid teacherId, CancellationToken cancellationToken = default)
+        {
+            return _employeeService.GetLoansAsync(teacherId, cancellationToken);
+        }
+
+        public Task<CommonResponse<EmployeeLoanDto>> ApproveLoanAsync(Guid teacherId, Guid loanId, LoanRemarksCommand command, CancellationToken cancellationToken = default)
+        {
+            return _employeeService.ApproveLoanAsync(teacherId, loanId, command, cancellationToken);
+        }
+
+        public Task<CommonResponse<EmployeeLoanDto>> RejectLoanAsync(Guid teacherId, Guid loanId, LoanRemarksCommand command, CancellationToken cancellationToken = default)
+        {
+            return _employeeService.RejectLoanAsync(teacherId, loanId, command, cancellationToken);
+        }
+
+        public Task<CommonResponse<EmployeeLoanDto>> CancelLoanAsync(Guid teacherId, Guid loanId, LoanRemarksCommand command, CancellationToken cancellationToken = default)
+        {
+            return _employeeService.CancelLoanAsync(teacherId, loanId, command, cancellationToken);
+        }
+
+        public async Task<CommonResponse<DocumentPreviewDto>> GetIdCardPreviewAsync(Guid teacherId, CancellationToken cancellationToken = default)
+        {
+            var teacher = await _unitOfWork.Teachers.GetByIdWithEmployeeAsync(teacherId, cancellationToken);
+            if (teacher == null)
+            {
+                var notFoundResponse = CommonResponse<DocumentPreviewDto>.Fail(ResponseCodes.NotFound, "Teacher with id '" + teacherId + "' was not found.");
+                return notFoundResponse;
+            }
+
+            var documentTemplate = await _unitOfWork.DocumentTemplates.GetByTemplateTypeAsync(DocumentTemplateType.TeacherIdCard, cancellationToken);
+            if (documentTemplate == null)
+            {
+                var noTemplateResponse = CommonResponse<DocumentPreviewDto>.Fail(ResponseCodes.NotFound, "No document template is configured for '" + DocumentTemplateType.TeacherIdCard + "' yet.");
+                return noTemplateResponse;
+            }
+
+            var teacherDto = TeacherMapper.ToDto(teacher);
+
+            var placeholderValues = new Dictionary<string, string>
+            {
+                { "EmployeeCode", teacherDto.EmployeeCode },
+                { "TeacherName", BuildFullName(teacherDto.FirstName, teacherDto.MiddleName, teacherDto.LastName) },
+                { "JobPositionCode", teacherDto.JobPositionCode },
+                { "TeachingLicenseNo", teacherDto.TeachingLicenseNo },
+                { "Specialization", teacherDto.Specialization },
+                { "JoinDate", teacherDto.JoinDate.HasValue ? teacherDto.JoinDate.Value.ToString("yyyy-MM-dd") : string.Empty },
+                { "Phone", teacherDto.Phone },
+                { "Email", teacherDto.Email }
+            };
+
+            var renderedHtml = TemplateRenderer.Render(documentTemplate.HtmlContent, placeholderValues);
+
+            var documentPreviewDto = new DocumentPreviewDto
+            {
+                TemplateType = DocumentTemplateType.TeacherIdCard,
+                Html = renderedHtml
+            };
+
+            var successResponse = CommonResponse<DocumentPreviewDto>.Success(documentPreviewDto);
+            return successResponse;
+        }
+
+        private static string BuildFullName(string firstName, string middleName, string lastName)
+        {
+            var nameParts = new List<string>();
+            if (!string.IsNullOrWhiteSpace(firstName))
+            {
+                nameParts.Add(firstName);
+            }
+
+            if (!string.IsNullOrWhiteSpace(middleName))
+            {
+                nameParts.Add(middleName);
+            }
+
+            if (!string.IsNullOrWhiteSpace(lastName))
+            {
+                nameParts.Add(lastName);
+            }
+
+            var fullName = string.Join(" ", nameParts);
+            return fullName;
         }
 
         private static string BuildValidationErrorMessage(ValidationResult validationResult)

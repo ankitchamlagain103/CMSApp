@@ -19,5 +19,6 @@ namespace Domain.Entities
         public RecordStatus Status { get; set; }
         public virtual ICollection<StudentGuardian> GuardianLinks { get; set; } = new List<StudentGuardian>();
         public virtual ICollection<Enrollment> Enrollments { get; set; } = new List<Enrollment>();
+        public virtual ICollection<StudentDocument> Documents { get; set; } = new List<StudentDocument>();
     }
 }

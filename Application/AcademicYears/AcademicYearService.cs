@@ -1,8 +1,10 @@
 using Application.AcademicYears.Commands;
 using Application.AcademicYears.Dtos;
+using Application.AcademicYears.Queries;
 using Application.AcademicYears.Validators;
 using Application.Common.Interfaces;
 using Application.Common.Models;
+using Domain.Common.Filters;
 using Domain.Entities;
 using Domain.Enums;
 using FluentValidation.Results;
@@ -84,9 +86,16 @@ namespace Application.AcademicYears
             return successResponse;
         }
 
-        public async Task<CommonResponse<PaginatedResponse<AcademicYearDto>>> GetAcademicYearsAsync(int page, int pageSize, CancellationToken cancellationToken = default)
+        public async Task<CommonResponse<PaginatedResponse<AcademicYearDto>>> GetAcademicYearsAsync(GetAcademicYearsQuery query, CancellationToken cancellationToken = default)
         {
-            var pagedYears = await _unitOfWork.AcademicYears.GetPagedOrderedAsync(page, pageSize, cancellationToken);
+            var filter = new AcademicYearFilter
+            {
+                Search = query.Search,
+                IsCurrent = query.IsCurrent,
+                Status = query.Status
+            };
+
+            var pagedYears = await _unitOfWork.AcademicYears.GetPagedByFilterAsync(filter, query.Page, query.PageSize, cancellationToken);
 
             var academicYearDtos = new List<AcademicYearDto>();
             foreach (var academicYear in pagedYears.Items)
@@ -98,8 +107,8 @@ namespace Application.AcademicYears
             var paginatedResponse = new PaginatedResponse<AcademicYearDto>
             {
                 Items = academicYearDtos,
-                Page = page,
-                PageSize = pageSize,
+                Page = query.Page,
+                PageSize = query.PageSize,
                 TotalCount = pagedYears.TotalCount
             };
 

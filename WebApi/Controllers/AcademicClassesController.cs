@@ -168,6 +168,23 @@ namespace WebApi.Controllers
             return Ok(response);
         }
 
+        [HttpPut("{id:guid}/subjects/{classSubjectId:guid}")]
+        public async Task<ActionResult<CommonResponse<ClassSubjectDto>>> UpdateSubject(Guid id, Guid classSubjectId, [FromBody] UpdateClassSubjectCommand command, CancellationToken cancellationToken)
+        {
+            var response = await _academicClassService.UpdateSubjectAsync(id, classSubjectId, command, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            if (response.ResponseCode != ResponseCodes.Success)
+            {
+                return BadRequest(response);
+            }
+
+            return Ok(response);
+        }
+
         [HttpDelete("{id:guid}/subjects/{classSubjectId:guid}")]
         public async Task<ActionResult<CommonResponse<bool>>> RemoveSubject(Guid id, Guid classSubjectId, CancellationToken cancellationToken)
         {

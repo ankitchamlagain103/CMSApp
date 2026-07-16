@@ -37,7 +37,7 @@ namespace Application.Users.Validators
                     .WithMessage("Password must not match your email.")
                 .NotEqual(command => command.UserName, StringComparer.OrdinalIgnoreCase)
                     .WithMessage("Password must not match your username.")
-                .When(command => !string.IsNullOrEmpty(command.Password));
+                .When(command => !string.IsNullOrWhiteSpace(command.Password));
 
             RuleFor(command => command.FirstName)
                 .NotEmpty()
@@ -46,12 +46,12 @@ namespace Application.Users.Validators
             RuleFor(command => command.FirstName)
                 .Must(name => !UserValidationRules.NoHtmlPattern.IsMatch(name))
                     .WithMessage("First name must not contain '<' or '>'.")
-                .When(command => !string.IsNullOrEmpty(command.FirstName));
+                .When(command => !string.IsNullOrWhiteSpace(command.FirstName));
 
             RuleFor(command => command.MiddleName)
                 .Must(name => !UserValidationRules.NoHtmlPattern.IsMatch(name))
                     .WithMessage("Middle name must not contain '<' or '>'.")
-                .When(command => !string.IsNullOrEmpty(command.MiddleName));
+                .When(command => !string.IsNullOrWhiteSpace(command.MiddleName));
 
             RuleFor(command => command.LastName)
                 .NotEmpty()
@@ -60,7 +60,7 @@ namespace Application.Users.Validators
             RuleFor(command => command.LastName)
                 .Must(name => !UserValidationRules.NoHtmlPattern.IsMatch(name))
                     .WithMessage("Last name must not contain '<' or '>'.")
-                .When(command => !string.IsNullOrEmpty(command.LastName));
+                .When(command => !string.IsNullOrWhiteSpace(command.LastName));
 
             RuleFor(command => command.Dob)
                 .Must(UserValidationRules.BeAValidAge)
@@ -70,12 +70,12 @@ namespace Application.Users.Validators
             RuleFor(command => command.PhoneNumber)
                 .Must(phoneNumber => UserValidationRules.PhoneE164Pattern.IsMatch(phoneNumber))
                     .WithMessage("Phone number must be in E.164 format, e.g. +14155552671.")
-                .When(command => !string.IsNullOrEmpty(command.PhoneNumber));
+                .When(command => !string.IsNullOrWhiteSpace(command.PhoneNumber));
 
             RuleFor(command => command.CountryIso3)
                 .Must(countryIso3 => UserValidationRules.CountryIso3Pattern.IsMatch(countryIso3))
                     .WithMessage("Country must be a 3-letter ISO code, e.g. USA.")
-                .When(command => !string.IsNullOrEmpty(command.CountryIso3));
+                .When(command => !string.IsNullOrWhiteSpace(command.CountryIso3));
 
             RuleFor(command => command.IsTosAgreed)
                 .Equal(true)

@@ -1,4 +1,5 @@
 using Domain.Common;
+using Domain.Common.Filters;
 using Domain.Entities;
 using Domain.Interfaces;
 using Microsoft.EntityFrameworkCore;
@@ -11,18 +12,36 @@ namespace Infrastructure.Persistence.Repositories
         {
         }
 
-        public async Task<PagedResult<Menu>> GetPagedByFilterAsync(string menuType, string menuFor, int pageNumber, int pageSize, CancellationToken cancellationToken = default)
+        public async Task<PagedResult<Menu>> GetPagedByFilterAsync(MenuFilter filter, int pageNumber, int pageSize, CancellationToken cancellationToken = default)
         {
             IQueryable<Menu> menusQuery = DbSet;
 
-            if (!string.IsNullOrEmpty(menuType))
+            if (!string.IsNullOrWhiteSpace(filter.MenuType))
             {
-                menusQuery = menusQuery.Where(menu => menu.MenuType == menuType);
+                menusQuery = menusQuery.Where(menu => menu.MenuType == filter.MenuType);
             }
 
-            if (!string.IsNullOrEmpty(menuFor))
+            if (!string.IsNullOrWhiteSpace(filter.MenuFor))
             {
-                menusQuery = menusQuery.Where(menu => menu.MenuFor == menuFor);
+                menusQuery = menusQuery.Where(menu => menu.MenuFor == filter.MenuFor);
+            }
+
+            if (!string.IsNullOrWhiteSpace(filter.Search))
+            {
+                var searchPattern = "%" + filter.Search.Trim() + "%";
+                menusQuery = menusQuery.Where(menu =>
+                    EF.Functions.ILike(menu.Code, searchPattern)
+                    || EF.Functions.ILike(menu.DisplayName, searchPattern));
+            }
+
+            if (filter.ParentId.HasValue)
+            {
+                menusQuery = menusQuery.Where(menu => menu.ParentId == filter.ParentId.Value);
+            }
+
+            if (filter.IsHidden.HasValue)
+            {
+                menusQuery = menusQuery.Where(menu => menu.IsHidden == filter.IsHidden.Value);
             }
 
             var totalCount = await menusQuery.CountAsync(cancellationToken);

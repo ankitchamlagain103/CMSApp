@@ -33,6 +33,71 @@ namespace WebApi.Controllers
             return Ok(response);
         }
 
+        [HttpGet("enrollment-stats")]
+        public async Task<ActionResult<CommonResponse<EnrollmentStatsDto>>> GetEnrollmentStats(CancellationToken cancellationToken)
+        {
+            var response = await _dashboardService.GetEnrollmentStatsAsync(cancellationToken);
+            return Ok(response);
+        }
+
+        [HttpGet("teachers")]
+        public async Task<ActionResult<CommonResponse<TeacherListWidgetDto>>> GetTeacherListWidget([FromQuery] int take, CancellationToken cancellationToken)
+        {
+            var effectiveTake = take > 0 ? take : 5;
+            var response = await _dashboardService.GetTeacherListWidgetAsync(effectiveTake, cancellationToken);
+            return Ok(response);
+        }
+
+        [HttpGet("users")]
+        public async Task<ActionResult<CommonResponse<UserListWidgetDto>>> GetUserListWidget([FromQuery] int take, CancellationToken cancellationToken)
+        {
+            var effectiveTake = take > 0 ? take : 5;
+            var response = await _dashboardService.GetUserListWidgetAsync(effectiveTake, cancellationToken);
+            return Ok(response);
+        }
+
+        [HttpGet("bar-graph")]
+        public async Task<ActionResult<CommonResponse<BarGraphDto>>> GetBarGraph([FromQuery] string metric, CancellationToken cancellationToken)
+        {
+            var response = await _dashboardService.GetBarGraphAsync(metric, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.ValidationError)
+            {
+                return BadRequest(response);
+            }
+
+            return Ok(response);
+        }
+
+        [HttpGet("current-academic-year")]
+        public async Task<ActionResult<CommonResponse<CurrentAcademicYearDto>>> GetCurrentAcademicYear(CancellationToken cancellationToken)
+        {
+            var response = await _dashboardService.GetCurrentAcademicYearAsync(cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            return Ok(response);
+        }
+
+        [HttpGet("quick-menus")]
+        public async Task<ActionResult<CommonResponse<List<QuickMenuDto>>>> GetQuickMenus([FromQuery] int take, CancellationToken cancellationToken)
+        {
+            var effectiveTake = take > 0 ? take : 8;
+            var response = await _dashboardService.GetQuickMenusAsync(effectiveTake, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.Unauthorized)
+            {
+                return Unauthorized(response);
+            }
+
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            return Ok(response);
+        }
+
         [HttpGet("error-logs")]
         public async Task<ActionResult<CommonResponse<PaginatedResponse<ErrorLogDto>>>> GetErrorLogs([FromQuery] GetErrorLogsQuery query, CancellationToken cancellationToken)
         {

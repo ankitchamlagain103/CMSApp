@@ -1,0 +1,35 @@
+using Application.Employees.Commands;
+using FluentValidation;
+
+namespace Application.Employees.Validators
+{
+    public class CreateEmployeeCommandValidator : AbstractValidator<CreateEmployeeCommand>
+    {
+        public CreateEmployeeCommandValidator()
+        {
+            RuleFor(command => command.FirstName)
+                .NotEmpty()
+                .MaximumLength(100);
+
+            RuleFor(command => command.LastName)
+                .NotEmpty()
+                .MaximumLength(100);
+
+            RuleFor(command => command.EmployeeCategoryCode)
+                .NotEmpty()
+                .MaximumLength(100);
+
+            RuleFor(command => command.JobPositionCode)
+                .NotEmpty()
+                .MaximumLength(100);
+
+            RuleFor(command => command.EmployeeCode)
+                .MaximumLength(30);
+
+            RuleFor(command => command.JoinDate)
+                .GreaterThanOrEqualTo(command => command.DateOfBirth)
+                    .WithMessage("JoinDate cannot be before DateOfBirth.")
+                .When(command => command.JoinDate.HasValue && command.DateOfBirth.HasValue);
+        }
+    }
+}

@@ -2,6 +2,7 @@ using Application.Common.Models;
 using Application.Guardians;
 using Application.Guardians.Commands;
 using Application.Guardians.Dtos;
+using Application.Guardians.Queries;
 using Microsoft.AspNetCore.Mvc;
 
 namespace WebApi.Controllers
@@ -30,9 +31,9 @@ namespace WebApi.Controllers
         }
 
         [HttpGet]
-        public async Task<ActionResult<CommonResponse<PaginatedResponse<GuardianDto>>>> GetGuardians([FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken cancellationToken = default)
+        public async Task<ActionResult<CommonResponse<PaginatedResponse<GuardianDto>>>> GetGuardians([FromQuery] GetGuardiansQuery query, CancellationToken cancellationToken)
         {
-            var response = await _guardianService.GetGuardiansAsync(page, pageSize, cancellationToken);
+            var response = await _guardianService.GetGuardiansAsync(query, cancellationToken);
             return Ok(response);
         }
 

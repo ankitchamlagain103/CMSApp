@@ -1,4 +1,5 @@
 using Application.Enrollments.Dtos;
+using Domain.Common;
 using Domain.Entities;
 
 namespace Application.Enrollments
@@ -44,6 +45,59 @@ namespace Application.Enrollments
             };
 
             return electiveSubjectDto;
+        }
+
+        public static StudentDiscountDto ToDiscountDto(StudentDiscount discount)
+        {
+            var discountDto = new StudentDiscountDto
+            {
+                Id = discount.Id,
+                EnrollmentId = discount.EnrollmentId,
+                DiscountTypeCode = discount.DiscountTypeCode,
+                ValueType = discount.ValueType,
+                Value = discount.Value,
+                Remarks = discount.Remarks
+            };
+
+            return discountDto;
+        }
+
+        public static StudentScholarshipDto ToScholarshipDto(StudentScholarship scholarship)
+        {
+            var scholarshipDto = new StudentScholarshipDto
+            {
+                Id = scholarship.Id,
+                EnrollmentId = scholarship.EnrollmentId,
+                ScholarshipTypeCode = scholarship.ScholarshipTypeCode,
+                ValueType = scholarship.ValueType,
+                Value = scholarship.Value,
+                Remarks = scholarship.Remarks
+            };
+
+            return scholarshipDto;
+        }
+
+        public static EnrollmentFeeSelectionDto ToFeeSelectionDto(EnrollmentFeeSelection feeSelection)
+        {
+            var feeSelectionDto = new EnrollmentFeeSelectionDto
+            {
+                Id = feeSelection.Id,
+                EnrollmentId = feeSelection.EnrollmentId,
+                FeeStructureItemId = feeSelection.FeeStructureItemId
+            };
+
+            return feeSelectionDto;
+        }
+
+        public static AwardSummaryDto ToAwardSummaryDto(AwardSummaryItem summaryItem)
+        {
+            var summaryDto = new AwardSummaryDto
+            {
+                TypeCode = summaryItem.TypeCode,
+                StudentCount = summaryItem.StudentCount
+            };
+
+            return summaryDto;
         }
     }
 }

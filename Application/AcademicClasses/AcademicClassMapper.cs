@@ -1,5 +1,6 @@
 using Application.AcademicClasses.Dtos;
 using Domain.Entities;
+using Domain.Enums;
 
 namespace Application.AcademicClasses
 {
@@ -53,7 +54,13 @@ namespace Application.AcademicClasses
                 IsMandatory = classSubject.IsMandatory,
                 DisplayOrder = classSubject.DisplayOrder,
                 ClassSectionId = classSubject.ClassSectionId,
-                SectionCode = classSubject.ClassSection != null ? classSubject.ClassSection.SectionCode : null
+                SectionCode = classSubject.ClassSection != null ? classSubject.ClassSection.SectionCode : null,
+                Scope = classSubject.ClassSectionId.HasValue ? SubjectScope.Section : SubjectScope.ClassWide,
+                CreditHours = classSubject.CreditHours,
+                FullMarks = classSubject.FullMarks,
+                PassMarks = classSubject.PassMarks,
+                TheoryMarks = classSubject.TheoryMarks,
+                PracticalMarks = classSubject.PracticalMarks
             };
 
             return classSubjectDto;

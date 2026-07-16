@@ -1,22 +1,24 @@
-# CMSApp — Teacher Documents (UI)
+# CMSApp — Teacher & Student Documents (UI)
 
-**What shipped (2026-07-13)**: uploadable verification documents on teachers — citizenship, ID card, PAN card, passport, driving license, police report, academic certificates, appointment letters. Files (PDF or JPG/JPEG/PNG) are stored server-side; each document row carries a display name, its type (Config catalog), and an optional **validity/expiry date** for documents that expire (driving license, police report).
+**What shipped (2026-07-13)**: uploadable documents on teachers **and students**. Files (PDF or JPG/JPEG/PNG) are stored server-side; each document row carries a display name, its type (Config catalog), and an optional **validity/expiry date** for documents that expire (driving license, police report).
 
-Fits the teacher profile's tab layout: **Qualifications | Class Assignments | Documents** — each tab is its own existing endpoint set (`/{id}/qualifications`, `/{id}/assignments`, `/{id}/documents`).
+- **Teacher documents** — citizenship, ID card, PAN card, passport, driving license, police report, academic certificates, appointment letters. Tab layout: **Qualifications | Class Assignments | Documents**.
+- **Student documents** (same API shape under `/api/students/{id}/documents`) — birth certificate, transfer certificate, character certificate, previous marksheet, citizenship, passport, photo, immunization record, disability card, migration certificate, guardian's citizenship copy. Fits as a **Documents** tab beside Current Class / Guardians / History.
 
-> ⚠️ **Migration required**: new table `dbo.teacher_documents` (user-owned migration, same wave as the class/section restructure). Also ensure the API host can write to the configured upload folder.
+> ⚠️ **Migration required**: new tables `dbo.teacher_documents` and `dbo.student_documents` (user-owned migration, same wave as the class/section restructure). Also ensure the API host can write to the configured upload folder.
 
-## Document type catalog (`typeCode 1006`)
+## Document type catalogs (two separate dropdowns)
 
-Populate the type dropdown from the existing endpoint — options are seeded:
+| Audience | `typeCode` | Seeded codes |
+|---|---|---|
+| Teacher | `1006` | `CITIZENSHIP`, `ID_CARD`, `PAN_CARD`, `PASSPORT`, `DRIVING_LICENSE`, `POLICE_REPORT`, `ACADEMIC_CERTIFICATE`, `APPOINTMENT_LETTER`, `OTHER` |
+| Student | `1007` | `BIRTH_CERTIFICATE`, `TRANSFER_CERTIFICATE`, `CHARACTER_CERTIFICATE`, `PREVIOUS_MARKSHEET`, `CITIZENSHIP`, `PASSPORT`, `PHOTO`, `IMMUNIZATION_RECORD`, `DISABILITY_CARD`, `MIGRATION_CERTIFICATE`, `GUARDIAN_CITIZENSHIP`, `OTHER` |
 
-```
-GET /api/configs/dropdown/1006
-```
+Populate from `GET /api/configs/dropdown/{typeCode}`; admins add more via `POST /api/configs`. Deliberately two catalogs so a student form never offers "Appointment Letter" and a teacher form never offers "Birth Certificate". Suggested UI hint: show the "Valid until" field prominently for expiring types (the catalog's `additionalValue1` can be set to `"Y"` on those).
 
-Seeded codes: `CITIZENSHIP`, `ID_CARD`, `PAN_CARD`, `PASSPORT`, `DRIVING_LICENSE`, `POLICE_REPORT`, `ACADEMIC_CERTIFICATE`, `APPOINTMENT_LETTER`, `OTHER`. Admins can add more via `POST /api/configs`. Suggested UI hint: show the "Valid until" field prominently for license/report types (the catalog's `additionalValue1` can be set to `"Y"` on types that expire).
+## Endpoints — `/api/teachers/{id}/documents` and `/api/students/{id}/documents`
 
-## Endpoints — `/api/teachers/{id}/documents`
+Both resources expose the **identical four endpoints** — everything below is written for teachers; substitute `students` (and catalog `1007`, `StudentDocumentDto`) for the student version.
 
 ### Upload — `POST /api/teachers/{id}/documents` (**multipart/form-data**, not JSON)
 
@@ -56,10 +58,10 @@ Hard delete: removes the row **and** the stored file.
 
 ## Permissions (seeded to SuperAdmin)
 
-`TEACHER_DOCUMENT_UPLOAD`, `TEACHER_DOCUMENT_LIST`, `TEACHER_DOCUMENT_DOWNLOAD`, `TEACHER_DOCUMENT_DELETE` — under `TEACHER_MANAGEMENT`, grant to other roles via `POST /api/roles/claims`.
+`TEACHER_DOCUMENT_UPLOAD/LIST/DOWNLOAD/DELETE` (under `TEACHER_MANAGEMENT`) and `STUDENT_DOCUMENT_UPLOAD/LIST/DOWNLOAD/DELETE` (under `STUDENT_MANAGEMENT`) — grant to other roles via `POST /api/roles/claims`.
 
 ## Backend notes
 
-- Files land under the folder from `FileStorage:RootPath` (default `Uploads/` beside the API, subfolder `teacher-documents/{teacherId}/`), stored under generated GUID names — user filenames never touch the filesystem. The DTO never exposes the storage path.
-- The storage abstraction (`IFileStorageService` / `LocalFileStorageService`) is reusable — a future `student_documents` table can ride the same service and rules (extensions/size in `DocumentFileRules`).
+- Files land under the folder from `FileStorage:RootPath` (default `Uploads/` beside the API, subfolders `teacher-documents/{teacherId}/` and `student-documents/{studentId}/`), stored under generated GUID names — user filenames never touch the filesystem. The DTOs never expose the storage path.
+- Both resources share one storage abstraction (`IFileStorageService` / `LocalFileStorageService`) and one rule set (`DocumentFileRules`).
 - Upload limits are a code-level security boundary (10 MB, four extensions), not configuration.

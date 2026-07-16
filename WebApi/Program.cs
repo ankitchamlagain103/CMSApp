@@ -32,10 +32,15 @@ var app = builder.Build();
 
 try
 {
-    //await IdentitySeeder.SeedAsync(app.Services);
-    //await MenuSeeder.SeedAsync(app.Services);
-    //await AppConfigSeeder.SeedAsync(app.Services);
+    await IdentitySeeder.SeedAsync(app.Services);
+    await MenuSeeder.SeedAsync(app.Services);
+    await AppConfigSeeder.SeedAsync(app.Services);
     await ConfigCatalogSeeder.SeedAsync(app.Services);
+    await DocumentTemplateSeeder.SeedAsync(app.Services);
+    // Placeholder example fiscal year + tax slabs -- verify/replace before relying on for real payroll.
+    await PayrollSeeder.SeedAsync(app.Services);
+    // Development/demo data (school structure, teachers, students) -- remove for production.
+    await SampleDataSeeder.SeedAsync(app.Services);
 }
 catch (Exception seedException)
 {

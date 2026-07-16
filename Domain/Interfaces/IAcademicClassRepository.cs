@@ -1,4 +1,5 @@
 using Domain.Common;
+using Domain.Common.Filters;
 using Domain.Entities;
 
 namespace Domain.Interfaces
@@ -6,7 +7,7 @@ namespace Domain.Interfaces
     // Aggregate repository: AcademicClass plus its ClassSection and ClassSubject children.
     public interface IAcademicClassRepository : IRepository<AcademicClass, Guid>
     {
-        Task<PagedResult<AcademicClass>> GetPagedByFilterAsync(Guid? academicYearId, int pageNumber, int pageSize, CancellationToken cancellationToken = default);
+        Task<PagedResult<AcademicClass>> GetPagedByFilterAsync(AcademicClassFilter filter, int pageNumber, int pageSize, CancellationToken cancellationToken = default);
 
         Task<AcademicClass> GetWithSectionsAsync(Guid id, CancellationToken cancellationToken = default);
 

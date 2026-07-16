@@ -30,7 +30,7 @@ namespace Application.Auth.Validators
                     .WithMessage("Password must contain at least one special character.")
                 .Must(password => !PasswordRules.CommonPasswords.Contains(password))
                     .WithMessage("Password is too common. Choose a stronger password.")
-                .When(command => !string.IsNullOrEmpty(command.NewPassword));
+                .When(command => !string.IsNullOrWhiteSpace(command.NewPassword));
         }
     }
 }

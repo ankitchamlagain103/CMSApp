@@ -1,4 +1,5 @@
 using Domain.Common;
+using Domain.Common.Filters;
 using Domain.Entities;
 using Domain.Interfaces;
 using Microsoft.EntityFrameworkCore;
@@ -11,15 +12,25 @@ namespace Infrastructure.Persistence.Repositories
         {
         }
 
-        public async Task<PagedResult<AcademicClass>> GetPagedByFilterAsync(Guid? academicYearId, int pageNumber, int pageSize, CancellationToken cancellationToken = default)
+        public async Task<PagedResult<AcademicClass>> GetPagedByFilterAsync(AcademicClassFilter filter, int pageNumber, int pageSize, CancellationToken cancellationToken = default)
         {
             // Sections are included so the class list renders "one class, sections inside"
             // without a second call per row.
             IQueryable<AcademicClass> classesQuery = DbSet.Include(academicClass => academicClass.Sections);
 
-            if (academicYearId.HasValue)
+            if (filter.AcademicYearId.HasValue)
             {
-                classesQuery = classesQuery.Where(academicClass => academicClass.AcademicYearId == academicYearId.Value);
+                classesQuery = classesQuery.Where(academicClass => academicClass.AcademicYearId == filter.AcademicYearId.Value);
+            }
+
+            if (!string.IsNullOrWhiteSpace(filter.GradeCode))
+            {
+                classesQuery = classesQuery.Where(academicClass => academicClass.GradeCode == filter.GradeCode);
+            }
+
+            if (filter.Status.HasValue)
+            {
+                classesQuery = classesQuery.Where(academicClass => academicClass.Status == filter.Status.Value);
             }
 
             var totalCount = await classesQuery.CountAsync(cancellationToken);
