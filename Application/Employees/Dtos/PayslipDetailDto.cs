@@ -23,5 +23,9 @@ namespace Application.Employees.Dtos
         public List<MonthlyLineItemDto> DeductionLines { get; set; } = new List<MonthlyLineItemDto>();
         public decimal TotalDeduction { get; set; }
         public decimal NetPaid { get; set; }
+
+        // False when this detail comes from a persisted SalarySlip (a generated payroll run);
+        // true when it's the read-time projection for a month with no run yet (P8).
+        public bool IsProjection { get; set; }
     }
 }

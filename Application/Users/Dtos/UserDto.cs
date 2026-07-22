@@ -24,5 +24,9 @@ namespace Application.Users.Dtos
         public DateTimeOffset? LastLoginTs { get; set; }
         public DateTimeOffset? LastPasswordChangedTs { get; set; }
         public List<Guid> RoleIds { get; set; } = new List<Guid>();
+        public string CreatedBy { get; set; }
+        public DateTimeOffset CreatedTs { get; set; }
+        public string UpdatedBy { get; set; }
+        public DateTimeOffset? UpdatedTs { get; set; }
     }
 }

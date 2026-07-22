@@ -1,6 +1,7 @@
 using Domain.Common;
 using Domain.Common.Filters;
 using Domain.Entities;
+using Domain.Enums;
 
 namespace Domain.Interfaces
 {
@@ -55,5 +56,26 @@ namespace Domain.Interfaces
         Task<EmployeeLoan> GetLoanByIdAsync(Guid loanId, CancellationToken cancellationToken = default);
 
         Task AddLoanAsync(EmployeeLoan loan, CancellationToken cancellationToken = default);
+
+        // Payroll-run batch inputs (payroll redesign, 2026-07-16): every payable employee
+        // (Active/OnLeave) with their full salary-revision history and line items loaded, and
+        // the Approved loans batched across the run's employees.
+        Task<IReadOnlyList<Employee>> GetPayrollEligibleEmployeesAsync(CancellationToken cancellationToken = default);
+
+        Task<IReadOnlyList<EmployeeLoan>> GetApprovedLoansByEmployeeIdsAsync(IReadOnlyList<Guid> employeeIds, CancellationToken cancellationToken = default);
+
+        // SalaryAdjustment (pre-run monthly overrides) is owned by this aggregate, like the
+        // salary line items and loans.
+        Task<IReadOnlyList<SalaryAdjustment>> GetSalaryAdjustmentsByFilterAsync(Guid? employeeId, Guid? fiscalYearId, int? monthIndex, AdjustmentStatus? status, CancellationToken cancellationToken = default);
+
+        Task<SalaryAdjustment> GetSalaryAdjustmentByIdAsync(Guid adjustmentId, CancellationToken cancellationToken = default);
+
+        Task<IReadOnlyList<SalaryAdjustment>> GetPendingSalaryAdjustmentsForPeriodAsync(Guid fiscalYearId, int monthIndex, CancellationToken cancellationToken = default);
+
+        Task<IReadOnlyList<SalaryAdjustment>> GetSalaryAdjustmentsAppliedToSlipsAsync(IReadOnlyList<Guid> slipIds, CancellationToken cancellationToken = default);
+
+        Task AddSalaryAdjustmentAsync(SalaryAdjustment adjustment, CancellationToken cancellationToken = default);
+
+        void RemoveSalaryAdjustment(SalaryAdjustment adjustment);
     }
 }

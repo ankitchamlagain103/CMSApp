@@ -53,16 +53,25 @@ employee management guide.
 
 ## Seeded example data — verify before real use
 
-`Infrastructure/Persistence/DataSeeder/PayrollSeeder.cs` seeds **one placeholder** fiscal year
-(`FY-SAMPLE`) with an illustrative Individual/Couple slab set (~1/10/20/30/36% brackets, Couple
-thresholds a step higher than Individual) plus a `retirementExemptionCapAmount` of 500,000, so the
-feature has something to compute against out of the box. **These are not guaranteed to match the
-current government of Nepal budget** — tax law changes yearly, and this project's own knowledge of
-the exact current-fiscal-year figures may be stale by the time you run this. Treat it exactly like
-the `Jwt:Key`/`Smtp:*`/`Seed:*` placeholders in `appsettings.json`: replace/verify before relying on
-it for real payroll, via `POST/PUT/DELETE /api/fiscalyears/{id}/taxslabs` (and `PUT
-/api/fiscalyears/{id}` for the retirement cap). This is the entire point of the feature being
-configurable rather than hardcoded.
+`Infrastructure/Persistence/DataSeeder/PayrollSeeder.cs` seeds **two** fiscal years, each
+idempotent by its own `Code` (a database that already has one keeps its existing row untouched —
+the seeder only ever creates, never updates):
+
+- `FY-SAMPLE` — a placeholder Individual/Couple slab set (~1/10/20/30/36% brackets, Couple
+  thresholds a step higher than Individual) plus a `retirementExemptionCapAmount` of 500,000.
+- `2084/85` (added 2026-07-20, `2026-07-17`–`2027-07-15`, seeded `isCurrent = true` — `FY-SAMPLE`
+  is correspondingly seeded `isCurrent = false`, since only one fiscal year should be current at
+  a time) — 1%/10%/20%/27%/29% brackets at `1`–`1,000,000` / `1,000,001`–`1,500,000` /
+  `1,500,001`–`2,500,000` / `2,500,001`–`4,000,000` / `4,000,001`+, identical thresholds for
+  Individual and Couple, also with a `retirementExemptionCapAmount` of 500,000.
+
+**Neither is guaranteed to match the current government of Nepal budget** — tax law changes
+yearly, and this project's own knowledge of the exact current-fiscal-year figures may be stale by
+the time you run this. Treat both exactly like the `Jwt:Key`/`Smtp:*`/`Seed:*` placeholders in
+`appsettings.json`: replace/verify before relying on either for real payroll, via
+`POST/PUT/DELETE /api/fiscalyears/{id}/taxslabs` (and `PUT /api/fiscalyears/{id}` for the
+retirement cap). This is the entire point of the feature being configurable rather than
+hardcoded.
 
 ## Migration required
 

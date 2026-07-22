@@ -1,3 +1,4 @@
+using Application.Common.Helpers;
 using Application.Enrollments.Dtos;
 using Domain.Common;
 using Domain.Entities;
@@ -47,13 +48,16 @@ namespace Application.Enrollments
             return electiveSubjectDto;
         }
 
-        public static StudentDiscountDto ToDiscountDto(StudentDiscount discount)
+        // labelsByCode is the DiscountType (1008) label map (2026-07-19); null keeps
+        // DiscountTypeLabel at the code itself.
+        public static StudentDiscountDto ToDiscountDto(StudentDiscount discount, IReadOnlyDictionary<string, string> labelsByCode = null)
         {
             var discountDto = new StudentDiscountDto
             {
                 Id = discount.Id,
                 EnrollmentId = discount.EnrollmentId,
                 DiscountTypeCode = discount.DiscountTypeCode,
+                DiscountTypeLabel = ConfigLabelHelper.Resolve(labelsByCode, discount.DiscountTypeCode),
                 ValueType = discount.ValueType,
                 Value = discount.Value,
                 Remarks = discount.Remarks
@@ -62,13 +66,16 @@ namespace Application.Enrollments
             return discountDto;
         }
 
-        public static StudentScholarshipDto ToScholarshipDto(StudentScholarship scholarship)
+        // labelsByCode is the ScholarshipType (1009) label map (2026-07-19); null keeps
+        // ScholarshipTypeLabel at the code itself.
+        public static StudentScholarshipDto ToScholarshipDto(StudentScholarship scholarship, IReadOnlyDictionary<string, string> labelsByCode = null)
         {
             var scholarshipDto = new StudentScholarshipDto
             {
                 Id = scholarship.Id,
                 EnrollmentId = scholarship.EnrollmentId,
                 ScholarshipTypeCode = scholarship.ScholarshipTypeCode,
+                ScholarshipTypeLabel = ConfigLabelHelper.Resolve(labelsByCode, scholarship.ScholarshipTypeCode),
                 ValueType = scholarship.ValueType,
                 Value = scholarship.Value,
                 Remarks = scholarship.Remarks

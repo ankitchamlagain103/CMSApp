@@ -20,7 +20,11 @@ namespace Application.Students
                 Phone = student.Phone,
                 Address = student.Address,
                 AdmissionDate = student.AdmissionDate,
-                Status = student.Status
+                Status = student.Status,
+                CreatedBy = student.CreatedBy,
+                CreatedTs = student.CreatedTs,
+                UpdatedBy = student.UpdatedBy,
+                UpdatedTs = student.UpdatedTs
             };
 
             return studentDto;

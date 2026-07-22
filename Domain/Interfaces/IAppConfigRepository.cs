@@ -9,5 +9,7 @@ namespace Domain.Interfaces
         Task<IReadOnlyList<AppConfig>> GetByGroupAsync(string configGroup, CancellationToken cancellationToken = default);
 
         Task<IReadOnlyList<AppConfig>> GetEnabledAsync(CancellationToken cancellationToken = default);
+
+        Task<AppConfig> GetByConfigParamAsync(string configParam, CancellationToken cancellationToken = default);
     }
 }

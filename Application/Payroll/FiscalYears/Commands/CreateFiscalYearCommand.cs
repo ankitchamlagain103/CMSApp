@@ -7,5 +7,6 @@ namespace Application.Payroll.FiscalYears.Commands
         public DateTime StartDate { get; set; }
         public DateTime EndDate { get; set; }
         public bool IsCurrent { get; set; }
+        public decimal RetirementExemptionCapAmount { get; set; }
     }
 }

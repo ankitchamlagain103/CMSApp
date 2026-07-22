@@ -375,5 +375,120 @@ namespace Infrastructure.Persistence.Repositories
 
             return exists;
         }
+
+        public async Task<IReadOnlyList<Enrollment>> GetEnrolledByYearAsync(Guid academicYearId, Guid? academicClassId, Guid? classSectionId, CancellationToken cancellationToken = default)
+        {
+            IQueryable<Enrollment> enrollmentsQuery = DbSet
+                .Include(e => e.Student)
+                .Include(e => e.ClassSection)
+                    .ThenInclude(section => section.AcademicClass)
+                .Where(e => e.Status == EnrollmentStatus.Enrolled
+                    && e.ClassSection.AcademicClass.AcademicYearId == academicYearId);
+
+            if (academicClassId.HasValue)
+            {
+                enrollmentsQuery = enrollmentsQuery.Where(e => e.ClassSection.AcademicClassId == academicClassId.Value);
+            }
+
+            if (classSectionId.HasValue)
+            {
+                enrollmentsQuery = enrollmentsQuery.Where(e => e.ClassSectionId == classSectionId.Value);
+            }
+
+            var enrollments = await enrollmentsQuery.ToListAsync(cancellationToken);
+            return enrollments;
+        }
+
+        public async Task<PagedResult<Enrollment>> SearchEnrolledByStudentAsync(Guid? academicYearId, string search, int pageNumber, int pageSize, CancellationToken cancellationToken = default)
+        {
+            var enrollmentsQuery = BuildStudentSearchQuery(academicYearId, search);
+
+            var totalCount = await enrollmentsQuery.CountAsync(cancellationToken);
+            var skipCount = (pageNumber - 1) * pageSize;
+            var items = await enrollmentsQuery
+                .OrderBy(e => e.Student.FirstName)
+                .ThenBy(e => e.Student.LastName)
+                .Skip(skipCount)
+                .Take(pageSize)
+                .ToListAsync(cancellationToken);
+
+            var pagedResult = new PagedResult<Enrollment>
+            {
+                Items = items,
+                TotalCount = totalCount
+            };
+
+            return pagedResult;
+        }
+
+        public async Task<IReadOnlyList<Enrollment>> SearchEnrolledByStudentAllAsync(Guid? academicYearId, string search, CancellationToken cancellationToken = default)
+        {
+            var enrollmentsQuery = BuildStudentSearchQuery(academicYearId, search);
+
+            var items = await enrollmentsQuery
+                .OrderBy(e => e.Student.FirstName)
+                .ThenBy(e => e.Student.LastName)
+                .ToListAsync(cancellationToken);
+
+            return items;
+        }
+
+        private IQueryable<Enrollment> BuildStudentSearchQuery(Guid? academicYearId, string search)
+        {
+            IQueryable<Enrollment> enrollmentsQuery = DbSet
+                .Include(e => e.Student)
+                .Include(e => e.ClassSection)
+                    .ThenInclude(section => section.AcademicClass)
+                .Where(e => e.Status == EnrollmentStatus.Enrolled);
+
+            if (academicYearId.HasValue)
+            {
+                enrollmentsQuery = enrollmentsQuery.Where(e => e.ClassSection.AcademicClass.AcademicYearId == academicYearId.Value);
+            }
+
+            if (!string.IsNullOrWhiteSpace(search))
+            {
+                var searchTerms = search.Trim().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                foreach (var term in searchTerms)
+                {
+                    var termPattern = "%" + term + "%";
+                    enrollmentsQuery = enrollmentsQuery.Where(e =>
+                        EF.Functions.ILike(e.Student.FirstName, termPattern)
+                        || EF.Functions.ILike(e.Student.MiddleName, termPattern)
+                        || EF.Functions.ILike(e.Student.LastName, termPattern)
+                        || EF.Functions.ILike(e.Student.AdmissionNo, termPattern)
+                        || EF.Functions.ILike(e.Student.Email, termPattern));
+                }
+            }
+
+            return enrollmentsQuery;
+        }
+
+        public async Task<IReadOnlyList<StudentDiscount>> GetDiscountsByEnrollmentIdsAsync(IReadOnlyList<Guid> enrollmentIds, CancellationToken cancellationToken = default)
+        {
+            var discounts = await DbContext.Set<StudentDiscount>()
+                .Where(discount => enrollmentIds.Contains(discount.EnrollmentId))
+                .ToListAsync(cancellationToken);
+
+            return discounts;
+        }
+
+        public async Task<IReadOnlyList<StudentScholarship>> GetScholarshipsByEnrollmentIdsAsync(IReadOnlyList<Guid> enrollmentIds, CancellationToken cancellationToken = default)
+        {
+            var scholarships = await DbContext.Set<StudentScholarship>()
+                .Where(scholarship => enrollmentIds.Contains(scholarship.EnrollmentId))
+                .ToListAsync(cancellationToken);
+
+            return scholarships;
+        }
+
+        public async Task<IReadOnlyList<EnrollmentFeeSelection>> GetFeeSelectionsByEnrollmentIdsAsync(IReadOnlyList<Guid> enrollmentIds, CancellationToken cancellationToken = default)
+        {
+            var feeSelections = await DbContext.Set<EnrollmentFeeSelection>()
+                .Where(selection => enrollmentIds.Contains(selection.EnrollmentId))
+                .ToListAsync(cancellationToken);
+
+            return feeSelections;
+        }
     }
 }

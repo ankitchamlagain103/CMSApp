@@ -67,5 +67,28 @@ namespace Domain.Interfaces
         // has opted into it (same "refuse delete while children exist" convention as ClassSection/
         // ClassSubject).
         Task<bool> FeeSelectionExistsForItemAsync(Guid feeStructureItemId, CancellationToken cancellationToken = default);
+
+        // Fee-generation batch inputs (fee redesign, 2026-07-16): every Enrolled enrollment of
+        // one academic year (optionally one class, or one section), section->class chain
+        // included, plus the per-enrollment configuration rows batched across the whole run
+        // instead of queried per row.
+        Task<IReadOnlyList<Enrollment>> GetEnrolledByYearAsync(Guid academicYearId, Guid? academicClassId, Guid? classSectionId, CancellationToken cancellationToken = default);
+
+        // Student search for the fee module (2026-07-17): active (Enrolled) enrollments whose
+        // student matches by name, admission no, or email -- the "find the student, get their
+        // enrollment" entry point for fee generation, statements, and payments.
+        Task<PagedResult<Enrollment>> SearchEnrolledByStudentAsync(Guid? academicYearId, string search, int pageNumber, int pageSize, CancellationToken cancellationToken = default);
+
+        // Same filter as SearchEnrolledByStudentAsync but unpaged (2026-07-18) -- the default
+        // "students with money to settle" view needs every match's live outstanding balance
+        // before it can sort/page, since that balance lives in a different aggregate
+        // (FeeInvoice) the DB query here can't join against.
+        Task<IReadOnlyList<Enrollment>> SearchEnrolledByStudentAllAsync(Guid? academicYearId, string search, CancellationToken cancellationToken = default);
+
+        Task<IReadOnlyList<StudentDiscount>> GetDiscountsByEnrollmentIdsAsync(IReadOnlyList<Guid> enrollmentIds, CancellationToken cancellationToken = default);
+
+        Task<IReadOnlyList<StudentScholarship>> GetScholarshipsByEnrollmentIdsAsync(IReadOnlyList<Guid> enrollmentIds, CancellationToken cancellationToken = default);
+
+        Task<IReadOnlyList<EnrollmentFeeSelection>> GetFeeSelectionsByEnrollmentIdsAsync(IReadOnlyList<Guid> enrollmentIds, CancellationToken cancellationToken = default);
     }
 }

@@ -22,5 +22,8 @@ namespace Domain.Constants
         public const int SalaryComponentType = 1013;
         public const int DeductionType = 1014;
         public const int InsuranceType = 1015;
+        public const int SalaryAdjustmentType = 1016;
+        public const int FeeAdjustmentType = 1017;
+        public const int SsfRate = 1018;
     }
 }

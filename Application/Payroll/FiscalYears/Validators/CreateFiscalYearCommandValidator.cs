@@ -17,6 +17,9 @@ namespace Application.Payroll.FiscalYears.Validators
 
             RuleFor(command => command.EndDate)
                 .GreaterThan(command => command.StartDate);
+
+            RuleFor(command => command.RetirementExemptionCapAmount)
+                .GreaterThanOrEqualTo(0);
         }
     }
 }

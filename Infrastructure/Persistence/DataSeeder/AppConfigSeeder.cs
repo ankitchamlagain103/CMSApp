@@ -54,6 +54,17 @@ namespace Infrastructure.Persistence.DataSeeder
                 BuildConfig("FOOTER_TEXT", "© 2026 CMSApp", GroupGeneral),
                 BuildConfig("SUPPORT_EMAIL", "support@cmsapp.local", GroupGeneral),
 
+                // School identity for printed documents (2026-07-17) -- the payment-receipt
+                // template's header. APP_NAME already doubles as the school's display name; set
+                // these two once via PUT /api/appconfigs/{id} before printing real receipts.
+                BuildConfig("SCHOOL_ADDRESS", "", GroupGeneral),
+                BuildConfig("SCHOOL_PHONE", "", GroupGeneral),
+
+                // Fee generation (2026-07-16): day of the billing month a generated fee
+                // invoice's DueDate defaults to (clamped to the month's length; editable per
+                // Draft invoice before finalization).
+                BuildConfig("FEE_DUE_DAY_OF_MONTH", "10", GroupGeneral),
+
                 // THEME -- appearance; color values are applied by the frontend as CSS variables
                 BuildConfig("THEME_MODE", "SYSTEM", GroupTheme),
                 BuildConfig("PRIMARY_COLOR", "#4F46E5", GroupTheme),

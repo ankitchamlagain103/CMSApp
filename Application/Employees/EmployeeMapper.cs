@@ -1,3 +1,4 @@
+using Application.Common.Helpers;
 using Application.Employees.Dtos;
 using Application.Payroll;
 using Domain.Entities;
@@ -30,7 +31,11 @@ namespace Application.Employees
                 BankName = employee.BankName,
                 BankAccountNumber = employee.BankAccountNumber,
                 PaymentMode = employee.PaymentMode,
-                HasTeacherProfile = hasTeacherProfile || employee.Teacher != null
+                HasTeacherProfile = hasTeacherProfile || employee.Teacher != null,
+                CreatedBy = employee.CreatedBy,
+                CreatedTs = employee.CreatedTs,
+                UpdatedBy = employee.UpdatedBy,
+                UpdatedTs = employee.UpdatedTs
             };
 
             return employeeDto;
@@ -50,7 +55,9 @@ namespace Application.Employees
         }
 
         // Expects the salary's Components/Deductions/InsurancePremiums navigations to be loaded.
-        public static EmployeeSalaryDto ToSalaryDto(EmployeeSalary salary)
+        // labelsByCode (2026-07-19): merged SalaryComponentType/DeductionType/InsuranceType
+        // Config label map; null keeps every *Label field at its code.
+        public static EmployeeSalaryDto ToSalaryDto(EmployeeSalary salary, IReadOnlyDictionary<string, string> labelsByCode = null)
         {
             var salaryDto = new EmployeeSalaryDto
             {
@@ -62,29 +69,30 @@ namespace Application.Employees
 
             foreach (var component in salary.Components)
             {
-                salaryDto.Components.Add(ToComponentDto(component));
+                salaryDto.Components.Add(ToComponentDto(component, labelsByCode));
             }
 
             foreach (var deduction in salary.Deductions)
             {
-                salaryDto.Deductions.Add(ToDeductionDto(deduction));
+                salaryDto.Deductions.Add(ToDeductionDto(deduction, labelsByCode));
             }
 
             foreach (var premium in salary.InsurancePremiums)
             {
-                salaryDto.InsurancePremiums.Add(ToInsurancePremiumDto(premium));
+                salaryDto.InsurancePremiums.Add(ToInsurancePremiumDto(premium, labelsByCode));
             }
 
             return salaryDto;
         }
 
-        public static SalaryComponentDto ToComponentDto(EmployeeSalaryComponent component)
+        public static SalaryComponentDto ToComponentDto(EmployeeSalaryComponent component, IReadOnlyDictionary<string, string> labelsByCode = null)
         {
             var componentDto = new SalaryComponentDto
             {
                 Id = component.Id,
                 EmployeeSalaryId = component.EmployeeSalaryId,
                 ComponentCode = component.ComponentCode,
+                ComponentLabel = ConfigLabelHelper.Resolve(labelsByCode, component.ComponentCode),
                 ValueType = component.ValueType,
                 Value = component.Value,
                 FrequencyType = component.FrequencyType,
@@ -95,13 +103,14 @@ namespace Application.Employees
             return componentDto;
         }
 
-        public static SalaryDeductionDto ToDeductionDto(EmployeeSalaryDeduction deduction)
+        public static SalaryDeductionDto ToDeductionDto(EmployeeSalaryDeduction deduction, IReadOnlyDictionary<string, string> labelsByCode = null)
         {
             var deductionDto = new SalaryDeductionDto
             {
                 Id = deduction.Id,
                 EmployeeSalaryId = deduction.EmployeeSalaryId,
                 DeductionCode = deduction.DeductionCode,
+                DeductionLabel = ConfigLabelHelper.Resolve(labelsByCode, deduction.DeductionCode),
                 ValueType = deduction.ValueType,
                 Value = deduction.Value,
                 FrequencyType = deduction.FrequencyType,
@@ -111,20 +120,21 @@ namespace Application.Employees
             return deductionDto;
         }
 
-        public static InsurancePremiumDto ToInsurancePremiumDto(EmployeeInsurancePremium premium)
+        public static InsurancePremiumDto ToInsurancePremiumDto(EmployeeInsurancePremium premium, IReadOnlyDictionary<string, string> labelsByCode = null)
         {
             var premiumDto = new InsurancePremiumDto
             {
                 Id = premium.Id,
                 EmployeeSalaryId = premium.EmployeeSalaryId,
                 InsuranceTypeCode = premium.InsuranceTypeCode,
+                InsuranceTypeLabel = ConfigLabelHelper.Resolve(labelsByCode, premium.InsuranceTypeCode),
                 AnnualPremiumAmount = premium.AnnualPremiumAmount
             };
 
             return premiumDto;
         }
 
-        public static EmployeeLoanDto ToLoanDto(EmployeeLoan loan)
+        public static EmployeeLoanDto ToLoanDto(EmployeeLoan loan, IReadOnlyDictionary<string, string> labelsByCode = null)
         {
             var asOfDate = DateTime.UtcNow;
             var amountRepaid = LoanCalculator.ComputeAmountRepaid(loan, asOfDate);
@@ -134,6 +144,7 @@ namespace Application.Employees
                 Id = loan.Id,
                 EmployeeId = loan.EmployeeId,
                 LoanTypeCode = loan.LoanTypeCode,
+                LoanTypeLabel = ConfigLabelHelper.Resolve(labelsByCode, loan.LoanTypeCode),
                 PrincipalAmount = loan.PrincipalAmount,
                 EmiAmount = loan.EmiAmount,
                 RequestedDate = loan.RequestedDate,
@@ -146,6 +157,28 @@ namespace Application.Employees
             };
 
             return loanDto;
+        }
+
+        public static SalaryAdjustmentDto ToSalaryAdjustmentDto(SalaryAdjustment adjustment, IReadOnlyDictionary<string, string> labelsByCode = null)
+        {
+            var adjustmentDto = new SalaryAdjustmentDto
+            {
+                Id = adjustment.Id,
+                EmployeeId = adjustment.EmployeeId,
+                FiscalYearId = adjustment.FiscalYearId,
+                MonthIndex = adjustment.MonthIndex,
+                AdjustmentTypeCode = adjustment.AdjustmentTypeCode,
+                AdjustmentTypeLabel = ConfigLabelHelper.Resolve(labelsByCode, adjustment.AdjustmentTypeCode),
+                Direction = adjustment.Direction,
+                ValueType = adjustment.ValueType,
+                Value = adjustment.Value,
+                Quantity = adjustment.Quantity,
+                Remarks = adjustment.Remarks,
+                Status = adjustment.Status,
+                AppliedSalarySlipId = adjustment.AppliedSalarySlipId
+            };
+
+            return adjustmentDto;
         }
     }
 }

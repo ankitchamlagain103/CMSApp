@@ -36,5 +36,13 @@ namespace Infrastructure.Persistence.Repositories
 
             return appConfigs;
         }
+
+        public async Task<AppConfig> GetByConfigParamAsync(string configParam, CancellationToken cancellationToken = default)
+        {
+            var appConfig = await DbSet
+                .FirstOrDefaultAsync(config => config.ConfigParam == configParam, cancellationToken);
+
+            return appConfig;
+        }
     }
 }

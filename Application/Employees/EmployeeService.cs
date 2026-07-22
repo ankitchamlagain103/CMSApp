@@ -27,6 +27,9 @@ namespace Application.Employees
         private readonly SalaryDeductionInputValidator _deductionValidator;
         private readonly InsurancePremiumInputValidator _premiumValidator;
         private readonly RequestLoanCommandValidator _requestLoanValidator;
+        private readonly CreateSalaryAdjustmentCommandValidator _createSalaryAdjustmentValidator;
+        private readonly UpdateSalaryAdjustmentCommandValidator _updateSalaryAdjustmentValidator;
+        private readonly CreateBulkSalaryAdjustmentCommandValidator _createBulkSalaryAdjustmentValidator;
 
         public EmployeeService(
             IUnitOfWork unitOfWork,
@@ -37,7 +40,10 @@ namespace Application.Employees
             SalaryComponentInputValidator componentValidator,
             SalaryDeductionInputValidator deductionValidator,
             InsurancePremiumInputValidator premiumValidator,
-            RequestLoanCommandValidator requestLoanValidator)
+            RequestLoanCommandValidator requestLoanValidator,
+            CreateSalaryAdjustmentCommandValidator createSalaryAdjustmentValidator,
+            UpdateSalaryAdjustmentCommandValidator updateSalaryAdjustmentValidator,
+            CreateBulkSalaryAdjustmentCommandValidator createBulkSalaryAdjustmentValidator)
         {
             _unitOfWork = unitOfWork;
             _createValidator = createValidator;
@@ -48,6 +54,9 @@ namespace Application.Employees
             _deductionValidator = deductionValidator;
             _premiumValidator = premiumValidator;
             _requestLoanValidator = requestLoanValidator;
+            _createSalaryAdjustmentValidator = createSalaryAdjustmentValidator;
+            _updateSalaryAdjustmentValidator = updateSalaryAdjustmentValidator;
+            _createBulkSalaryAdjustmentValidator = createBulkSalaryAdjustmentValidator;
         }
 
         public async Task<CommonResponse<EmployeeDto>> CreateEmployeeAsync(CreateEmployeeCommand command, CancellationToken cancellationToken = default)
@@ -387,7 +396,8 @@ namespace Application.Employees
             await _unitOfWork.Employees.AddSalaryAsync(salary, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            var salaryDto = EmployeeMapper.ToSalaryDto(salary);
+            var compensationLabels = await LoadCompensationLabelMapAsync(cancellationToken);
+            var salaryDto = EmployeeMapper.ToSalaryDto(salary, compensationLabels);
             var successResponse = CommonResponse<EmployeeSalaryDto>.Success(salaryDto, "Salary revision added successfully.");
             return successResponse;
         }
@@ -402,12 +412,13 @@ namespace Application.Employees
             }
 
             var salaries = await _unitOfWork.Employees.GetSalaryHistoryAsync(employeeId, cancellationToken);
+            var compensationLabels = await LoadCompensationLabelMapAsync(cancellationToken);
 
             var salaryDtos = new List<EmployeeSalaryDto>();
             foreach (var salary in salaries)
             {
                 var fullSalary = await _unitOfWork.Employees.GetSalaryWithLineItemsAsync(salary.Id, cancellationToken);
-                var salaryDto = EmployeeMapper.ToSalaryDto(fullSalary);
+                var salaryDto = EmployeeMapper.ToSalaryDto(fullSalary, compensationLabels);
                 salaryDtos.Add(salaryDto);
             }
 
@@ -457,15 +468,17 @@ namespace Application.Employees
                 fiscalYear.RetirementExemptionCapAmount,
                 taxSlabs);
 
+            var grossMonthly = Math.Round(taxCalculation.GrossAnnualIncome / 12m, 2);
+
             var taxCalculationDto = new EmployeeTaxCalculationDto
             {
                 EmployeeId = employeeId,
                 SalaryId = currentSalary.Id,
                 FiscalYearId = fiscalYear.Id,
                 FiscalYearCode = fiscalYear.Code,
-                GrossMonthly = taxCalculation.GrossAnnualIncome / 12m,
+                GrossMonthly = grossMonthly,
                 TaxCalculation = taxCalculation,
-                NetMonthly = (taxCalculation.GrossAnnualIncome / 12m) - taxCalculation.MonthlyTax
+                NetMonthly = grossMonthly - taxCalculation.MonthlyTax
             };
 
             var successResponse = CommonResponse<EmployeeTaxCalculationDto>.Success(taxCalculationDto);
@@ -489,12 +502,15 @@ namespace Application.Employees
             var currentSalary = await _unitOfWork.Employees.GetCurrentSalaryAsync(employeeId, cancellationToken);
             var fiscalYear = await _unitOfWork.FiscalYears.GetByIdAsync(taxCalculationDto.FiscalYearId, cancellationToken);
 
+            var payrollLabels = await LoadCompensationLabelMapAsync(cancellationToken);
+
             var months = MonthlyBreakdownCalculator.Build(
                 currentSalary.Components.ToList(),
                 currentSalary.Deductions.ToList(),
                 currentSalary.EffectiveFromDate,
                 fiscalYear,
-                taxCalculationDto.TaxCalculation.AnnualTax);
+                taxCalculationDto.TaxCalculation.AnnualTax,
+                payrollLabels);
 
             var monthlyBreakdownDto = new EmployeeMonthlyTaxBreakdownDto
             {
@@ -508,6 +524,87 @@ namespace Application.Employees
 
             var successResponse = CommonResponse<EmployeeMonthlyTaxBreakdownDto>.Success(monthlyBreakdownDto);
             return successResponse;
+        }
+
+        // Single composite response for the Investment & Tax Planning tab: income lines,
+        // retirement-fund a/b/c breakdown, insurance lines, assessment type, and the annual tax
+        // calculation -- one call instead of the tab separately fetching salary history, the
+        // fiscal year (for its RetirementExemptionCapAmount), and the tax calculation, then
+        // recomputing the a/b/c figures itself. Composes on GetCurrentSalaryTaxCalculationAsync
+        // (same pattern GetMonthlySalaryTaxCalculationAsync already uses) so this can never
+        // disagree with GET .../salaries/tax-calculation for the same employee/fiscal year.
+        public async Task<CommonResponse<TaxPlanningDto>> GetTaxPlanningAsync(Guid employeeId, Guid? fiscalYearId, CancellationToken cancellationToken = default)
+        {
+            var taxCalculationResponse = await GetCurrentSalaryTaxCalculationAsync(employeeId, fiscalYearId, cancellationToken);
+            if (taxCalculationResponse.Data == null)
+            {
+                var failureResponse = CommonResponse<TaxPlanningDto>.Fail(taxCalculationResponse.ResponseCode, taxCalculationResponse.ResponseMessage);
+                return failureResponse;
+            }
+
+            var taxCalculationDto = taxCalculationResponse.Data;
+
+            var currentSalary = await _unitOfWork.Employees.GetCurrentSalaryAsync(employeeId, cancellationToken);
+            var fiscalYear = await _unitOfWork.FiscalYears.GetByIdAsync(taxCalculationDto.FiscalYearId, cancellationToken);
+
+            var compensationLabels = await LoadCompensationLabelMapAsync(cancellationToken);
+            var basicPeriodAmount = TaxCalculator.FindBasicPeriodAmount(currentSalary.Components.ToList());
+
+            var incomeLines = new List<TaxPlanningIncomeLineDto>();
+            foreach (var component in currentSalary.Components)
+            {
+                var periodAmount = TaxCalculator.ResolveAmount(component.ValueType, component.Value, basicPeriodAmount);
+                var annualAmount = TaxCalculator.Annualize(periodAmount, component.FrequencyType);
+                var incomeLine = new TaxPlanningIncomeLineDto
+                {
+                    Code = component.ComponentCode,
+                    Label = ConfigLabelHelper.Resolve(compensationLabels, component.ComponentCode),
+                    ValueType = component.ValueType,
+                    AnnualAmount = annualAmount,
+                    IsTaxable = component.IsTaxable
+                };
+                incomeLines.Add(incomeLine);
+            }
+
+            var insuranceLines = new List<TaxPlanningInsuranceLineDto>();
+            foreach (var premium in currentSalary.InsurancePremiums)
+            {
+                var insuranceLine = new TaxPlanningInsuranceLineDto
+                {
+                    InsuranceTypeCode = premium.InsuranceTypeCode,
+                    InsuranceTypeLabel = ConfigLabelHelper.Resolve(compensationLabels, premium.InsuranceTypeCode),
+                    AnnualPremiumAmount = premium.AnnualPremiumAmount
+                };
+                insuranceLines.Add(insuranceLine);
+            }
+
+            var retirementFundDto = new RetirementFundBreakdownDto
+            {
+                EligibleContributionAnnual = taxCalculationDto.TaxCalculation.RetirementContributionAnnual,
+                OneThirdOfTaxableIncome = Math.Round(taxCalculationDto.TaxCalculation.GrossAnnualIncome / 3m, 2),
+                MaximumLimit = fiscalYear.RetirementExemptionCapAmount,
+                ExemptionApplied = taxCalculationDto.TaxCalculation.RetirementExemption
+            };
+
+            var taxPlanningDto = new TaxPlanningDto
+            {
+                EmployeeId = employeeId,
+                SalaryId = taxCalculationDto.SalaryId,
+                FiscalYearId = taxCalculationDto.FiscalYearId,
+                FiscalYearCode = taxCalculationDto.FiscalYearCode,
+                AssessmentType = currentSalary.AssessmentType.ToString(),
+                IncomeLines = incomeLines,
+                TotalAnnualIncome = taxCalculationDto.TaxCalculation.GrossAnnualIncome,
+                RetirementFund = retirementFundDto,
+                InsuranceLines = insuranceLines,
+                InsuranceDeductionCapped = taxCalculationDto.TaxCalculation.InsuranceDeduction,
+                TaxCalculation = taxCalculationDto.TaxCalculation,
+                GrossMonthly = taxCalculationDto.GrossMonthly,
+                NetMonthly = taxCalculationDto.NetMonthly
+            };
+
+            var taxPlanningSuccessResponse = CommonResponse<TaxPlanningDto>.Success(taxPlanningDto);
+            return taxPlanningSuccessResponse;
         }
 
         public async Task<CommonResponse<SalaryComponentDto>> AddSalaryComponentAsync(Guid employeeId, Guid salaryId, SalaryComponentInput command, CancellationToken cancellationToken = default)
@@ -550,7 +647,7 @@ namespace Application.Employees
             await _unitOfWork.Employees.AddSalaryComponentAsync(component, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            var componentDto = EmployeeMapper.ToComponentDto(component);
+            var componentDto = EmployeeMapper.ToComponentDto(component, await LoadCompensationLabelMapAsync(cancellationToken));
             var successResponse = CommonResponse<SalaryComponentDto>.Success(componentDto, "Salary component added successfully.");
             return successResponse;
         }
@@ -610,7 +707,7 @@ namespace Application.Employees
             await _unitOfWork.Employees.AddSalaryDeductionAsync(deduction, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            var deductionDto = EmployeeMapper.ToDeductionDto(deduction);
+            var deductionDto = EmployeeMapper.ToDeductionDto(deduction, await LoadCompensationLabelMapAsync(cancellationToken));
             var successResponse = CommonResponse<SalaryDeductionDto>.Success(deductionDto, "Salary deduction added successfully.");
             return successResponse;
         }
@@ -667,7 +764,7 @@ namespace Application.Employees
             await _unitOfWork.Employees.AddInsurancePremiumAsync(premium, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            var premiumDto = EmployeeMapper.ToInsurancePremiumDto(premium);
+            var premiumDto = EmployeeMapper.ToInsurancePremiumDto(premium, await LoadCompensationLabelMapAsync(cancellationToken));
             var successResponse = CommonResponse<InsurancePremiumDto>.Success(premiumDto, "Insurance premium added successfully.");
             return successResponse;
         }
@@ -758,9 +855,11 @@ namespace Application.Employees
             return successResponse;
         }
 
-        // Structured (non-HTML) list of the fiscal months that already have a payslip -- a month
-        // whose pay period hasn't started yet is omitted, matching a real payslip only existing
-        // once its period has begun.
+        // Structured (non-HTML) list of the fiscal months that already have a payslip. A payslip
+        // only exists once payroll for that month has actually been run AND approved (Approved
+        // or Paid) -- a month with no run yet, or one still sitting in Draft, is omitted rather
+        // than shown as a read-time projection (2026-07-21: projections were removed from this
+        // endpoint entirely; use the Tax Details tab for a forward-looking estimate instead).
         public async Task<CommonResponse<List<PayslipSummaryDto>>> GetPayslipsAsync(Guid employeeId, Guid? fiscalYearId, CancellationToken cancellationToken = default)
         {
             var monthlyResponse = await GetMonthlySalaryTaxCalculationAsync(employeeId, fiscalYearId, cancellationToken);
@@ -770,36 +869,44 @@ namespace Application.Employees
                 return failureResponse;
             }
 
-            var now = DateTime.UtcNow;
+            var persistedSlips = await _unitOfWork.PayrollRuns.GetSlipsForYearAsync(employeeId, monthlyResponse.Data.FiscalYearId, cancellationToken);
+            var slipsByMonthIndex = new Dictionary<int, SalarySlip>();
+            foreach (var slip in persistedSlips)
+            {
+                slipsByMonthIndex[slip.PayrollRun.MonthIndex] = slip;
+            }
+
             var payslips = new List<PayslipSummaryDto>();
             foreach (var month in monthlyResponse.Data.Months)
             {
-                if (month.PeriodStartDate > now)
+                if (!slipsByMonthIndex.TryGetValue(month.MonthIndex, out var persistedSlip))
                 {
                     continue;
                 }
 
-                var payslipSummaryDto = new PayslipSummaryDto
+                var persistedSummaryDto = new PayslipSummaryDto
                 {
                     MonthIndex = month.MonthIndex,
                     MonthLabel = month.MonthName + "/" + monthlyResponse.Data.FiscalYearCode,
-                    PeriodStartDate = month.PeriodStartDate,
-                    PeriodEndDate = month.PeriodEndDate,
-                    MonthDays = month.MonthDays,
-                    PayDays = month.MonthDays,
-                    Upl = 0
+                    PeriodStartDate = persistedSlip.PeriodStartDate,
+                    PeriodEndDate = persistedSlip.PeriodEndDate,
+                    MonthDays = persistedSlip.MonthDays,
+                    PayDays = (int)Math.Round(persistedSlip.PayDays),
+                    Upl = (int)Math.Round(persistedSlip.UnpaidLeaveDays),
+                    IsProjection = false
                 };
-                payslips.Add(payslipSummaryDto);
+                payslips.Add(persistedSummaryDto);
             }
 
             var successResponse = CommonResponse<List<PayslipSummaryDto>>.Success(payslips);
             return successResponse;
         }
 
-        // Structured line-item detail behind the Payslip tab's modal. Folds in that month's flat
-        // TDS share and any Approved, not-yet-fully-repaid EmployeeLoan due that month as extra
-        // deduction lines -- the "auto-deduction" described on EmployeeLoan, computed at read time
-        // rather than a persisted EmployeeSalaryDeduction row.
+        // Structured line-item detail behind the Payslip tab's modal. Only ever serves a
+        // persisted, Approved-or-Paid SalarySlip -- the durable record, including adjustments
+        // and manual edits (P8). A month with no run yet, or one still sitting in Draft, has no
+        // payslip to show (2026-07-21: the read-time projection fallback was removed from this
+        // endpoint; use the Tax Details tab for a forward-looking estimate instead).
         public async Task<CommonResponse<PayslipDetailDto>> GetPayslipDetailAsync(Guid employeeId, Guid fiscalYearId, int monthIndex, CancellationToken cancellationToken = default)
         {
             var employee = await _unitOfWork.Employees.GetByIdAsync(employeeId, cancellationToken);
@@ -809,57 +916,85 @@ namespace Application.Employees
                 return notFoundResponse;
             }
 
-            var monthlyResponse = await GetMonthlySalaryTaxCalculationAsync(employeeId, fiscalYearId, cancellationToken);
-            if (monthlyResponse.Data == null)
+            var persistedSlip = await _unitOfWork.PayrollRuns.GetSlipForPeriodAsync(employeeId, fiscalYearId, monthIndex, cancellationToken);
+            if (persistedSlip == null)
             {
-                var failureResponse = CommonResponse<PayslipDetailDto>.Fail(monthlyResponse.ResponseCode, monthlyResponse.ResponseMessage);
-                return failureResponse;
-            }
-
-            var monthRow = monthlyResponse.Data.Months.FirstOrDefault(month => month.MonthIndex == monthIndex);
-            if (monthRow == null || monthRow.PeriodStartDate > DateTime.UtcNow)
-            {
-                var noPayslipResponse = CommonResponse<PayslipDetailDto>.Fail(ResponseCodes.NotFound, "No payslip is available for that month yet.");
+                var noPayslipResponse = CommonResponse<PayslipDetailDto>.Fail(ResponseCodes.NotFound, "No payslip is available for that month yet -- payroll must be generated and approved first.");
                 return noPayslipResponse;
             }
 
-            var deductionLines = new List<MonthlyLineItemDto>(monthRow.DeductionLines)
+            var persistedDetailDto = BuildPersistedPayslipDetail(employee, persistedSlip, monthIndex);
+            var successResponse = CommonResponse<PayslipDetailDto>.Success(persistedDetailDto);
+            return successResponse;
+        }
+
+        // Forward-looking "what will next month's pay look like" estimate off the employee's
+        // CURRENT salary structure -- never a persisted SalarySlip, so unlike GetPayslips*Async
+        // it needs no Approved/Paid run to exist yet. "Next month" = the first fiscal-month row
+        // (from MonthlyBreakdownCalculator, shared with the Tax Details tab so the two can never
+        // disagree) whose period hasn't started yet. If today falls inside the fiscal year's last
+        // month, there is no further month to forecast within it -- the caller passes the next
+        // fiscal year's id explicitly, same as every other fiscalYearId-scoped endpoint here.
+        public async Task<CommonResponse<SalaryForecastDto>> GetSalaryForecastAsync(Guid employeeId, Guid? fiscalYearId, CancellationToken cancellationToken = default)
+        {
+            var monthlyResponse = await GetMonthlySalaryTaxCalculationAsync(employeeId, fiscalYearId, cancellationToken);
+            if (monthlyResponse.Data == null)
             {
-                new MonthlyLineItemDto { Code = "TDS", Amount = monthRow.MonthTax }
+                var failureResponse = CommonResponse<SalaryForecastDto>.Fail(monthlyResponse.ResponseCode, monthlyResponse.ResponseMessage);
+                return failureResponse;
+            }
+
+            var now = DateTime.UtcNow;
+            var nextMonthRow = monthlyResponse.Data.Months.FirstOrDefault(month => month.PeriodStartDate > now);
+            if (nextMonthRow == null)
+            {
+                var noNextMonthResponse = CommonResponse<SalaryForecastDto>.Fail(ResponseCodes.NotFound, "Fiscal year '" + monthlyResponse.Data.FiscalYearCode + "' has no further month to forecast -- pass the next fiscal year's id.");
+                return noNextMonthResponse;
+            }
+
+            var deductionLines = new List<MonthlyLineItemDto>(nextMonthRow.DeductionLines)
+            {
+                new MonthlyLineItemDto { Code = "TDS", Label = "TDS (income tax)", Amount = nextMonthRow.MonthTax }
             };
 
             var loans = await _unitOfWork.Employees.GetLoansByEmployeeIdAsync(employeeId, cancellationToken);
-            foreach (var loan in loans)
+            if (loans.Count > 0)
             {
-                if (loan.Status == LoanStatus.Approved && LoanCalculator.IsDueInPeriod(loan, monthRow.PeriodStartDate))
+                var loanLabels = ConfigLabelHelper.BuildLabelMap(await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.DeductionType, cancellationToken));
+                foreach (var loan in loans)
                 {
-                    deductionLines.Add(new MonthlyLineItemDto { Code = loan.LoanTypeCode, Amount = loan.EmiAmount });
+                    if (loan.Status == LoanStatus.Approved && LoanCalculator.IsDueInPeriod(loan, nextMonthRow.PeriodStartDate))
+                    {
+                        deductionLines.Add(new MonthlyLineItemDto { Code = loan.LoanTypeCode, Label = ConfigLabelHelper.Resolve(loanLabels, loan.LoanTypeCode) + " EMI", Amount = loan.EmiAmount });
+                    }
                 }
             }
 
-            var totalDeduction = 0m;
+            var totalDeductions = 0m;
             foreach (var deductionLine in deductionLines)
             {
-                totalDeduction += deductionLine.Amount;
+                totalDeductions += deductionLine.Amount;
             }
 
-            var payslipDetailDto = new PayslipDetailDto
+            var salaryForecastDto = new SalaryForecastDto
             {
-                EmployeeName = BuildFullName(employee.FirstName, employee.MiddleName, employee.LastName),
-                EmployeeCode = employee.EmployeeCode,
-                JobPositionCode = employee.JobPositionCode,
-                PayMonthLabel = monthRow.MonthName + "/" + monthlyResponse.Data.FiscalYearCode,
-                MonthDays = monthRow.MonthDays,
-                PayDays = monthRow.MonthDays,
-                Upl = 0,
-                IncomeLines = monthRow.IncomeLines,
-                GrossIncome = monthRow.MonthGrossIncome,
+                EmployeeId = employeeId,
+                SalaryId = monthlyResponse.Data.SalaryId,
+                FiscalYearId = monthlyResponse.Data.FiscalYearId,
+                FiscalYearCode = monthlyResponse.Data.FiscalYearCode,
+                MonthIndex = nextMonthRow.MonthIndex,
+                MonthLabel = nextMonthRow.MonthName + "/" + monthlyResponse.Data.FiscalYearCode,
+                PeriodStartDate = nextMonthRow.PeriodStartDate,
+                PeriodEndDate = nextMonthRow.PeriodEndDate,
+                MonthDays = nextMonthRow.MonthDays,
+                IncomeLines = nextMonthRow.IncomeLines,
+                GrossSalary = nextMonthRow.MonthGrossIncome,
                 DeductionLines = deductionLines,
-                TotalDeduction = totalDeduction,
-                NetPaid = monthRow.MonthGrossIncome - totalDeduction
+                TotalDeductions = totalDeductions,
+                NetSalary = nextMonthRow.MonthGrossIncome - totalDeductions
             };
 
-            var successResponse = CommonResponse<PayslipDetailDto>.Success(payslipDetailDto);
+            var successResponse = CommonResponse<SalaryForecastDto>.Success(salaryForecastDto);
             return successResponse;
         }
 
@@ -896,7 +1031,7 @@ namespace Application.Employees
             await _unitOfWork.Employees.AddLoanAsync(loan, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            var loanDto = EmployeeMapper.ToLoanDto(loan);
+            var loanDto = EmployeeMapper.ToLoanDto(loan, await LoadCompensationLabelMapAsync(cancellationToken));
             var successResponse = CommonResponse<EmployeeLoanDto>.Success(loanDto, "Loan request submitted successfully.");
             return successResponse;
         }
@@ -914,6 +1049,7 @@ namespace Application.Employees
             }
 
             var loans = await _unitOfWork.Employees.GetLoansByEmployeeIdAsync(employeeId, cancellationToken);
+            var compensationLabels = await LoadCompensationLabelMapAsync(cancellationToken);
 
             var loanDtos = new List<EmployeeLoanDto>();
             var needsSave = false;
@@ -925,7 +1061,7 @@ namespace Application.Employees
                     needsSave = true;
                 }
 
-                loanDtos.Add(EmployeeMapper.ToLoanDto(loan));
+                loanDtos.Add(EmployeeMapper.ToLoanDto(loan, compensationLabels));
             }
 
             if (needsSave)
@@ -960,7 +1096,7 @@ namespace Application.Employees
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            var loanDto = EmployeeMapper.ToLoanDto(loan);
+            var loanDto = EmployeeMapper.ToLoanDto(loan, await LoadCompensationLabelMapAsync(cancellationToken));
             var successResponse = CommonResponse<EmployeeLoanDto>.Success(loanDto, "Loan approved successfully.");
             return successResponse;
         }
@@ -988,7 +1124,7 @@ namespace Application.Employees
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            var loanDto = EmployeeMapper.ToLoanDto(loan);
+            var loanDto = EmployeeMapper.ToLoanDto(loan, await LoadCompensationLabelMapAsync(cancellationToken));
             var successResponse = CommonResponse<EmployeeLoanDto>.Success(loanDto, "Loan rejected.");
             return successResponse;
         }
@@ -1016,9 +1152,354 @@ namespace Application.Employees
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            var loanDto = EmployeeMapper.ToLoanDto(loan);
+            var loanDto = EmployeeMapper.ToLoanDto(loan, await LoadCompensationLabelMapAsync(cancellationToken));
             var successResponse = CommonResponse<EmployeeLoanDto>.Success(loanDto, "Loan cancelled.");
             return successResponse;
+        }
+
+        public async Task<CommonResponse<SalaryAdjustmentDto>> CreateSalaryAdjustmentAsync(Guid employeeId, CreateSalaryAdjustmentCommand command, CancellationToken cancellationToken = default)
+        {
+            var validationResult = _createSalaryAdjustmentValidator.Validate(command);
+            if (!validationResult.IsValid)
+            {
+                var errorMessage = BuildValidationErrorMessage(validationResult);
+                var validationFailureResponse = CommonResponse<SalaryAdjustmentDto>.Fail(ResponseCodes.ValidationError, errorMessage);
+                return validationFailureResponse;
+            }
+
+            var employee = await _unitOfWork.Employees.GetByIdAsync(employeeId, cancellationToken);
+            if (employee == null)
+            {
+                var notFoundResponse = CommonResponse<SalaryAdjustmentDto>.Fail(ResponseCodes.NotFound, "Employee with id '" + employeeId + "' was not found.");
+                return notFoundResponse;
+            }
+
+            var fiscalYear = await _unitOfWork.FiscalYears.GetByIdAsync(command.FiscalYearId, cancellationToken);
+            if (fiscalYear == null)
+            {
+                var yearNotFoundResponse = CommonResponse<SalaryAdjustmentDto>.Fail(ResponseCodes.NotFound, "Fiscal year with id '" + command.FiscalYearId + "' was not found.");
+                return yearNotFoundResponse;
+            }
+
+            var typeCode = command.AdjustmentTypeCode.Trim();
+            var typeExists = await _unitOfWork.Configs.CodeExistsAsync(ConfigTypeCodes.SalaryAdjustmentType, typeCode, cancellationToken);
+            if (!typeExists)
+            {
+                var invalidTypeResponse = CommonResponse<SalaryAdjustmentDto>.Fail(ResponseCodes.ValidationError, "AdjustmentTypeCode '" + typeCode + "' is not a known salary adjustment type option.");
+                return invalidTypeResponse;
+            }
+
+            // An adjustment for a month whose run is already past Draft can never apply (S1) --
+            // reject with a pointer to the alternatives.
+            var existingRun = await _unitOfWork.PayrollRuns.GetByPeriodAsync(command.FiscalYearId, command.MonthIndex, cancellationToken);
+            if (existingRun != null && existingRun.Status != PayrollRunStatus.Draft)
+            {
+                var lockedMonthResponse = CommonResponse<SalaryAdjustmentDto>.Fail(ResponseCodes.Conflict, "That month's payroll run is already '" + existingRun.Status + "' -- enter the adjustment for a later month or cancel the run first.");
+                return lockedMonthResponse;
+            }
+
+            var adjustment = new SalaryAdjustment
+            {
+                EmployeeId = employeeId,
+                FiscalYearId = command.FiscalYearId,
+                MonthIndex = command.MonthIndex,
+                AdjustmentTypeCode = typeCode,
+                Direction = command.Direction,
+                ValueType = command.ValueType,
+                Value = command.Value,
+                Quantity = command.Quantity,
+                Remarks = command.Remarks?.Trim(),
+                Status = AdjustmentStatus.Pending,
+                Employee = employee,
+                FiscalYear = fiscalYear
+            };
+
+            await _unitOfWork.Employees.AddSalaryAdjustmentAsync(adjustment, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            var adjustmentDto = EmployeeMapper.ToSalaryAdjustmentDto(adjustment, await LoadCompensationLabelMapAsync(cancellationToken));
+            var successResponse = CommonResponse<SalaryAdjustmentDto>.Success(adjustmentDto, "Salary adjustment recorded; it will apply on the next payroll run of that month (regenerate the Draft run if one already exists).");
+            return successResponse;
+        }
+
+        // Bulk twin of CreateSalaryAdjustmentAsync -- one Pending adjustment per in-scope
+        // employee, all in a single SaveChangesAsync (the Dashain-allowance/bonus/leave-
+        // encashment-for-everyone case). Scope: explicit EmployeeIds win; otherwise every
+        // payroll-eligible employee, optionally narrowed by EmployeeCategoryCode.
+        public async Task<CommonResponse<BulkSalaryAdjustmentResultDto>> CreateBulkSalaryAdjustmentsAsync(CreateBulkSalaryAdjustmentCommand command, CancellationToken cancellationToken = default)
+        {
+            var validationResult = _createBulkSalaryAdjustmentValidator.Validate(command);
+            if (!validationResult.IsValid)
+            {
+                var errorMessage = BuildValidationErrorMessage(validationResult);
+                var validationFailureResponse = CommonResponse<BulkSalaryAdjustmentResultDto>.Fail(ResponseCodes.ValidationError, errorMessage);
+                return validationFailureResponse;
+            }
+
+            var fiscalYear = await _unitOfWork.FiscalYears.GetByIdAsync(command.FiscalYearId, cancellationToken);
+            if (fiscalYear == null)
+            {
+                var yearNotFoundResponse = CommonResponse<BulkSalaryAdjustmentResultDto>.Fail(ResponseCodes.NotFound, "Fiscal year with id '" + command.FiscalYearId + "' was not found.");
+                return yearNotFoundResponse;
+            }
+
+            var typeCode = command.AdjustmentTypeCode.Trim();
+            var typeExists = await _unitOfWork.Configs.CodeExistsAsync(ConfigTypeCodes.SalaryAdjustmentType, typeCode, cancellationToken);
+            if (!typeExists)
+            {
+                var invalidTypeResponse = CommonResponse<BulkSalaryAdjustmentResultDto>.Fail(ResponseCodes.ValidationError, "AdjustmentTypeCode '" + typeCode + "' is not a known salary adjustment type option.");
+                return invalidTypeResponse;
+            }
+
+            var existingRun = await _unitOfWork.PayrollRuns.GetByPeriodAsync(command.FiscalYearId, command.MonthIndex, cancellationToken);
+            if (existingRun != null && existingRun.Status != PayrollRunStatus.Draft)
+            {
+                var lockedMonthResponse = CommonResponse<BulkSalaryAdjustmentResultDto>.Fail(ResponseCodes.Conflict, "That month's payroll run is already '" + existingRun.Status + "' -- enter the adjustment for a later month or cancel the run first.");
+                return lockedMonthResponse;
+            }
+
+            var result = new BulkSalaryAdjustmentResultDto
+            {
+                FiscalYearId = command.FiscalYearId,
+                MonthIndex = command.MonthIndex,
+                AdjustmentTypeCode = typeCode
+            };
+
+            var targetEmployees = new List<Employee>();
+            if (command.EmployeeIds != null && command.EmployeeIds.Count > 0)
+            {
+                var seenEmployeeIds = new HashSet<Guid>();
+                foreach (var employeeId in command.EmployeeIds)
+                {
+                    if (!seenEmployeeIds.Add(employeeId))
+                    {
+                        continue;
+                    }
+
+                    var employee = await _unitOfWork.Employees.GetByIdAsync(employeeId, cancellationToken);
+                    if (employee == null)
+                    {
+                        result.Skipped.Add(new BulkSalaryAdjustmentSkipDto
+                        {
+                            EmployeeId = employeeId,
+                            EmployeeName = null,
+                            Reason = "Employee was not found."
+                        });
+                        continue;
+                    }
+
+                    targetEmployees.Add(employee);
+                }
+            }
+            else
+            {
+                var eligibleEmployees = await _unitOfWork.Employees.GetPayrollEligibleEmployeesAsync(cancellationToken);
+                var categoryFilter = command.EmployeeCategoryCode?.Trim();
+
+                foreach (var employee in eligibleEmployees)
+                {
+                    if (!string.IsNullOrEmpty(categoryFilter) && employee.EmployeeCategoryCode != categoryFilter)
+                    {
+                        continue;
+                    }
+
+                    targetEmployees.Add(employee);
+                }
+            }
+
+            if (targetEmployees.Count == 0)
+            {
+                var noTargetsResponse = CommonResponse<BulkSalaryAdjustmentResultDto>.Fail(ResponseCodes.ValidationError, "No employees matched the given scope.");
+                return noTargetsResponse;
+            }
+
+            var compensationLabels = await LoadCompensationLabelMapAsync(cancellationToken);
+
+            foreach (var employee in targetEmployees)
+            {
+                var adjustment = new SalaryAdjustment
+                {
+                    EmployeeId = employee.Id,
+                    FiscalYearId = command.FiscalYearId,
+                    MonthIndex = command.MonthIndex,
+                    AdjustmentTypeCode = typeCode,
+                    Direction = command.Direction,
+                    ValueType = command.ValueType,
+                    Value = command.Value,
+                    Quantity = command.Quantity,
+                    Remarks = command.Remarks?.Trim(),
+                    Status = AdjustmentStatus.Pending,
+                    Employee = employee,
+                    FiscalYear = fiscalYear
+                };
+
+                await _unitOfWork.Employees.AddSalaryAdjustmentAsync(adjustment, cancellationToken);
+
+                var adjustmentDto = EmployeeMapper.ToSalaryAdjustmentDto(adjustment, compensationLabels);
+                result.Adjustments.Add(adjustmentDto);
+                result.CreatedCount++;
+            }
+
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            var successResponse = CommonResponse<BulkSalaryAdjustmentResultDto>.Success(result, "Created " + result.CreatedCount + " Pending adjustment(s); skipped " + result.Skipped.Count + ". They will apply on that month's next payroll run (refresh/regenerate the Draft run if one already exists).");
+            return successResponse;
+        }
+
+        public async Task<CommonResponse<List<SalaryAdjustmentDto>>> GetSalaryAdjustmentsAsync(Guid employeeId, Guid? fiscalYearId, int? monthIndex, AdjustmentStatus? status, CancellationToken cancellationToken = default)
+        {
+            var employee = await _unitOfWork.Employees.GetByIdAsync(employeeId, cancellationToken);
+            if (employee == null)
+            {
+                var notFoundResponse = CommonResponse<List<SalaryAdjustmentDto>>.Fail(ResponseCodes.NotFound, "Employee with id '" + employeeId + "' was not found.");
+                return notFoundResponse;
+            }
+
+            var adjustments = await _unitOfWork.Employees.GetSalaryAdjustmentsByFilterAsync(employeeId, fiscalYearId, monthIndex, status, cancellationToken);
+            var compensationLabels = await LoadCompensationLabelMapAsync(cancellationToken);
+
+            var adjustmentDtos = new List<SalaryAdjustmentDto>();
+            foreach (var adjustment in adjustments)
+            {
+                var adjustmentDto = EmployeeMapper.ToSalaryAdjustmentDto(adjustment, compensationLabels);
+                adjustmentDtos.Add(adjustmentDto);
+            }
+
+            var successResponse = CommonResponse<List<SalaryAdjustmentDto>>.Success(adjustmentDtos);
+            return successResponse;
+        }
+
+        public async Task<CommonResponse<SalaryAdjustmentDto>> UpdateSalaryAdjustmentAsync(Guid employeeId, Guid adjustmentId, UpdateSalaryAdjustmentCommand command, CancellationToken cancellationToken = default)
+        {
+            var validationResult = _updateSalaryAdjustmentValidator.Validate(command);
+            if (!validationResult.IsValid)
+            {
+                var errorMessage = BuildValidationErrorMessage(validationResult);
+                var validationFailureResponse = CommonResponse<SalaryAdjustmentDto>.Fail(ResponseCodes.ValidationError, errorMessage);
+                return validationFailureResponse;
+            }
+
+            var adjustment = await _unitOfWork.Employees.GetSalaryAdjustmentByIdAsync(adjustmentId, cancellationToken);
+            if (adjustment == null || adjustment.EmployeeId != employeeId)
+            {
+                var notFoundResponse = CommonResponse<SalaryAdjustmentDto>.Fail(ResponseCodes.NotFound, "Salary adjustment was not found on this employee.");
+                return notFoundResponse;
+            }
+
+            if (adjustment.Status != AdjustmentStatus.Pending)
+            {
+                var lockedResponse = CommonResponse<SalaryAdjustmentDto>.Fail(ResponseCodes.Conflict, "Only Pending adjustments can be edited; this one is '" + adjustment.Status + "'.");
+                return lockedResponse;
+            }
+
+            var typeCode = command.AdjustmentTypeCode.Trim();
+            var typeExists = await _unitOfWork.Configs.CodeExistsAsync(ConfigTypeCodes.SalaryAdjustmentType, typeCode, cancellationToken);
+            if (!typeExists)
+            {
+                var invalidTypeResponse = CommonResponse<SalaryAdjustmentDto>.Fail(ResponseCodes.ValidationError, "AdjustmentTypeCode '" + typeCode + "' is not a known salary adjustment type option.");
+                return invalidTypeResponse;
+            }
+
+            adjustment.AdjustmentTypeCode = typeCode;
+            adjustment.Direction = command.Direction;
+            adjustment.ValueType = command.ValueType;
+            adjustment.Value = command.Value;
+            adjustment.Quantity = command.Quantity;
+            adjustment.Remarks = command.Remarks?.Trim();
+
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            var adjustmentDto = EmployeeMapper.ToSalaryAdjustmentDto(adjustment, await LoadCompensationLabelMapAsync(cancellationToken));
+            var successResponse = CommonResponse<SalaryAdjustmentDto>.Success(adjustmentDto, "Salary adjustment updated successfully.");
+            return successResponse;
+        }
+
+        public async Task<CommonResponse<bool>> CancelSalaryAdjustmentAsync(Guid employeeId, Guid adjustmentId, CancellationToken cancellationToken = default)
+        {
+            var adjustment = await _unitOfWork.Employees.GetSalaryAdjustmentByIdAsync(adjustmentId, cancellationToken);
+            if (adjustment == null || adjustment.EmployeeId != employeeId)
+            {
+                var notFoundResponse = CommonResponse<bool>.Fail(ResponseCodes.NotFound, "Salary adjustment was not found on this employee.");
+                return notFoundResponse;
+            }
+
+            if (adjustment.Status != AdjustmentStatus.Pending)
+            {
+                var lockedResponse = CommonResponse<bool>.Fail(ResponseCodes.Conflict, "Only Pending adjustments can be cancelled; this one is '" + adjustment.Status + "'.");
+                return lockedResponse;
+            }
+
+            adjustment.Status = AdjustmentStatus.Cancelled;
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            var successResponse = CommonResponse<bool>.Success(true, "Salary adjustment cancelled.");
+            return successResponse;
+        }
+
+        // Maps a persisted SalarySlip (payroll-run redesign, 2026-07-16) onto the same
+        // PayslipDetailDto shape the projection produces, so the UI needs no second model.
+        private static PayslipDetailDto BuildPersistedPayslipDetail(Employee employee, SalarySlip slip, int monthIndex)
+        {
+            var incomeLines = new List<MonthlyLineItemDto>();
+            var deductionLines = new List<MonthlyLineItemDto>();
+            decimal grossIncome = 0m;
+            decimal totalDeduction = 0m;
+
+            foreach (var line in slip.Lines)
+            {
+                var lineItem = new MonthlyLineItemDto
+                {
+                    Code = string.IsNullOrWhiteSpace(line.ComponentCode) ? line.Description : line.ComponentCode,
+                    // Persisted slips already carry the resolved label as the line Description
+                    // (falling back to the code on slips generated before 2026-07-19).
+                    Label = string.IsNullOrWhiteSpace(line.Description) ? line.ComponentCode : line.Description,
+                    Amount = line.Amount
+                };
+
+                if (line.LineType == SalaryLineType.Earning)
+                {
+                    incomeLines.Add(lineItem);
+                    grossIncome += line.Amount;
+                }
+                else
+                {
+                    deductionLines.Add(lineItem);
+                    totalDeduction += line.Amount;
+                }
+            }
+
+            var fiscalYearCode = slip.PayrollRun?.FiscalYear?.Code;
+
+            var payslipDetailDto = new PayslipDetailDto
+            {
+                EmployeeName = BuildFullName(employee.FirstName, employee.MiddleName, employee.LastName),
+                EmployeeCode = employee.EmployeeCode,
+                JobPositionCode = employee.JobPositionCode,
+                PayMonthLabel = MonthlyBreakdownCalculator.GetMonthName(monthIndex) + "/" + fiscalYearCode,
+                MonthDays = slip.MonthDays,
+                PayDays = (int)Math.Round(slip.PayDays),
+                Upl = (int)Math.Round(slip.UnpaidLeaveDays),
+                IncomeLines = incomeLines,
+                GrossIncome = grossIncome,
+                DeductionLines = deductionLines,
+                TotalDeduction = totalDeduction,
+                NetPaid = grossIncome - totalDeduction,
+                IsProjection = false
+            };
+
+            return payslipDetailDto;
+        }
+
+        // Merged label map for every catalog a compensation-plan code can come from -- salary
+        // components, deductions (also loan types), insurance types, and salary adjustment
+        // types (2026-07-19). Their code namespaces are distinct by convention.
+        private async Task<Dictionary<string, string>> LoadCompensationLabelMapAsync(CancellationToken cancellationToken)
+        {
+            var labelsByCode = ConfigLabelHelper.BuildLabelMap(await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.SalaryComponentType, cancellationToken));
+            ConfigLabelHelper.MergeLabelMap(labelsByCode, await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.DeductionType, cancellationToken));
+            ConfigLabelHelper.MergeLabelMap(labelsByCode, await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.InsuranceType, cancellationToken));
+            ConfigLabelHelper.MergeLabelMap(labelsByCode, await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.SalaryAdjustmentType, cancellationToken));
+            return labelsByCode;
         }
 
         private static string BuildFullName(string firstName, string middleName, string lastName)

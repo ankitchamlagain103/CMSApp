@@ -183,13 +183,33 @@ namespace Application.DocumentTemplates
                 AddPlaceholder(placeholders, "FeeItemsRows", "Pre-built <tr> rows, one per fee category.");
                 AddPlaceholder(placeholders, "DiscountsRows", "Pre-built <tr> rows, one per discount.");
                 AddPlaceholder(placeholders, "ScholarshipsRows", "Pre-built <tr> rows, one per scholarship.");
-                AddPlaceholder(placeholders, "MonthlyRecurringTotal", "Total monthly recurring fees.");
-                AddPlaceholder(placeholders, "AnnualTotal", "Total annual fees.");
+                AddPlaceholder(placeholders, "MonthlyRecurringTotal", "Total monthly recurring fees, including the per-month share of any installment-split Annual item.");
+                AddPlaceholder(placeholders, "AnnualInstallmentMonthlyShare", "Of MonthlyRecurringTotal, how much comes from installment-split Annual items.");
+                AddPlaceholder(placeholders, "AnnualTotal", "Total annual fees (full yearly amount, installment-split or not).");
                 AddPlaceholder(placeholders, "OneTimeTotal", "Total one-time fees.");
                 AddPlaceholder(placeholders, "RefundableDepositTotal", "Total refundable deposit.");
                 AddPlaceholder(placeholders, "TotalDiscountReduction", "Total discount reduction against the monthly total.");
                 AddPlaceholder(placeholders, "TotalScholarshipReduction", "Total scholarship reduction against the monthly total.");
                 AddPlaceholder(placeholders, "NetMonthlyRecurring", "Monthly recurring total after discounts/scholarships.");
+            }
+            else if (templateType == DocumentTemplateType.PaymentReceipt)
+            {
+                AddPlaceholder(placeholders, "SchoolName", "School name (AppConfig APP_NAME).");
+                AddPlaceholder(placeholders, "SchoolAddress", "School address (AppConfig SCHOOL_ADDRESS).");
+                AddPlaceholder(placeholders, "SchoolPhone", "School phone number (AppConfig SCHOOL_PHONE).");
+                AddPlaceholder(placeholders, "ReceiptNo", "Payment receipt number.");
+                AddPlaceholder(placeholders, "PaymentDate", "Date the payment was received.");
+                AddPlaceholder(placeholders, "StudentName", "Student's full name.");
+                AddPlaceholder(placeholders, "AdmissionNo", "Student's admission number.");
+                AddPlaceholder(placeholders, "GradeCode", "Enrolled grade code.");
+                AddPlaceholder(placeholders, "SectionCode", "Enrolled section code.");
+                AddPlaceholder(placeholders, "PaymentMode", "How the payment was made (Cash/Cheque/...).");
+                AddPlaceholder(placeholders, "ReferenceNo", "External reference (cheque/transaction) number, if any.");
+                AddPlaceholder(placeholders, "AmountPaid", "Total amount received on this receipt.");
+                AddPlaceholder(placeholders, "Remarks", "Payment remarks, if any.");
+                AddPlaceholder(placeholders, "AllocationsRows", "Pre-built <tr> rows, one per invoice this payment settled against (invoice no, billing month, allocated amount).");
+                AddPlaceholder(placeholders, "InvoiceLinesRows", "Pre-built <tr> rows, one per line of every allocated invoice, running Sr.No led (sr.no, invoice no, description, amount).");
+                AddPlaceholder(placeholders, "OutstandingAmount", "The enrollment's remaining outstanding balance after this payment.");
             }
             else if (templateType == DocumentTemplateType.StudentIdCard)
             {

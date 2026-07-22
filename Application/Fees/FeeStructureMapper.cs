@@ -1,3 +1,4 @@
+using Application.Common.Helpers;
 using Application.Fees.Dtos;
 using Domain.Entities;
 
@@ -6,8 +7,9 @@ namespace Application.Fees
     public static class FeeStructureMapper
     {
         // Expects the fee structure's AcademicClass and Items navigations to be loaded (the
-        // repository includes both).
-        public static FeeStructureDto ToDto(FeeStructure feeStructure)
+        // repository includes both). labelsByCode is the FeeCategory (1010) label map; null
+        // keeps FeeCategoryLabel at the code itself.
+        public static FeeStructureDto ToDto(FeeStructure feeStructure, IReadOnlyDictionary<string, string> labelsByCode = null)
         {
             var academicClass = feeStructure.AcademicClass;
 
@@ -22,22 +24,24 @@ namespace Application.Fees
 
             foreach (var item in feeStructure.Items)
             {
-                var itemDto = ToItemDto(item);
+                var itemDto = ToItemDto(item, labelsByCode);
                 feeStructureDto.Items.Add(itemDto);
             }
 
             return feeStructureDto;
         }
 
-        public static FeeStructureItemDto ToItemDto(FeeStructureItem item)
+        public static FeeStructureItemDto ToItemDto(FeeStructureItem item, IReadOnlyDictionary<string, string> labelsByCode = null)
         {
             var itemDto = new FeeStructureItemDto
             {
                 Id = item.Id,
                 FeeStructureId = item.FeeStructureId,
                 FeeCategoryCode = item.FeeCategoryCode,
+                FeeCategoryLabel = ConfigLabelHelper.Resolve(labelsByCode, item.FeeCategoryCode),
                 Amount = item.Amount,
                 FrequencyType = item.FrequencyType,
+                InstallmentCount = item.InstallmentCount,
                 IsOptional = item.IsOptional,
                 IsRefundable = item.IsRefundable
             };

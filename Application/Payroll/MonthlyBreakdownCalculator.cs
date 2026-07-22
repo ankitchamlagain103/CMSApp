@@ -1,3 +1,4 @@
+using Application.Common.Helpers;
 using Application.Payroll.Dtos;
 using Domain.Entities;
 using Domain.Enums;
@@ -17,15 +18,27 @@ namespace Application.Payroll
             "Magh", "Falgun", "Chaitra", "Baishakh", "Jestha", "Ashad"
         };
 
+        // Shared with the persisted-payslip paths (EmployeeService/PayrollRunService) so month
+        // labels stay identical whether a month is projected or generated.
+        internal static string GetMonthName(int monthIndex)
+        {
+            return MonthNames[monthIndex - 1];
+        }
+
+        // labelsByCode (2026-07-19): merged SalaryComponentType/DeductionType Config label map;
+        // each line's Label is resolved from it (falling back to the code), so every consumer
+        // -- Tax Details, payslip projections, payroll-run slip lines -- shows the same
+        // human-readable name instead of the raw option code.
         public static List<MonthlyBreakdownRowDto> Build(
             IReadOnlyList<EmployeeSalaryComponent> components,
             IReadOnlyList<EmployeeSalaryDeduction> deductions,
             DateTime salaryEffectiveFromDate,
             FiscalYear fiscalYear,
-            decimal annualTax)
+            decimal annualTax,
+            IReadOnlyDictionary<string, string> labelsByCode = null)
         {
             var basicPeriodAmount = TaxCalculator.FindBasicPeriodAmount(components);
-            var monthTax = annualTax / 12m;
+            var monthTax = Math.Round(annualTax / 12m, 2);
             var totalDays = (fiscalYear.EndDate.Date - fiscalYear.StartDate.Date).Days + 1;
 
             var rows = new List<MonthlyBreakdownRowDto>();
@@ -51,8 +64,19 @@ namespace Application.Payroll
                     var lineAmount = ResolveMonthAmount(component.ValueType, component.Value, component.FrequencyType, basicPeriodAmount, salaryEffectiveFromDate, periodStart, periodEnd);
                     if (lineAmount != 0m)
                     {
-                        row.IncomeLines.Add(new MonthlyLineItemDto { Code = component.ComponentCode, Amount = lineAmount });
+                        var componentLabel = ConfigLabelHelper.Resolve(labelsByCode, component.ComponentCode);
+                        row.IncomeLines.Add(new MonthlyLineItemDto { Code = component.ComponentCode, Label = componentLabel, Amount = lineAmount });
                         row.MonthGrossIncome += lineAmount;
+
+                        // An employer-funded retirement contribution (SSF/EPF employer share,
+                        // IsRetirementContribution on a COMPONENT) is money deposited with the
+                        // fund, not cash paid out -- it belongs in gross (it's income, and
+                        // taxable when flagged so) but must not inflate net pay, so it is
+                        // offset by an equal deduction line ("remitted to the fund").
+                        if (component.IsRetirementContribution)
+                        {
+                            row.DeductionLines.Add(new MonthlyLineItemDto { Code = component.ComponentCode, Label = componentLabel, Amount = lineAmount });
+                        }
                     }
                 }
 
@@ -61,7 +85,7 @@ namespace Application.Payroll
                     var lineAmount = ResolveMonthAmount(deduction.ValueType, deduction.Value, deduction.FrequencyType, basicPeriodAmount, salaryEffectiveFromDate, periodStart, periodEnd);
                     if (lineAmount != 0m)
                     {
-                        row.DeductionLines.Add(new MonthlyLineItemDto { Code = deduction.DeductionCode, Amount = lineAmount });
+                        row.DeductionLines.Add(new MonthlyLineItemDto { Code = deduction.DeductionCode, Label = ConfigLabelHelper.Resolve(labelsByCode, deduction.DeductionCode), Amount = lineAmount });
                     }
                 }
 
@@ -98,7 +122,7 @@ namespace Application.Payroll
 
             if (frequencyType == PayFrequencyType.Annual)
             {
-                return periodAmount / 12m;
+                return Math.Round(periodAmount / 12m, 2);
             }
 
             var isEffectiveDateInPeriod = effectiveFromDate.Date >= periodStart && effectiveFromDate.Date <= periodEnd;

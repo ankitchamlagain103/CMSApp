@@ -226,6 +226,267 @@ namespace Infrastructure.Migrations
                     b.ToTable("app_configs", "dbo");
                 });
 
+            modelBuilder.Entity("Domain.Entities.BsMonthLength", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int>("BsMonth")
+                        .HasColumnType("integer")
+                        .HasColumnName("bs_month");
+
+                    b.Property<int>("BsYear")
+                        .HasColumnType("integer")
+                        .HasColumnName("bs_year");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("CreatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_ts");
+
+                    b.Property<int>("DaysInMonth")
+                        .HasColumnType("integer")
+                        .HasColumnName("days_in_month");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateTimeOffset?>("UpdatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_ts");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BsYear", "BsMonth")
+                        .IsUnique()
+                        .HasDatabaseName("ix_bs_month_lengths_year_month");
+
+                    b.ToTable("bs_month_lengths", "dbo");
+                });
+
+            modelBuilder.Entity("Domain.Entities.BsMonthName", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("CreatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_ts");
+
+                    b.Property<int>("MonthNumber")
+                        .HasColumnType("integer")
+                        .HasColumnName("month_number");
+
+                    b.Property<string>("NameEn")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("name_en");
+
+                    b.Property<string>("NameNp")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("name_np");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateTimeOffset?>("UpdatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_ts");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MonthNumber")
+                        .IsUnique()
+                        .HasDatabaseName("ix_bs_month_names_month_number");
+
+                    b.ToTable("bs_month_names", "dbo");
+                });
+
+            modelBuilder.Entity("Domain.Entities.BsWeekdayName", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("CreatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_ts");
+
+                    b.Property<bool>("IsWeeklyHoliday")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_weekly_holiday");
+
+                    b.Property<string>("NameEn")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("name_en");
+
+                    b.Property<string>("NameNp")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("name_np");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateTimeOffset?>("UpdatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_ts");
+
+                    b.Property<int>("WeekdayIndex")
+                        .HasColumnType("integer")
+                        .HasColumnName("weekday_index");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("WeekdayIndex")
+                        .IsUnique()
+                        .HasDatabaseName("ix_bs_weekday_names_weekday_index");
+
+                    b.ToTable("bs_weekday_names", "dbo");
+                });
+
+            modelBuilder.Entity("Domain.Entities.CalendarEvent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("AdDate")
+                        .HasColumnType("date")
+                        .HasColumnName("ad_date");
+
+                    b.Property<int>("BsDay")
+                        .HasColumnType("integer")
+                        .HasColumnName("bs_day");
+
+                    b.Property<int>("BsMonth")
+                        .HasColumnType("integer")
+                        .HasColumnName("bs_month");
+
+                    b.Property<int>("BsYear")
+                        .HasColumnType("integer")
+                        .HasColumnName("bs_year");
+
+                    b.Property<string>("ColorCode")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("color_code");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("CreatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_ts");
+
+                    b.Property<string>("DeletedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("deleted_by");
+
+                    b.Property<DateTimeOffset?>("DeletedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_ts");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("description");
+
+                    b.Property<int>("EventType")
+                        .HasColumnType("integer")
+                        .HasColumnName("event_type");
+
+                    b.Property<string>("IconKey")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("icon_key");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("is_active");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_deleted");
+
+                    b.Property<string>("Language")
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)")
+                        .HasColumnName("language");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("title");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateTimeOffset?>("UpdatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_ts");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AdDate")
+                        .HasDatabaseName("ix_calendar_events_ad_date");
+
+                    b.HasIndex("IsDeleted");
+
+                    b.HasIndex("BsYear", "BsMonth", "BsDay")
+                        .HasDatabaseName("ix_calendar_events_bs_date");
+
+                    b.ToTable("calendar_events", "dbo");
+                });
+
             modelBuilder.Entity("Domain.Entities.ClassSection", b =>
                 {
                     b.Property<Guid>("Id")
@@ -742,6 +1003,92 @@ namespace Infrastructure.Migrations
                     b.ToTable("employee_insurance_premiums", "dbo");
                 });
 
+            modelBuilder.Entity("Domain.Entities.EmployeeLoan", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("CreatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_ts");
+
+                    b.Property<string>("DeletedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("deleted_by");
+
+                    b.Property<DateTimeOffset?>("DeletedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_ts");
+
+                    b.Property<decimal>("EmiAmount")
+                        .HasColumnType("decimal(12,2)")
+                        .HasColumnName("emi_amount");
+
+                    b.Property<Guid>("EmployeeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("employee_id");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_deleted");
+
+                    b.Property<string>("LoanTypeCode")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("loan_type_code");
+
+                    b.Property<decimal>("PrincipalAmount")
+                        .HasColumnType("decimal(12,2)")
+                        .HasColumnName("principal_amount");
+
+                    b.Property<string>("Remarks")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("remarks");
+
+                    b.Property<DateTime>("RequestedDate")
+                        .HasColumnType("date")
+                        .HasColumnName("requested_date");
+
+                    b.Property<DateTime>("StartDate")
+                        .HasColumnType("date")
+                        .HasColumnName("start_date");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer")
+                        .HasColumnName("status");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateTimeOffset?>("UpdatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_ts");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EmployeeId")
+                        .HasDatabaseName("ix_employee_loans_employee_id");
+
+                    b.HasIndex("IsDeleted");
+
+                    b.ToTable("employee_loans", "dbo");
+                });
+
             modelBuilder.Entity("Domain.Entities.EmployeeSalary", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1172,6 +1519,654 @@ namespace Infrastructure.Migrations
                     b.ToTable("error_logs", "dbo");
                 });
 
+            modelBuilder.Entity("Domain.Entities.FeeAdjustment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AdjustmentTypeCode")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("adjustment_type_code");
+
+                    b.Property<Guid?>("AppliedFeeInvoiceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("applied_fee_invoice_id");
+
+                    b.Property<int>("BillingMonth")
+                        .HasColumnType("integer")
+                        .HasColumnName("billing_month");
+
+                    b.Property<int>("BillingYear")
+                        .HasColumnType("integer")
+                        .HasColumnName("billing_year");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("CreatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_ts");
+
+                    b.Property<string>("DeletedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("deleted_by");
+
+                    b.Property<DateTimeOffset?>("DeletedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_ts");
+
+                    b.Property<int>("Direction")
+                        .HasColumnType("integer")
+                        .HasColumnName("direction");
+
+                    b.Property<Guid>("EnrollmentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("enrollment_id");
+
+                    b.Property<string>("FeeCategoryCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("fee_category_code");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_deleted");
+
+                    b.Property<string>("Remarks")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("remarks");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer")
+                        .HasColumnName("status");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateTimeOffset?>("UpdatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_ts");
+
+                    b.Property<decimal>("Value")
+                        .HasColumnType("decimal(12,2)")
+                        .HasColumnName("value");
+
+                    b.Property<int>("ValueType")
+                        .HasColumnType("integer")
+                        .HasColumnName("value_type");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IsDeleted");
+
+                    b.HasIndex("EnrollmentId", "BillingYear", "BillingMonth", "Status")
+                        .HasDatabaseName("ix_fee_adjustments_enrollment_period_status");
+
+                    b.ToTable("fee_adjustments", "dbo");
+                });
+
+            modelBuilder.Entity("Domain.Entities.FeeGenerationRun", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("AcademicYearId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("academic_year_id");
+
+                    b.Property<int>("BillingMonth")
+                        .HasColumnType("integer")
+                        .HasColumnName("billing_month");
+
+                    b.Property<int>("BillingYear")
+                        .HasColumnType("integer")
+                        .HasColumnName("billing_year");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("CreatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_ts");
+
+                    b.Property<string>("DeletedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("deleted_by");
+
+                    b.Property<DateTimeOffset?>("DeletedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_ts");
+
+                    b.Property<DateTime>("GeneratedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("generated_ts");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_deleted");
+
+                    b.Property<DateTime?>("LastRegeneratedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_regenerated_ts");
+
+                    b.Property<string>("Remarks")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("remarks");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateTimeOffset?>("UpdatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_ts");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IsDeleted");
+
+                    b.HasIndex("AcademicYearId", "BillingYear", "BillingMonth")
+                        .IsUnique()
+                        .HasDatabaseName("ix_fee_generation_runs_year_period")
+                        .HasFilter("is_deleted = false");
+
+                    b.ToTable("fee_generation_runs", "dbo");
+                });
+
+            modelBuilder.Entity("Domain.Entities.FeeInvoice", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("AcademicYearId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("academic_year_id");
+
+                    b.Property<int>("BillingMonth")
+                        .HasColumnType("integer")
+                        .HasColumnName("billing_month");
+
+                    b.Property<int>("BillingYear")
+                        .HasColumnType("integer")
+                        .HasColumnName("billing_year");
+
+                    b.Property<decimal>("CarriedForwardAmount")
+                        .HasColumnType("decimal(12,2)")
+                        .HasColumnName("carried_forward_amount");
+
+                    b.Property<Guid?>("CarriedForwardToInvoiceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("carried_forward_to_invoice_id");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("CreatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_ts");
+
+                    b.Property<string>("DeletedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("deleted_by");
+
+                    b.Property<DateTimeOffset?>("DeletedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_ts");
+
+                    b.Property<decimal>("DiscountAmount")
+                        .HasColumnType("decimal(12,2)")
+                        .HasColumnName("discount_amount");
+
+                    b.Property<DateTime>("DueDate")
+                        .HasColumnType("date")
+                        .HasColumnName("due_date");
+
+                    b.Property<Guid>("EnrollmentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("enrollment_id");
+
+                    b.Property<DateTime?>("GeneratedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("generated_ts");
+
+                    b.Property<decimal>("GrossAmount")
+                        .HasColumnType("decimal(12,2)")
+                        .HasColumnName("gross_amount");
+
+                    b.Property<string>("InvoiceNo")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("invoice_no");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_deleted");
+
+                    b.Property<decimal>("NetAmount")
+                        .HasColumnType("decimal(12,2)")
+                        .HasColumnName("net_amount");
+
+                    b.Property<decimal>("PaidAmount")
+                        .HasColumnType("decimal(12,2)")
+                        .HasColumnName("paid_amount");
+
+                    b.Property<decimal>("PreviousDueAmount")
+                        .HasColumnType("decimal(12,2)")
+                        .HasColumnName("previous_due_amount");
+
+                    b.Property<string>("Remarks")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("remarks");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer")
+                        .HasColumnName("status");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateTimeOffset?>("UpdatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_ts");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("InvoiceNo")
+                        .IsUnique()
+                        .HasDatabaseName("ix_fee_invoices_invoice_no");
+
+                    b.HasIndex("IsDeleted");
+
+                    b.HasIndex("EnrollmentId", "Status")
+                        .HasDatabaseName("ix_fee_invoices_enrollment_status");
+
+                    b.HasIndex("AcademicYearId", "BillingYear", "BillingMonth")
+                        .HasDatabaseName("ix_fee_invoices_year_period");
+
+                    b.HasIndex("EnrollmentId", "BillingYear", "BillingMonth")
+                        .IsUnique()
+                        .HasDatabaseName("ix_fee_invoices_enrollment_period")
+                        .HasFilter("status <> 6 AND is_deleted = false");
+
+                    b.ToTable("fee_invoices", "dbo");
+                });
+
+            modelBuilder.Entity("Domain.Entities.FeeInvoiceLine", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<decimal>("Amount")
+                        .HasColumnType("decimal(12,2)")
+                        .HasColumnName("amount");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("CreatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_ts");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("description");
+
+                    b.Property<Guid?>("FeeAdjustmentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("fee_adjustment_id");
+
+                    b.Property<string>("FeeCategoryCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("fee_category_code");
+
+                    b.Property<Guid>("FeeInvoiceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("fee_invoice_id");
+
+                    b.Property<Guid?>("FeeRuleId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("fee_rule_id");
+
+                    b.Property<Guid?>("FeeStructureItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("fee_structure_item_id");
+
+                    b.Property<int>("Source")
+                        .HasColumnType("integer")
+                        .HasColumnName("source");
+
+                    b.Property<Guid?>("StudentDiscountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("student_discount_id");
+
+                    b.Property<Guid?>("StudentScholarshipId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("student_scholarship_id");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateTimeOffset?>("UpdatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_ts");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FeeInvoiceId")
+                        .HasDatabaseName("ix_fee_invoice_lines_invoice");
+
+                    b.ToTable("fee_invoice_lines", "dbo");
+                });
+
+            modelBuilder.Entity("Domain.Entities.FeePayment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<decimal>("Amount")
+                        .HasColumnType("decimal(12,2)")
+                        .HasColumnName("amount");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("CreatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_ts");
+
+                    b.Property<string>("DeletedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("deleted_by");
+
+                    b.Property<DateTimeOffset?>("DeletedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_ts");
+
+                    b.Property<Guid>("EnrollmentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("enrollment_id");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_deleted");
+
+                    b.Property<DateTime>("PaymentDate")
+                        .HasColumnType("date")
+                        .HasColumnName("payment_date");
+
+                    b.Property<int>("PaymentMode")
+                        .HasColumnType("integer")
+                        .HasColumnName("payment_mode");
+
+                    b.Property<string>("ReceiptNo")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("receipt_no");
+
+                    b.Property<string>("ReferenceNo")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("reference_no");
+
+                    b.Property<string>("Remarks")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("remarks");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer")
+                        .HasColumnName("status");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateTimeOffset?>("UpdatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_ts");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IsDeleted");
+
+                    b.HasIndex("ReceiptNo")
+                        .IsUnique()
+                        .HasDatabaseName("ix_fee_payments_receipt_no");
+
+                    b.HasIndex("EnrollmentId", "PaymentDate")
+                        .HasDatabaseName("ix_fee_payments_enrollment_date");
+
+                    b.ToTable("fee_payments", "dbo");
+                });
+
+            modelBuilder.Entity("Domain.Entities.FeePaymentAllocation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<decimal>("Amount")
+                        .HasColumnType("decimal(12,2)")
+                        .HasColumnName("amount");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("CreatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_ts");
+
+                    b.Property<Guid>("FeeInvoiceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("fee_invoice_id");
+
+                    b.Property<Guid>("FeePaymentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("fee_payment_id");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateTimeOffset?>("UpdatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_ts");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FeeInvoiceId")
+                        .HasDatabaseName("ix_fee_payment_allocations_invoice");
+
+                    b.HasIndex("FeePaymentId", "FeeInvoiceId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_fee_payment_allocations_payment_invoice");
+
+                    b.ToTable("fee_payment_allocations", "dbo");
+                });
+
+            modelBuilder.Entity("Domain.Entities.FeeRule", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid?>("AcademicClassId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("academic_class_id");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("code");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("CreatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_ts");
+
+                    b.Property<int?>("DaysBeforeDueDate")
+                        .HasColumnType("integer")
+                        .HasColumnName("days_before_due_date");
+
+                    b.Property<string>("DeletedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("deleted_by");
+
+                    b.Property<DateTimeOffset?>("DeletedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_ts");
+
+                    b.Property<DateTime>("EffectiveFrom")
+                        .HasColumnType("date")
+                        .HasColumnName("effective_from");
+
+                    b.Property<DateTime?>("EffectiveTo")
+                        .HasColumnType("date")
+                        .HasColumnName("effective_to");
+
+                    b.Property<string>("FeeCategoryCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("fee_category_code");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("is_active");
+
+                    b.Property<bool>("IsCombinable")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_combinable");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_deleted");
+
+                    b.Property<int?>("MinMonthsTogether")
+                        .HasColumnType("integer")
+                        .HasColumnName("min_months_together");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("name");
+
+                    b.Property<int>("Priority")
+                        .HasColumnType("integer")
+                        .HasColumnName("priority");
+
+                    b.Property<int>("RuleType")
+                        .HasColumnType("integer")
+                        .HasColumnName("rule_type");
+
+                    b.Property<int>("TriggerStage")
+                        .HasColumnType("integer")
+                        .HasColumnName("trigger_stage");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateTimeOffset?>("UpdatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_ts");
+
+                    b.Property<decimal>("Value")
+                        .HasColumnType("decimal(10,2)")
+                        .HasColumnName("value");
+
+                    b.Property<int>("ValueType")
+                        .HasColumnType("integer")
+                        .HasColumnName("value_type");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AcademicClassId");
+
+                    b.HasIndex("Code")
+                        .IsUnique()
+                        .HasDatabaseName("ix_fee_rules_code");
+
+                    b.HasIndex("IsDeleted");
+
+                    b.ToTable("fee_rules", "dbo");
+                });
+
             modelBuilder.Entity("Domain.Entities.FeeStructure", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1267,6 +2262,10 @@ namespace Infrastructure.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("frequency_type");
 
+                    b.Property<int?>("InstallmentCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("installment_count");
+
                     b.Property<bool>("IsOptional")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
@@ -1295,6 +2294,114 @@ namespace Infrastructure.Migrations
                         .HasDatabaseName("ix_fee_structure_items_structure_category");
 
                     b.ToTable("fee_structure_items", "dbo");
+                });
+
+            modelBuilder.Entity("Domain.Entities.FestivalOccurrence", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("AdEndDate")
+                        .HasColumnType("date")
+                        .HasColumnName("ad_end_date");
+
+                    b.Property<DateTime>("AdStartDate")
+                        .HasColumnType("date")
+                        .HasColumnName("ad_start_date");
+
+                    b.Property<int>("BsEndDay")
+                        .HasColumnType("integer")
+                        .HasColumnName("bs_end_day");
+
+                    b.Property<int>("BsEndMonth")
+                        .HasColumnType("integer")
+                        .HasColumnName("bs_end_month");
+
+                    b.Property<int>("BsStartDay")
+                        .HasColumnType("integer")
+                        .HasColumnName("bs_start_day");
+
+                    b.Property<int>("BsStartMonth")
+                        .HasColumnType("integer")
+                        .HasColumnName("bs_start_month");
+
+                    b.Property<int>("BsYear")
+                        .HasColumnType("integer")
+                        .HasColumnName("bs_year");
+
+                    b.Property<int>("Category")
+                        .HasColumnType("integer")
+                        .HasColumnName("category");
+
+                    b.Property<string>("ColorCode")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("color_code");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("CreatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_ts");
+
+                    b.Property<string>("DeletedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("deleted_by");
+
+                    b.Property<DateTimeOffset?>("DeletedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_ts");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("description");
+
+                    b.Property<string>("FestivalName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("festival_name");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("is_active");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_deleted");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateTimeOffset?>("UpdatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_ts");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BsYear")
+                        .HasDatabaseName("ix_festival_occurrences_bs_year");
+
+                    b.HasIndex("IsDeleted");
+
+                    b.HasIndex("AdStartDate", "AdEndDate")
+                        .HasDatabaseName("ix_festival_occurrences_ad_range");
+
+                    b.ToTable("festival_occurrences", "dbo");
                 });
 
             modelBuilder.Entity("Domain.Entities.FiscalYear", b =>
@@ -1463,6 +2570,166 @@ namespace Infrastructure.Migrations
                     b.ToTable("guardians", "dbo");
                 });
 
+            modelBuilder.Entity("Domain.Entities.Meeting", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("AdDate")
+                        .HasColumnType("date")
+                        .HasColumnName("ad_date");
+
+                    b.Property<int>("BsDay")
+                        .HasColumnType("integer")
+                        .HasColumnName("bs_day");
+
+                    b.Property<int>("BsMonth")
+                        .HasColumnType("integer")
+                        .HasColumnName("bs_month");
+
+                    b.Property<int>("BsYear")
+                        .HasColumnType("integer")
+                        .HasColumnName("bs_year");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("CreatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_ts");
+
+                    b.Property<string>("DeletedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("deleted_by");
+
+                    b.Property<DateTimeOffset?>("DeletedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_ts");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("description");
+
+                    b.Property<TimeSpan>("EndTime")
+                        .HasColumnType("time")
+                        .HasColumnName("end_time");
+
+                    b.Property<Guid>("HostUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("host_user_id");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_deleted");
+
+                    b.Property<bool>("IsVirtual")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_virtual");
+
+                    b.Property<string>("Location")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("location");
+
+                    b.Property<TimeSpan>("StartTime")
+                        .HasColumnType("time")
+                        .HasColumnName("start_time");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(250)
+                        .HasColumnType("character varying(250)")
+                        .HasColumnName("title");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateTimeOffset?>("UpdatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_ts");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AdDate")
+                        .HasDatabaseName("ix_meetings_ad_date");
+
+                    b.HasIndex("HostUserId")
+                        .HasDatabaseName("ix_meetings_host_user_id");
+
+                    b.HasIndex("IsDeleted");
+
+                    b.HasIndex("BsYear", "BsMonth", "BsDay")
+                        .HasDatabaseName("ix_meetings_bs_date");
+
+                    b.ToTable("meetings", "dbo");
+                });
+
+            modelBuilder.Entity("Domain.Entities.MeetingAttendee", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("CreatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_ts");
+
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("email");
+
+                    b.Property<Guid>("MeetingId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("meeting_id");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer")
+                        .HasColumnName("status");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateTimeOffset?>("UpdatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_ts");
+
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MeetingId", "Email")
+                        .IsUnique()
+                        .HasDatabaseName("ix_meeting_attendees_meeting_email");
+
+                    b.ToTable("meeting_attendees", "dbo");
+                });
+
             modelBuilder.Entity("Domain.Entities.Menu", b =>
                 {
                     b.Property<int>("Id")
@@ -1576,6 +2843,386 @@ namespace Infrastructure.Migrations
                         .HasDatabaseName("ix_menus_parent_id");
 
                     b.ToTable("menus", "dbo");
+                });
+
+            modelBuilder.Entity("Domain.Entities.PayrollRun", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ApprovedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("approved_by");
+
+                    b.Property<DateTime?>("ApprovedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("approved_ts");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("CreatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_ts");
+
+                    b.Property<string>("DeletedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("deleted_by");
+
+                    b.Property<DateTimeOffset?>("DeletedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_ts");
+
+                    b.Property<Guid>("FiscalYearId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("fiscal_year_id");
+
+                    b.Property<DateTime?>("GeneratedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("generated_ts");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_deleted");
+
+                    b.Property<int>("MonthIndex")
+                        .HasColumnType("integer")
+                        .HasColumnName("month_index");
+
+                    b.Property<DateTime?>("PaidTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("paid_ts");
+
+                    b.Property<string>("Remarks")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("remarks");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer")
+                        .HasColumnName("status");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateTimeOffset?>("UpdatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_ts");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IsDeleted");
+
+                    b.HasIndex("FiscalYearId", "MonthIndex")
+                        .IsUnique()
+                        .HasDatabaseName("ix_payroll_runs_fiscal_month")
+                        .HasFilter("status <> 4 AND is_deleted = false");
+
+                    b.ToTable("payroll_runs", "dbo");
+                });
+
+            modelBuilder.Entity("Domain.Entities.SalaryAdjustment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AdjustmentTypeCode")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("adjustment_type_code");
+
+                    b.Property<Guid?>("AppliedSalarySlipId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("applied_salary_slip_id");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("CreatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_ts");
+
+                    b.Property<string>("DeletedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("deleted_by");
+
+                    b.Property<DateTimeOffset?>("DeletedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_ts");
+
+                    b.Property<int>("Direction")
+                        .HasColumnType("integer")
+                        .HasColumnName("direction");
+
+                    b.Property<Guid>("EmployeeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("employee_id");
+
+                    b.Property<Guid>("FiscalYearId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("fiscal_year_id");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_deleted");
+
+                    b.Property<int>("MonthIndex")
+                        .HasColumnType("integer")
+                        .HasColumnName("month_index");
+
+                    b.Property<decimal?>("Quantity")
+                        .HasColumnType("decimal(6,2)")
+                        .HasColumnName("quantity");
+
+                    b.Property<string>("Remarks")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("remarks");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer")
+                        .HasColumnName("status");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateTimeOffset?>("UpdatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_ts");
+
+                    b.Property<decimal>("Value")
+                        .HasColumnType("decimal(12,2)")
+                        .HasColumnName("value");
+
+                    b.Property<int>("ValueType")
+                        .HasColumnType("integer")
+                        .HasColumnName("value_type");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FiscalYearId");
+
+                    b.HasIndex("IsDeleted");
+
+                    b.HasIndex("EmployeeId", "FiscalYearId", "MonthIndex", "Status")
+                        .HasDatabaseName("ix_salary_adjustments_employee_period_status");
+
+                    b.ToTable("salary_adjustments", "dbo");
+                });
+
+            modelBuilder.Entity("Domain.Entities.SalarySlip", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("CreatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_ts");
+
+                    b.Property<string>("DeletedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("deleted_by");
+
+                    b.Property<DateTimeOffset?>("DeletedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_ts");
+
+                    b.Property<Guid>("EmployeeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("employee_id");
+
+                    b.Property<Guid>("EmployeeSalaryId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("employee_salary_id");
+
+                    b.Property<decimal>("GrossEarnings")
+                        .HasColumnType("decimal(12,2)")
+                        .HasColumnName("gross_earnings");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_deleted");
+
+                    b.Property<int>("MonthDays")
+                        .HasColumnType("integer")
+                        .HasColumnName("month_days");
+
+                    b.Property<decimal>("NetPay")
+                        .HasColumnType("decimal(12,2)")
+                        .HasColumnName("net_pay");
+
+                    b.Property<decimal>("PayDays")
+                        .HasColumnType("decimal(5,2)")
+                        .HasColumnName("pay_days");
+
+                    b.Property<Guid>("PayrollRunId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("payroll_run_id");
+
+                    b.Property<DateTime>("PeriodEndDate")
+                        .HasColumnType("date")
+                        .HasColumnName("period_end_date");
+
+                    b.Property<DateTime>("PeriodStartDate")
+                        .HasColumnType("date")
+                        .HasColumnName("period_start_date");
+
+                    b.Property<string>("Remarks")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("remarks");
+
+                    b.Property<string>("SlipNo")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("slip_no");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer")
+                        .HasColumnName("status");
+
+                    b.Property<decimal>("TaxAmount")
+                        .HasColumnType("decimal(12,2)")
+                        .HasColumnName("tax_amount");
+
+                    b.Property<decimal>("TotalDeductions")
+                        .HasColumnType("decimal(12,2)")
+                        .HasColumnName("total_deductions");
+
+                    b.Property<decimal>("UnpaidLeaveDays")
+                        .HasColumnType("decimal(5,2)")
+                        .HasColumnName("unpaid_leave_days");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateTimeOffset?>("UpdatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_ts");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EmployeeId")
+                        .HasDatabaseName("ix_salary_slips_employee");
+
+                    b.HasIndex("EmployeeSalaryId");
+
+                    b.HasIndex("IsDeleted");
+
+                    b.HasIndex("SlipNo")
+                        .IsUnique()
+                        .HasDatabaseName("ix_salary_slips_slip_no");
+
+                    b.HasIndex("PayrollRunId", "EmployeeId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_salary_slips_run_employee");
+
+                    b.ToTable("salary_slips", "dbo");
+                });
+
+            modelBuilder.Entity("Domain.Entities.SalarySlipLine", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<decimal>("Amount")
+                        .HasColumnType("decimal(12,2)")
+                        .HasColumnName("amount");
+
+                    b.Property<string>("ComponentCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("component_code");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("CreatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_ts");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("description");
+
+                    b.Property<Guid?>("EmployeeLoanId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("employee_loan_id");
+
+                    b.Property<int>("LineType")
+                        .HasColumnType("integer")
+                        .HasColumnName("line_type");
+
+                    b.Property<Guid?>("SalaryAdjustmentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("salary_adjustment_id");
+
+                    b.Property<Guid>("SalarySlipId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("salary_slip_id");
+
+                    b.Property<int>("Source")
+                        .HasColumnType("integer")
+                        .HasColumnName("source");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateTimeOffset?>("UpdatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_ts");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SalarySlipId")
+                        .HasDatabaseName("ix_salary_slip_lines_slip");
+
+                    b.ToTable("salary_slip_lines", "dbo");
                 });
 
             modelBuilder.Entity("Domain.Entities.Student", b =>
@@ -2931,6 +4578,17 @@ namespace Infrastructure.Migrations
                     b.Navigation("EmployeeSalary");
                 });
 
+            modelBuilder.Entity("Domain.Entities.EmployeeLoan", b =>
+                {
+                    b.HasOne("Domain.Entities.Employee", "Employee")
+                        .WithMany("Loans")
+                        .HasForeignKey("EmployeeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Employee");
+                });
+
             modelBuilder.Entity("Domain.Entities.EmployeeSalary", b =>
                 {
                     b.HasOne("Domain.Entities.Employee", "Employee")
@@ -3021,6 +4679,98 @@ namespace Infrastructure.Migrations
                     b.Navigation("Enrollment");
                 });
 
+            modelBuilder.Entity("Domain.Entities.FeeAdjustment", b =>
+                {
+                    b.HasOne("Domain.Entities.Enrollment", "Enrollment")
+                        .WithMany()
+                        .HasForeignKey("EnrollmentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Enrollment");
+                });
+
+            modelBuilder.Entity("Domain.Entities.FeeGenerationRun", b =>
+                {
+                    b.HasOne("Domain.Entities.AcademicYear", "AcademicYear")
+                        .WithMany()
+                        .HasForeignKey("AcademicYearId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("AcademicYear");
+                });
+
+            modelBuilder.Entity("Domain.Entities.FeeInvoice", b =>
+                {
+                    b.HasOne("Domain.Entities.AcademicYear", "AcademicYear")
+                        .WithMany()
+                        .HasForeignKey("AcademicYearId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Domain.Entities.Enrollment", "Enrollment")
+                        .WithMany()
+                        .HasForeignKey("EnrollmentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("AcademicYear");
+
+                    b.Navigation("Enrollment");
+                });
+
+            modelBuilder.Entity("Domain.Entities.FeeInvoiceLine", b =>
+                {
+                    b.HasOne("Domain.Entities.FeeInvoice", "FeeInvoice")
+                        .WithMany("Lines")
+                        .HasForeignKey("FeeInvoiceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("FeeInvoice");
+                });
+
+            modelBuilder.Entity("Domain.Entities.FeePayment", b =>
+                {
+                    b.HasOne("Domain.Entities.Enrollment", "Enrollment")
+                        .WithMany()
+                        .HasForeignKey("EnrollmentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Enrollment");
+                });
+
+            modelBuilder.Entity("Domain.Entities.FeePaymentAllocation", b =>
+                {
+                    b.HasOne("Domain.Entities.FeeInvoice", "FeeInvoice")
+                        .WithMany("Allocations")
+                        .HasForeignKey("FeeInvoiceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Domain.Entities.FeePayment", "FeePayment")
+                        .WithMany("Allocations")
+                        .HasForeignKey("FeePaymentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("FeeInvoice");
+
+                    b.Navigation("FeePayment");
+                });
+
+            modelBuilder.Entity("Domain.Entities.FeeRule", b =>
+                {
+                    b.HasOne("Domain.Entities.AcademicClass", "AcademicClass")
+                        .WithMany()
+                        .HasForeignKey("AcademicClassId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("AcademicClass");
+                });
+
             modelBuilder.Entity("Domain.Entities.FeeStructure", b =>
                 {
                     b.HasOne("Domain.Entities.AcademicClass", "AcademicClass")
@@ -3043,6 +4793,17 @@ namespace Infrastructure.Migrations
                     b.Navigation("FeeStructure");
                 });
 
+            modelBuilder.Entity("Domain.Entities.MeetingAttendee", b =>
+                {
+                    b.HasOne("Domain.Entities.Meeting", "Meeting")
+                        .WithMany("Attendees")
+                        .HasForeignKey("MeetingId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Meeting");
+                });
+
             modelBuilder.Entity("Domain.Entities.Menu", b =>
                 {
                     b.HasOne("Domain.Entities.Menu", "MainMenu")
@@ -3051,6 +4812,74 @@ namespace Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Restrict);
 
                     b.Navigation("MainMenu");
+                });
+
+            modelBuilder.Entity("Domain.Entities.PayrollRun", b =>
+                {
+                    b.HasOne("Domain.Entities.FiscalYear", "FiscalYear")
+                        .WithMany()
+                        .HasForeignKey("FiscalYearId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("FiscalYear");
+                });
+
+            modelBuilder.Entity("Domain.Entities.SalaryAdjustment", b =>
+                {
+                    b.HasOne("Domain.Entities.Employee", "Employee")
+                        .WithMany()
+                        .HasForeignKey("EmployeeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Domain.Entities.FiscalYear", "FiscalYear")
+                        .WithMany()
+                        .HasForeignKey("FiscalYearId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Employee");
+
+                    b.Navigation("FiscalYear");
+                });
+
+            modelBuilder.Entity("Domain.Entities.SalarySlip", b =>
+                {
+                    b.HasOne("Domain.Entities.Employee", "Employee")
+                        .WithMany()
+                        .HasForeignKey("EmployeeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Domain.Entities.EmployeeSalary", "EmployeeSalary")
+                        .WithMany()
+                        .HasForeignKey("EmployeeSalaryId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Domain.Entities.PayrollRun", "PayrollRun")
+                        .WithMany("Slips")
+                        .HasForeignKey("PayrollRunId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Employee");
+
+                    b.Navigation("EmployeeSalary");
+
+                    b.Navigation("PayrollRun");
+                });
+
+            modelBuilder.Entity("Domain.Entities.SalarySlipLine", b =>
+                {
+                    b.HasOne("Domain.Entities.SalarySlip", "SalarySlip")
+                        .WithMany("Lines")
+                        .HasForeignKey("SalarySlipId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("SalarySlip");
                 });
 
             modelBuilder.Entity("Domain.Entities.StudentDiscount", b =>
@@ -3287,6 +5116,8 @@ namespace Infrastructure.Migrations
 
             modelBuilder.Entity("Domain.Entities.Employee", b =>
                 {
+                    b.Navigation("Loans");
+
                     b.Navigation("Salaries");
 
                     b.Navigation("Teacher");
@@ -3312,6 +5143,18 @@ namespace Infrastructure.Migrations
                     b.Navigation("Scholarships");
                 });
 
+            modelBuilder.Entity("Domain.Entities.FeeInvoice", b =>
+                {
+                    b.Navigation("Allocations");
+
+                    b.Navigation("Lines");
+                });
+
+            modelBuilder.Entity("Domain.Entities.FeePayment", b =>
+                {
+                    b.Navigation("Allocations");
+                });
+
             modelBuilder.Entity("Domain.Entities.FeeStructure", b =>
                 {
                     b.Navigation("Items");
@@ -3327,9 +5170,24 @@ namespace Infrastructure.Migrations
                     b.Navigation("StudentLinks");
                 });
 
+            modelBuilder.Entity("Domain.Entities.Meeting", b =>
+                {
+                    b.Navigation("Attendees");
+                });
+
             modelBuilder.Entity("Domain.Entities.Menu", b =>
                 {
                     b.Navigation("Childrens");
+                });
+
+            modelBuilder.Entity("Domain.Entities.PayrollRun", b =>
+                {
+                    b.Navigation("Slips");
+                });
+
+            modelBuilder.Entity("Domain.Entities.SalarySlip", b =>
+                {
+                    b.Navigation("Lines");
                 });
 
             modelBuilder.Entity("Domain.Entities.Student", b =>

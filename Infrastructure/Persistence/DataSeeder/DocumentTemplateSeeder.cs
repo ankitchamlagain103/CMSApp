@@ -47,7 +47,8 @@ namespace Infrastructure.Persistence.DataSeeder
                 BuildTemplate(DocumentTemplateType.Payslip, "Default Payslip", BuildPayslipHtml()),
                 BuildTemplate(DocumentTemplateType.FeeReceipt, "Default Fee Receipt", BuildFeeReceiptHtml()),
                 BuildTemplate(DocumentTemplateType.StudentIdCard, "Default Student ID Card", BuildStudentIdCardHtml()),
-                BuildTemplate(DocumentTemplateType.TeacherIdCard, "Default Teacher ID Card", BuildTeacherIdCardHtml())
+                BuildTemplate(DocumentTemplateType.TeacherIdCard, "Default Teacher ID Card", BuildTeacherIdCardHtml()),
+                BuildTemplate(DocumentTemplateType.PaymentReceipt, "Default Payment Receipt", BuildPaymentReceiptHtml())
             };
 
             return baselineTemplates;
@@ -103,13 +104,75 @@ namespace Infrastructure.Persistence.DataSeeder
                 + "<h3>Scholarships</h3>"
                 + "<table style=\"width:100%;border-collapse:collapse;\"><thead><tr><th>Type</th><th>Value</th></tr></thead><tbody>{{ScholarshipsRows}}</tbody></table>"
                 + "<h3>Summary</h3>"
-                + "<p>Monthly Recurring Total: {{MonthlyRecurringTotal}}</p>"
+                + "<p>Monthly Recurring Total: {{MonthlyRecurringTotal}} (of which {{AnnualInstallmentMonthlyShare}} is the Annual Fee's installment share)</p>"
                 + "<p>Annual Total: {{AnnualTotal}}</p>"
                 + "<p>One-Time Total: {{OneTimeTotal}}</p>"
                 + "<p>Refundable Deposit Total: {{RefundableDepositTotal}}</p>"
                 + "<p>Total Discount Reduction: {{TotalDiscountReduction}}</p>"
                 + "<p>Total Scholarship Reduction: {{TotalScholarshipReduction}}</p>"
                 + "<p><strong>Net Monthly Recurring: {{NetMonthlyRecurring}}</strong></p>"
+                + "</div>";
+        }
+
+        // Modeled on the school's own "Receipt Sample for Fees" layout: a bordered card with a
+        // school-header band, a Sr.No/Particulars/Amount table (fed by every allocated
+        // invoice's own lines -- the "receipt should include invoice line details"
+        // requirement), a Total row, Paid-By/Balance line, and signature blocks. Deliberately
+        // does NOT carry the sample's "non-refundable" disclaimer -- this system tracks
+        // genuinely refundable deposit items (FeeStructureItem.IsRefundable), so that claim
+        // would be factually wrong here; the footer stays neutral instead.
+        private static string BuildPaymentReceiptHtml()
+        {
+            return "<div style=\"font-family:Georgia,'Times New Roman',serif;max-width:700px;margin:auto;border:2px solid #333;\">"
+                + "<div style=\"background:#fff8dc;padding:16px;text-align:center;border-bottom:2px solid #333;\">"
+                + "<div style=\"text-decoration:underline;font-weight:bold;\">Receipt</div>"
+                + "<h2 style=\"color:#b03a2e;margin:6px 0;\">{{SchoolName}}</h2>"
+                + "<table style=\"width:100%;font-size:14px;\"><tr>"
+                + "<td style=\"text-align:left;\">Address: {{SchoolAddress}}</td>"
+                + "<td style=\"text-align:right;\">Phone: {{SchoolPhone}}</td>"
+                + "</tr></table>"
+                + "</div>"
+                + "<div style=\"padding:16px;background:#fff8dc;\">"
+                + "<p><strong>Receipt No.</strong> {{ReceiptNo}}</p>"
+                + "<table style=\"width:100%;font-size:14px;\"><tr>"
+                + "<td>Name of Student: <strong>{{StudentName}}</strong> ({{AdmissionNo}})</td>"
+                + "<td>Grade/Section: {{GradeCode}} {{SectionCode}}</td>"
+                + "</tr><tr>"
+                + "<td colspan=\"2\">Date of Payment: {{PaymentDate}}</td>"
+                + "</tr></table>"
+                + "</div>"
+                + "<table style=\"width:100%;border-collapse:collapse;border-top:2px solid #333;\">"
+                + "<thead><tr style=\"background:#fff8dc;\">"
+                + "<th style=\"border:1px solid #333;padding:6px;\">Sr. No</th>"
+                + "<th style=\"border:1px solid #333;padding:6px;\">Invoice No</th>"
+                + "<th style=\"border:1px solid #333;padding:6px;text-align:left;\">Particulars</th>"
+                + "<th style=\"border:1px solid #333;padding:6px;\">Amount</th>"
+                + "</tr></thead>"
+                + "<tbody>{{InvoiceLinesRows}}</tbody>"
+                + "<tfoot><tr style=\"background:#fff8dc;font-weight:bold;\">"
+                + "<td colspan=\"3\" style=\"border:1px solid #333;padding:6px;text-align:right;\">Total</td>"
+                + "<td style=\"border:1px solid #333;padding:6px;text-align:center;\">{{AmountPaid}}</td>"
+                + "</tr></tfoot>"
+                + "</table>"
+                + "<h4 style=\"padding:0 16px;\">Invoices Settled</h4>"
+                + "<table style=\"width:100%;border-collapse:collapse;padding:0 16px;\">"
+                + "<thead><tr><th>Invoice No</th><th>Billing Month</th><th>Allocated</th></tr></thead>"
+                + "<tbody>{{AllocationsRows}}</tbody>"
+                + "</table>"
+                + "<div style=\"padding:16px;background:#fff8dc;border-top:2px solid #333;\">"
+                + "<table style=\"width:100%;font-size:14px;\"><tr>"
+                + "<td>Paid By: {{PaymentMode}} {{ReferenceNo}}</td>"
+                + "<td style=\"text-align:right;\">Balance if any: {{OutstandingAmount}}</td>"
+                + "</tr></table>"
+                + "<p>Remarks: {{Remarks}}</p>"
+                + "</div>"
+                + "<div style=\"padding:24px 16px 16px;display:flex;justify-content:space-between;\">"
+                + "<div>Signature of Cashier</div>"
+                + "<div>Signature of Guardian</div>"
+                + "</div>"
+                + "<div style=\"border-top:2px solid #333;background:#fff8dc;padding:8px;text-align:center;font-size:12px;\">"
+                + "This is a computer-generated receipt."
+                + "</div>"
                 + "</div>";
         }
 

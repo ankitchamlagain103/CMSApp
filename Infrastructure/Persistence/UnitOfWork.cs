@@ -20,10 +20,17 @@ namespace Infrastructure.Persistence
         private IStudentRepository _studentRepository;
         private IEnrollmentRepository _enrollmentRepository;
         private IFeeStructureRepository _feeStructureRepository;
+        private IFeeRuleRepository _feeRuleRepository;
+        private IFeeInvoiceRepository _feeInvoiceRepository;
+        private IFeeGenerationRunRepository _feeGenerationRunRepository;
+        private IPayrollRunRepository _payrollRunRepository;
         private IFiscalYearRepository _fiscalYearRepository;
         private IEmployeeRepository _employeeRepository;
 
         private IDocumentTemplateRepository _documentTemplateRepository;
+        private ICalendarConfigRepository _calendarConfigRepository;
+        private ICalendarEventRepository _calendarEventRepository;
+        private IMeetingRepository _meetingRepository;
 
         public UnitOfWork(ApplicationDbContext dbContext)
         {
@@ -199,6 +206,58 @@ namespace Infrastructure.Persistence
             }
         }
 
+        public IFeeRuleRepository FeeRules
+        {
+            get
+            {
+                if (_feeRuleRepository == null)
+                {
+                    _feeRuleRepository = new FeeRuleRepository(_dbContext);
+                }
+
+                return _feeRuleRepository;
+            }
+        }
+
+        public IFeeInvoiceRepository FeeInvoices
+        {
+            get
+            {
+                if (_feeInvoiceRepository == null)
+                {
+                    _feeInvoiceRepository = new FeeInvoiceRepository(_dbContext);
+                }
+
+                return _feeInvoiceRepository;
+            }
+        }
+
+        public IFeeGenerationRunRepository FeeGenerationRuns
+        {
+            get
+            {
+                if (_feeGenerationRunRepository == null)
+                {
+                    _feeGenerationRunRepository = new FeeGenerationRunRepository(_dbContext);
+                }
+
+                return _feeGenerationRunRepository;
+            }
+        }
+
+        public IPayrollRunRepository PayrollRuns
+        {
+            get
+            {
+                if (_payrollRunRepository == null)
+                {
+                    _payrollRunRepository = new PayrollRunRepository(_dbContext);
+                }
+
+                return _payrollRunRepository;
+            }
+        }
+
         public IFiscalYearRepository FiscalYears
         {
             get
@@ -235,6 +294,45 @@ namespace Infrastructure.Persistence
                 }
 
                 return _documentTemplateRepository;
+            }
+        }
+
+        public ICalendarConfigRepository CalendarConfigs
+        {
+            get
+            {
+                if (_calendarConfigRepository == null)
+                {
+                    _calendarConfigRepository = new CalendarConfigRepository(_dbContext);
+                }
+
+                return _calendarConfigRepository;
+            }
+        }
+
+        public ICalendarEventRepository CalendarEvents
+        {
+            get
+            {
+                if (_calendarEventRepository == null)
+                {
+                    _calendarEventRepository = new CalendarEventRepository(_dbContext);
+                }
+
+                return _calendarEventRepository;
+            }
+        }
+
+        public IMeetingRepository Meetings
+        {
+            get
+            {
+                if (_meetingRepository == null)
+                {
+                    _meetingRepository = new MeetingRepository(_dbContext);
+                }
+
+                return _meetingRepository;
             }
         }
 

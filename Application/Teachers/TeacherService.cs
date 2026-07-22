@@ -646,6 +646,11 @@ namespace Application.Teachers
             return _employeeService.GetMonthlySalaryTaxCalculationAsync(teacherId, fiscalYearId, cancellationToken);
         }
 
+        public Task<CommonResponse<TaxPlanningDto>> GetTaxPlanningAsync(Guid teacherId, Guid? fiscalYearId, CancellationToken cancellationToken = default)
+        {
+            return _employeeService.GetTaxPlanningAsync(teacherId, fiscalYearId, cancellationToken);
+        }
+
         public Task<CommonResponse<DocumentPreviewDto>> GetPayslipPreviewAsync(Guid teacherId, Guid? fiscalYearId, CancellationToken cancellationToken = default)
         {
             return _employeeService.GetPayslipPreviewAsync(teacherId, fiscalYearId, cancellationToken);
@@ -659,6 +664,11 @@ namespace Application.Teachers
         public Task<CommonResponse<PayslipDetailDto>> GetPayslipDetailAsync(Guid teacherId, Guid fiscalYearId, int monthIndex, CancellationToken cancellationToken = default)
         {
             return _employeeService.GetPayslipDetailAsync(teacherId, fiscalYearId, monthIndex, cancellationToken);
+        }
+
+        public Task<CommonResponse<SalaryForecastDto>> GetSalaryForecastAsync(Guid teacherId, Guid? fiscalYearId, CancellationToken cancellationToken = default)
+        {
+            return _employeeService.GetSalaryForecastAsync(teacherId, fiscalYearId, cancellationToken);
         }
 
         public Task<CommonResponse<EmployeeLoanDto>> RequestLoanAsync(Guid teacherId, RequestLoanCommand command, CancellationToken cancellationToken = default)

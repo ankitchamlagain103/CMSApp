@@ -33,6 +33,9 @@ namespace Infrastructure.Persistence.DataSeeder
             await EnsureConfigTypeAsync(dbContext, ConfigTypeCodes.SalaryComponentType, "Salary Component Type", "Compensation-plan income line items (payroll) -- 'BASIC' (Domain/Constants/SalaryComponentCodes) is the well-known code Percentage-valued components/deductions resolve their rate against");
             await EnsureConfigTypeAsync(dbContext, ConfigTypeCodes.DeductionType, "Deduction Type", "Compensation-plan deduction/loan/advance line items (payroll)");
             await EnsureConfigTypeAsync(dbContext, ConfigTypeCodes.InsuranceType, "Insurance Type", "Life/Health/Housing insurance catalog (payroll); AdditionalValue1 = that type's Nepal tax-deduction cap amount");
+            await EnsureConfigTypeAsync(dbContext, ConfigTypeCodes.SalaryAdjustmentType, "Salary Adjustment Type", "Pre-run monthly payroll override catalog (payroll runs) -- UNPAID_LEAVE gets special day-count handling (Domain/Constants/SalaryAdjustmentTypeCodes); AdditionalValue1 = suggested direction (EARNING/DEDUCTION) a UI can prefill from");
+            await EnsureConfigTypeAsync(dbContext, ConfigTypeCodes.FeeAdjustmentType, "Fee Adjustment Type", "Pre-generation monthly fee override catalog (fee invoices); AdditionalValue1 = suggested direction (CHARGE/CREDIT) a UI can prefill from");
+            await EnsureConfigTypeAsync(dbContext, ConfigTypeCodes.SsfRate, "SSF Rate", "Social Security Fund contribution rates (payroll) -- EMPLOYEE_SHARE/EMPLOYER_SHARE (Domain/Constants/SsfShareCodes); AdditionalValue1 = that share's percentage of Basic Salary, admin-editable when the law changes");
 
             await EnsureConfigAsync(dbContext, ConfigTypeCodes.GuardianRelationship, "FATHER", "Father", 1);
             await EnsureConfigAsync(dbContext, ConfigTypeCodes.GuardianRelationship, "MOTHER", "Mother", 2);
@@ -95,22 +98,29 @@ namespace Infrastructure.Persistence.DataSeeder
             // Grade/Section (school-specific amounts, admin-created via POST /api/feestructures)
             // vs GuardianRelationship (near-universal vocabulary): the categories themselves are
             // the fixed, regulation-driven part, so all 11 are seeded; per-class amounts are not.
-            // AdditionalValue1/2/3 (default FrequencyType name / IsOptional / IsRefundable) are the
-            // "global config" defaults a UI can prefill from when adding a class fee item -- the
-            // resulting FeeStructureItem is a fully independent named row with no ongoing link back
-            // to this code (2026-07-15 header+items redesign, see
-            // Docs/fee_management_implementation_guide.md).
-            await EnsureConfigAsync(dbContext, ConfigTypeCodes.FeeCategory, "TUITION", "Monthly Tuition Fee", 1, "Monthly", "false", "false");
-            await EnsureConfigAsync(dbContext, ConfigTypeCodes.FeeCategory, "ANNUAL", "Annual Fee", 2, "Annual", "false", "false");
-            await EnsureConfigAsync(dbContext, ConfigTypeCodes.FeeCategory, "ADMISSION", "Admission Fee", 3, "OneTime", "false", "false");
-            await EnsureConfigAsync(dbContext, ConfigTypeCodes.FeeCategory, "DEPOSIT", "Deposit (Refundable)", 4, "OneTime", "false", "true");
-            await EnsureConfigAsync(dbContext, ConfigTypeCodes.FeeCategory, "EXAMINATION", "Examination Fee", 5, "Annual", "false", "false");
-            await EnsureConfigAsync(dbContext, ConfigTypeCodes.FeeCategory, "COMPUTER", "Computer Fee", 6, "Monthly", "false", "false");
-            await EnsureConfigAsync(dbContext, ConfigTypeCodes.FeeCategory, "SPECIAL_TRAINING", "Special Training Fee", 7, "Monthly", "true", "false");
-            await EnsureConfigAsync(dbContext, ConfigTypeCodes.FeeCategory, "HOSTEL", "Hostel Fee", 8, "Monthly", "true", "false");
-            await EnsureConfigAsync(dbContext, ConfigTypeCodes.FeeCategory, "MEAL", "Meal Fee", 9, "Monthly", "true", "false");
-            await EnsureConfigAsync(dbContext, ConfigTypeCodes.FeeCategory, "TRANSPORTATION", "Transportation Fee", 10, "Monthly", "true", "false");
-            await EnsureConfigAsync(dbContext, ConfigTypeCodes.FeeCategory, "EDUCATIONAL_TOUR", "Educational Tour Fee", 11, "OneTime", "true", "false");
+            // AdditionalValue1 is the category's fee_frequency (Domain/Constants/FeeFrequencyCodes,
+            // normative as of 2026-07-16 -- it drives the fee-generation default and is validated
+            // on Config create/update for this type); AdditionalValue2/3 (IsOptional/IsRefundable)
+            // stay UI-prefill defaults. The resulting FeeStructureItem is a fully independent row
+            // whose own FrequencyType is what generation executes.
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.FeeCategory, "TUITION", "Monthly Tuition Fee", 1, FeeFrequencyCodes.Monthly, "false", "false");
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.FeeCategory, "ANNUAL", "Annual Fee", 2, FeeFrequencyCodes.Annual, "false", "false");
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.FeeCategory, "ADMISSION", "Admission Fee", 3, FeeFrequencyCodes.OneTime, "false", "false");
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.FeeCategory, "DEPOSIT", "Deposit (Refundable)", 4, FeeFrequencyCodes.OneTime, "false", "true");
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.FeeCategory, "EXAMINATION", "Examination Fee", 5, FeeFrequencyCodes.Annual, "false", "false");
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.FeeCategory, "COMPUTER", "Computer Fee", 6, FeeFrequencyCodes.Monthly, "false", "false");
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.FeeCategory, "SPECIAL_TRAINING", "Special Training Fee", 7, FeeFrequencyCodes.Monthly, "true", "false");
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.FeeCategory, "HOSTEL", "Hostel Fee", 8, FeeFrequencyCodes.Monthly, "true", "false");
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.FeeCategory, "MEAL", "Meal Fee", 9, FeeFrequencyCodes.Monthly, "true", "false");
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.FeeCategory, "TRANSPORTATION", "Transportation Fee", 10, FeeFrequencyCodes.Monthly, "true", "false");
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.FeeCategory, "EDUCATIONAL_TOUR", "Educational Tour Fee", 11, FeeFrequencyCodes.OneTime, "true", "false");
+
+            // One-time targeted normalization (2026-07-16): fee_frequency became normative, so
+            // FeeCategory rows whose AdditionalValue1 is blank or a legacy enum name
+            // ("Monthly"/"Annual"/"OneTime", seeded before the codes existed) are rewritten to
+            // the canonical MONTHLY/ANNUAL/ONE_TIME codes. An already-canonical value -- admin-set
+            // or otherwise -- is never touched.
+            await NormalizeFeeCategoryFrequenciesAsync(dbContext);
 
             // All seeded (fixed org taxonomy, same reasoning as FeeCategory) -- codes match
             // Domain/Constants/EmployeeCategoryCodes/JobPositionCodes exactly where those
@@ -147,11 +157,19 @@ namespace Infrastructure.Persistence.DataSeeder
             await EnsureConfigAsync(dbContext, ConfigTypeCodes.SalaryComponentType, "OTHER_ALLOWANCE", "Other Allowance", 6);
             await EnsureConfigAsync(dbContext, ConfigTypeCodes.SalaryComponentType, "FESTIVAL_BONUS", "Festival (Dashain) Bonus", 7);
             await EnsureConfigAsync(dbContext, ConfigTypeCodes.SalaryComponentType, "LEAVE_ENCASHMENT", "Leave Encashment", 8);
+            // 2026-07-21: rounds out the "Common Salary Components" earnings list requested for
+            // the Compensation Plan form (House Rent/Medical/Overtime/Bonus were missing options,
+            // forcing admins to mistype them under the catch-all OTHER_ALLOWANCE code).
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.SalaryComponentType, "HOUSE_RENT_ALLOWANCE", "House Rent Allowance", 9);
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.SalaryComponentType, "MEDICAL_ALLOWANCE", "Medical Allowance", 10);
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.SalaryComponentType, "OVERTIME", "Overtime", 11);
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.SalaryComponentType, "BONUS", "Bonus", 12);
 
             await EnsureConfigAsync(dbContext, ConfigTypeCodes.DeductionType, "SSF_DEDUCTION", "SSF Deduction", 1);
-            await EnsureConfigAsync(dbContext, ConfigTypeCodes.DeductionType, "LOAN", "Loan", 2);
-            await EnsureConfigAsync(dbContext, ConfigTypeCodes.DeductionType, "ADVANCE", "Advance", 3);
-            await EnsureConfigAsync(dbContext, ConfigTypeCodes.DeductionType, "OTHER", "Other", 4);
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.DeductionType, "CIT_DEDUCTION", "Citizen Investment Trust (CIT)", 2);
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.DeductionType, "LOAN", "Loan", 3);
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.DeductionType, "ADVANCE", "Advance", 4);
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.DeductionType, "OTHER", "Other", 5);
 
             // AdditionalValue1 = that insurance type's Nepal tax-deduction cap (illustrative --
             // verify against the current Income Tax Act figures before relying on it, same
@@ -159,6 +177,69 @@ namespace Infrastructure.Persistence.DataSeeder
             await EnsureConfigAsync(dbContext, ConfigTypeCodes.InsuranceType, "LIFE", "Life Insurance", 1, additionalValue1: "40000");
             await EnsureConfigAsync(dbContext, ConfigTypeCodes.InsuranceType, "HEALTH", "Health Insurance", 2, additionalValue1: "20000");
             await EnsureConfigAsync(dbContext, ConfigTypeCodes.InsuranceType, "HOUSING", "Housing Insurance", 3, additionalValue1: "25000");
+
+            // Pre-run monthly payroll overrides. UNPAID_LEAVE is the one code with special
+            // generation-time handling (day-count Quantity); the rest are plain amount/percentage
+            // lines. AdditionalValue1 = suggested direction.
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.SalaryAdjustmentType, "UNPAID_LEAVE", "Unpaid Leave", 1, additionalValue1: "DEDUCTION");
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.SalaryAdjustmentType, "LATE_FINE", "Late Arrival Fine", 2, additionalValue1: "DEDUCTION");
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.SalaryAdjustmentType, "OVERTIME", "Overtime", 3, additionalValue1: "EARNING");
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.SalaryAdjustmentType, "BONUS", "Bonus", 4, additionalValue1: "EARNING");
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.SalaryAdjustmentType, "INCENTIVE", "Incentive", 5, additionalValue1: "EARNING");
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.SalaryAdjustmentType, "ARREAR", "Arrear", 6, additionalValue1: "EARNING");
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.SalaryAdjustmentType, "OTHER", "Other", 7);
+
+            // Nepal SSF: 31% of Basic Salary total -- 11% deducted from the employee's pay,
+            // 20% paid by the employer on top of salary (a CTC cost, never a pay deduction).
+            // AdditionalValue1 = the share's percentage of Basic; the salary-calculator module
+            // reads these instead of hardcoding the statutory rates.
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.SsfRate, SsfShareCodes.EmployeeShare, "SSF Employee Share (% of Basic)", 1, additionalValue1: "11");
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.SsfRate, SsfShareCodes.EmployerShare, "SSF Employer Share (% of Basic)", 2, additionalValue1: "20");
+
+            // Pre-generation monthly fee overrides. AdditionalValue1 = suggested direction.
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.FeeAdjustmentType, "SPECIAL_DISCOUNT", "Special Discount", 1, additionalValue1: "CREDIT");
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.FeeAdjustmentType, "ADDITIONAL_CHARGE", "Additional Charge", 2, additionalValue1: "CHARGE");
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.FeeAdjustmentType, "FINE", "Fine", 3, additionalValue1: "CHARGE");
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.FeeAdjustmentType, "CARRY_CORRECTION", "Opening Balance / Carry Correction", 4, additionalValue1: "CHARGE");
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.FeeAdjustmentType, "OTHER", "Other", 5);
+        }
+
+        private static async Task NormalizeFeeCategoryFrequenciesAsync(ApplicationDbContext dbContext)
+        {
+            var feeCategoryConfigs = await dbContext.Configs
+                .Where(config => config.TypeCode == ConfigTypeCodes.FeeCategory)
+                .ToListAsync();
+
+            var anyNormalized = false;
+            foreach (var feeCategoryConfig in feeCategoryConfigs)
+            {
+                var currentValue = feeCategoryConfig.AdditionalValue1?.Trim();
+
+                string normalizedValue = null;
+                if (string.IsNullOrWhiteSpace(currentValue) || string.Equals(currentValue, "Monthly", StringComparison.OrdinalIgnoreCase))
+                {
+                    normalizedValue = FeeFrequencyCodes.Monthly;
+                }
+                else if (string.Equals(currentValue, "Annual", StringComparison.OrdinalIgnoreCase))
+                {
+                    normalizedValue = FeeFrequencyCodes.Annual;
+                }
+                else if (string.Equals(currentValue, "OneTime", StringComparison.OrdinalIgnoreCase))
+                {
+                    normalizedValue = FeeFrequencyCodes.OneTime;
+                }
+
+                if (normalizedValue != null && normalizedValue != currentValue)
+                {
+                    feeCategoryConfig.AdditionalValue1 = normalizedValue;
+                    anyNormalized = true;
+                }
+            }
+
+            if (anyNormalized)
+            {
+                await dbContext.SaveChangesAsync();
+            }
         }
 
         private static async Task EnsureConfigTypeAsync(ApplicationDbContext dbContext, int typeCode, string name, string description)

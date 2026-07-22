@@ -1,10 +1,14 @@
 # Setup Module, Fee Management & Payroll Redesign — Implementation Blueprint
 
-> **Status: PLANNING DOCUMENT — no code, UI, or migrations have been produced from this yet.**
-> This is the complete implementation blueprint for the development team. At implementation
-> time, each delivered feature additionally gets its own short
-> `Docs/<feature>_implementation_guide.md` for the UI team, per repo convention, and the
-> corresponding `UI-Implementation-Guide.md` sections must be updated.
+> **Status: BACKEND IMPLEMENTED (2026-07-16).** The backend code for every section below was
+> delivered the same day — see `Docs/setup_fee_payroll_redesign_implementation_guide.md` for
+> the resulting UI contract. Still outstanding: the **user-owned migration** for the 10 new
+> tables (§7.1), and all **frontend** work (§2.4, §4.1 items 3–4, phase 7). Deviations from
+> this blueprint made during implementation: invoice-line lineage ids carry no DB FKs
+> (snapshots must not block config edits); the payment-specific receipt-preview endpoint was
+> deferred (use the enrollment fee-receipt preview); `FEE_INVOICE_LINE_EDIT` became three
+> per-action permissions; run cancellation from Approved shares `PAYROLL_RUN_CANCEL` (no
+> separate elevated permission yet).
 
 Date: 2026-07-16
 Scope: four workstreams — (1) a new **Setup** navigation module, (2) a **fee management

@@ -27,7 +27,11 @@ namespace Infrastructure.Identity.Mapper
                 UserIpAllowed = user.UserIpAllowed,
                 LastLoginTs = user.LastLoginTs,
                 LastPasswordChangedTs = user.LastPasswordChangedTs,
-                RoleIds = roleIds
+                RoleIds = roleIds,
+                CreatedBy = user.CreatedBy,
+                CreatedTs = user.CreatedTs,
+                UpdatedBy = user.UpdatedBy,
+                UpdatedTs = user.UpdatedTs
             };
 
             return userDto;

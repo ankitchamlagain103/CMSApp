@@ -37,7 +37,9 @@ try
     await AppConfigSeeder.SeedAsync(app.Services);
     await ConfigCatalogSeeder.SeedAsync(app.Services);
     await DocumentTemplateSeeder.SeedAsync(app.Services);
-    // Placeholder example fiscal year + tax slabs -- verify/replace before relying on for real payroll.
+    // BS calendar reference data (month/weekday names + BS 2000-2090 month lengths).
+    await CalendarSeeder.SeedAsync(app.Services);
+    // Fiscal years + tax slabs (a placeholder FY-SAMPLE plus the real FY 2084/85) -- verify/replace before relying on for real payroll.
     await PayrollSeeder.SeedAsync(app.Services);
     // Development/demo data (school structure, teachers, students) -- remove for production.
     await SampleDataSeeder.SeedAsync(app.Services);

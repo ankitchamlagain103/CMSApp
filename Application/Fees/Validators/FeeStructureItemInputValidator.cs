@@ -16,6 +16,16 @@ namespace Application.Fees.Validators
 
             RuleFor(item => item.FrequencyType)
                 .IsInEnum();
+
+            RuleFor(item => item.InstallmentCount)
+                .InclusiveBetween(1, 12)
+                .When(item => item.InstallmentCount.HasValue)
+                .WithMessage("InstallmentCount must be between 1 and 12.");
+
+            RuleFor(item => item.InstallmentCount)
+                .Null()
+                .When(item => item.FrequencyType != Domain.Enums.FeeFrequencyType.Annual)
+                .WithMessage("InstallmentCount only applies to Annual fee items.");
         }
     }
 }

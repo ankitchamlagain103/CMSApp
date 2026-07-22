@@ -36,6 +36,9 @@ namespace Infrastructure.Persistence.EntityConfigurations
                     .HasColumnName("frequency_type")
                     .IsRequired();
 
+            builder.Property(i => i.InstallmentCount)
+                    .HasColumnName("installment_count");
+
             builder.Property(i => i.IsOptional)
                     .HasColumnName("is_optional")
                     .HasDefaultValue(false);

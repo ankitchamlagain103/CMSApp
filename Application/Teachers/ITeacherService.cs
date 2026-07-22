@@ -49,11 +49,15 @@ namespace Application.Teachers
 
         Task<CommonResponse<EmployeeMonthlyTaxBreakdownDto>> GetMonthlySalaryTaxCalculationAsync(Guid teacherId, Guid? fiscalYearId, CancellationToken cancellationToken = default);
 
+        Task<CommonResponse<TaxPlanningDto>> GetTaxPlanningAsync(Guid teacherId, Guid? fiscalYearId, CancellationToken cancellationToken = default);
+
         Task<CommonResponse<DocumentPreviewDto>> GetPayslipPreviewAsync(Guid teacherId, Guid? fiscalYearId, CancellationToken cancellationToken = default);
 
         Task<CommonResponse<List<PayslipSummaryDto>>> GetPayslipsAsync(Guid teacherId, Guid? fiscalYearId, CancellationToken cancellationToken = default);
 
         Task<CommonResponse<PayslipDetailDto>> GetPayslipDetailAsync(Guid teacherId, Guid fiscalYearId, int monthIndex, CancellationToken cancellationToken = default);
+
+        Task<CommonResponse<SalaryForecastDto>> GetSalaryForecastAsync(Guid teacherId, Guid? fiscalYearId, CancellationToken cancellationToken = default);
 
         Task<CommonResponse<EmployeeLoanDto>> RequestLoanAsync(Guid teacherId, RequestLoanCommand command, CancellationToken cancellationToken = default);
 

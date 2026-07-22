@@ -112,14 +112,20 @@ namespace Infrastructure.Persistence.DataSeeder
             catalog.Add(Permission("DOCUMENT_TEMPLATE_LIST", "DOCUMENT_TEMPLATE_DELETE", "Delete Document Template", "DocumentTemplates", "DeleteDocumentTemplate", 4));
             catalog.Add(Permission("DOCUMENT_TEMPLATE_LIST", "DOCUMENT_TEMPLATE_PLACEHOLDERS", "View Document Template Placeholders", "DocumentTemplates", "GetPlaceholders", 5));
 
-            catalog.Add(MainMenu("ACADEMIC_MANAGEMENT", "Academic Management", "icons.ReadOutlined", 6, null));
-            catalog.Add(SubMenu("ACADEMIC_MANAGEMENT", "YEAR_LIST", "Academic Years", "/apps/academic-year/list", null, "AcademicYears", "GetAcademicYears", 1));
+            // SETUP (2026-07-16): one lightweight home for all the configuration/master-data
+            // submenus the operational modules consume -- academic structure (from the retired
+            // ACADEMIC_MANAGEMENT main), fee configuration (from FEE_MANAGEMENT), and fiscal
+            // years/tax slabs (from PAYROLL_MANAGEMENT). The moved submenus keep their codes, so
+            // the sync pass re-parents the existing rows in place and every role-claim grant
+            // survives. FEE_MANAGEMENT/PAYROLL_MANAGEMENT keep only transactional submenus.
+            catalog.Add(MainMenu("SETUP", "Setup", "icons.ControlOutlined", 5, null));
+            catalog.Add(SubMenu("SETUP", "YEAR_LIST", "Academic Years", "/apps/academic-year/list", null, "AcademicYears", "GetAcademicYears", 1));
             catalog.Add(Permission("YEAR_LIST", "YEAR_CREATE", "Create Academic Year", "AcademicYears", "CreateAcademicYear", 1));
             catalog.Add(Permission("YEAR_LIST", "YEAR_DETAIL", "View Academic Year Detail", "AcademicYears", "GetAcademicYearById", 2));
             catalog.Add(Permission("YEAR_LIST", "YEAR_UPDATE", "Update Academic Year", "AcademicYears", "UpdateAcademicYear", 3));
             catalog.Add(Permission("YEAR_LIST", "YEAR_DELETE", "Delete Academic Year", "AcademicYears", "DeleteAcademicYear", 4));
             catalog.Add(Permission("YEAR_LIST", "YEAR_CLONE_STRUCTURE", "Clone Year Structure", "AcademicYears", "CloneStructure", 5));
-            catalog.Add(SubMenu("ACADEMIC_MANAGEMENT", "CLASS_LIST", "Classes", "/apps/academic-class/list", null, "AcademicClasses", "GetAcademicClasses", 2));
+            catalog.Add(SubMenu("SETUP", "CLASS_LIST", "Classes", "/apps/academic-class/list", null, "AcademicClasses", "GetAcademicClasses", 2));
             catalog.Add(Permission("CLASS_LIST", "CLASS_CREATE", "Create Class", "AcademicClasses", "CreateAcademicClass", 1));
             catalog.Add(Permission("CLASS_LIST", "CLASS_DETAIL", "View Class Detail", "AcademicClasses", "GetAcademicClassById", 2));
             catalog.Add(Permission("CLASS_LIST", "CLASS_UPDATE", "Update Class", "AcademicClasses", "UpdateAcademicClass", 3));
@@ -132,35 +138,43 @@ namespace Infrastructure.Persistence.DataSeeder
             catalog.Add(Permission("CLASS_LIST", "CLASS_SECTION_UPDATE", "Update Class Section", "AcademicClasses", "UpdateSection", 10));
             catalog.Add(Permission("CLASS_LIST", "CLASS_SECTION_REMOVE", "Remove Section From Class", "AcademicClasses", "RemoveSection", 11));
 
-            catalog.Add(MainMenu("TEACHER_MANAGEMENT", "Teacher Management", "icons.SolutionOutlined", 7, null));
-            catalog.Add(SubMenu("TEACHER_MANAGEMENT", "TEACHER_LIST", "Teachers", "/apps/teacher/list", null, "Teachers", "GetTeachers", 1));
-            catalog.Add(Permission("TEACHER_LIST", "TEACHER_CREATE", "Create Teacher", "Teachers", "CreateTeacher", 1));
-            catalog.Add(Permission("TEACHER_LIST", "TEACHER_DETAIL", "View Teacher Detail", "Teachers", "GetTeacherById", 2));
-            catalog.Add(Permission("TEACHER_LIST", "TEACHER_UPDATE", "Update Teacher", "Teachers", "UpdateTeacher", 3));
-            catalog.Add(Permission("TEACHER_LIST", "TEACHER_DELETE", "Delete Teacher", "Teachers", "DeleteTeacher", 4));
-            catalog.Add(Permission("TEACHER_LIST", "TEACHER_QUALIFICATION_ADD", "Add Teacher Qualification", "Teachers", "AddQualification", 5));
-            catalog.Add(Permission("TEACHER_LIST", "TEACHER_QUALIFICATION_REMOVE", "Remove Teacher Qualification", "Teachers", "RemoveQualification", 6));
-            catalog.Add(Permission("TEACHER_LIST", "TEACHER_QUALIFICATION_LIST", "View Teacher Qualifications", "Teachers", "GetQualifications", 7));
-            catalog.Add(Permission("TEACHER_LIST", "TEACHER_ASSIGNMENT_ADD", "Assign Teacher", "Teachers", "AssignClassSubject", 8));
-            catalog.Add(Permission("TEACHER_LIST", "TEACHER_ASSIGNMENT_REMOVE", "Remove Teacher Assignment", "Teachers", "RemoveAssignment", 9));
-            catalog.Add(Permission("TEACHER_LIST", "TEACHER_ASSIGNMENT_LIST", "View Teacher Assignments", "Teachers", "GetAssignments", 10));
-            catalog.Add(Permission("TEACHER_LIST", "TEACHER_DOCUMENT_UPLOAD", "Upload Teacher Document", "Teachers", "UploadDocument", 11));
-            catalog.Add(Permission("TEACHER_LIST", "TEACHER_DOCUMENT_LIST", "View Teacher Documents", "Teachers", "GetDocuments", 12));
-            catalog.Add(Permission("TEACHER_LIST", "TEACHER_DOCUMENT_DOWNLOAD", "Download Teacher Document", "Teachers", "DownloadDocument", 13));
-            catalog.Add(Permission("TEACHER_LIST", "TEACHER_DOCUMENT_DELETE", "Delete Teacher Document", "Teachers", "DeleteDocument", 14));
-            catalog.Add(Permission("TEACHER_LIST", "TEACHER_SALARY_ADD", "Add Teacher Salary", "Teachers", "AddSalary", 15));
-            catalog.Add(Permission("TEACHER_LIST", "TEACHER_SALARY_LIST", "View Teacher Salary History", "Teachers", "GetSalaryHistory", 16));
-            catalog.Add(Permission("TEACHER_LIST", "TEACHER_SALARY_TAX_CALCULATION", "View Teacher Tax Calculation", "Teachers", "GetSalaryTaxCalculation", 17));
-            catalog.Add(Permission("TEACHER_LIST", "TEACHER_PAYSLIP_PREVIEW", "Preview Teacher Payslip", "Teachers", "GetPayslipPreview", 18));
-            catalog.Add(Permission("TEACHER_LIST", "TEACHER_ID_CARD_PREVIEW", "Preview Teacher ID Card", "Teachers", "GetIdCardPreview", 19));
-            catalog.Add(Permission("TEACHER_LIST", "TEACHER_SALARY_TAX_CALCULATION_MONTHLY", "View Teacher Monthly Tax Breakdown", "Teachers", "GetMonthlySalaryTaxCalculation", 20));
-            catalog.Add(Permission("TEACHER_LIST", "TEACHER_PAYSLIP_LIST", "View Teacher Payslip List", "Teachers", "GetPayslips", 21));
-            catalog.Add(Permission("TEACHER_LIST", "TEACHER_PAYSLIP_DETAIL", "View Teacher Payslip Detail", "Teachers", "GetPayslipDetail", 22));
-            catalog.Add(Permission("TEACHER_LIST", "TEACHER_LOAN_REQUEST", "Request Teacher Loan", "Teachers", "RequestLoan", 23));
-            catalog.Add(Permission("TEACHER_LIST", "TEACHER_LOAN_LIST", "View Teacher Loans", "Teachers", "GetLoans", 24));
-            catalog.Add(Permission("TEACHER_LIST", "TEACHER_LOAN_APPROVE", "Approve Teacher Loan", "Teachers", "ApproveLoan", 25));
-            catalog.Add(Permission("TEACHER_LIST", "TEACHER_LOAN_REJECT", "Reject Teacher Loan", "Teachers", "RejectLoan", 26));
-            catalog.Add(Permission("TEACHER_LIST", "TEACHER_LOAN_CANCEL", "Cancel Teacher Loan", "Teachers", "CancelLoan", 27));
+            // TEACHER_MANAGEMENT retired (2026-07-16): teachers are managed inside Employee
+            // Management (the backend was already Employee-based via the shared-PK split; this
+            // removes the separate nav module). The /api/teachers/* alias endpoints stay, so
+            // every TEACHER_* permission row survives -- re-parented under EMPLOYEE_LIST as
+            // hidden PERMISSION rows (codes and Ids unchanged, grants preserved). TEACHER_LIST
+            // itself was that module's SUB_MENU; it doubles as the Teachers/GetTeachers
+            // permission, so it is redefined as a hidden permission rather than retired.
+            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_LIST", "View Teachers (legacy list API)", "Teachers", "GetTeachers", 30));
+            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_CREATE", "Create Teacher", "Teachers", "CreateTeacher", 31));
+            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_DETAIL", "View Teacher Detail", "Teachers", "GetTeacherById", 32));
+            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_UPDATE", "Update Teacher", "Teachers", "UpdateTeacher", 33));
+            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_DELETE", "Delete Teacher", "Teachers", "DeleteTeacher", 34));
+            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_QUALIFICATION_ADD", "Add Teacher Qualification", "Teachers", "AddQualification", 35));
+            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_QUALIFICATION_REMOVE", "Remove Teacher Qualification", "Teachers", "RemoveQualification", 36));
+            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_QUALIFICATION_LIST", "View Teacher Qualifications", "Teachers", "GetQualifications", 37));
+            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_ASSIGNMENT_ADD", "Assign Teacher", "Teachers", "AssignClassSubject", 38));
+            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_ASSIGNMENT_REMOVE", "Remove Teacher Assignment", "Teachers", "RemoveAssignment", 39));
+            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_ASSIGNMENT_LIST", "View Teacher Assignments", "Teachers", "GetAssignments", 40));
+            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_DOCUMENT_UPLOAD", "Upload Teacher Document", "Teachers", "UploadDocument", 41));
+            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_DOCUMENT_LIST", "View Teacher Documents", "Teachers", "GetDocuments", 42));
+            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_DOCUMENT_DOWNLOAD", "Download Teacher Document", "Teachers", "DownloadDocument", 43));
+            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_DOCUMENT_DELETE", "Delete Teacher Document", "Teachers", "DeleteDocument", 44));
+            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_SALARY_ADD", "Add Teacher Salary", "Teachers", "AddSalary", 45));
+            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_SALARY_LIST", "View Teacher Salary History", "Teachers", "GetSalaryHistory", 46));
+            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_SALARY_TAX_CALCULATION", "View Teacher Tax Calculation", "Teachers", "GetSalaryTaxCalculation", 47));
+            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_PAYSLIP_PREVIEW", "Preview Teacher Payslip", "Teachers", "GetPayslipPreview", 48));
+            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_ID_CARD_PREVIEW", "Preview Teacher ID Card", "Teachers", "GetIdCardPreview", 49));
+            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_SALARY_TAX_CALCULATION_MONTHLY", "View Teacher Monthly Tax Breakdown", "Teachers", "GetMonthlySalaryTaxCalculation", 50));
+            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_PAYSLIP_LIST", "View Teacher Payslip List", "Teachers", "GetPayslips", 51));
+            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_PAYSLIP_DETAIL", "View Teacher Payslip Detail", "Teachers", "GetPayslipDetail", 52));
+            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_LOAN_REQUEST", "Request Teacher Loan", "Teachers", "RequestLoan", 53));
+            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_LOAN_LIST", "View Teacher Loans", "Teachers", "GetLoans", 54));
+            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_LOAN_APPROVE", "Approve Teacher Loan", "Teachers", "ApproveLoan", 55));
+            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_LOAN_REJECT", "Reject Teacher Loan", "Teachers", "RejectLoan", 56));
+            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_LOAN_CANCEL", "Cancel Teacher Loan", "Teachers", "CancelLoan", 57));
+            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_SALARY_FORECAST", "View Teacher Salary Forecast", "Teachers", "GetSalaryForecast", 58));
+            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_TAX_PLANNING", "View Teacher Tax Planning", "Teachers", "GetTaxPlanning", 59));
 
             catalog.Add(MainMenu("STUDENT_MANAGEMENT", "Student Management", "icons.TeamOutlined", 8, null));
             catalog.Add(SubMenu("STUDENT_MANAGEMENT", "STUDENT_LIST", "Students", "/apps/student/list", null, "Students", "GetStudents", 1));
@@ -203,8 +217,11 @@ namespace Infrastructure.Persistence.DataSeeder
             catalog.Add(Permission("ENROLLMENT_LIST", "ENROLLMENT_FEE_STRUCTURE_VIEW", "View Enrollment Fee Structure", "Enrollments", "GetFeeStructure", 19));
             catalog.Add(Permission("ENROLLMENT_LIST", "ENROLLMENT_FEE_RECEIPT_PREVIEW", "Preview Enrollment Fee Receipt", "Enrollments", "GetFeeReceiptPreview", 20));
 
-            catalog.Add(MainMenu("FEE_MANAGEMENT", "Fee Management", "icons.DollarOutlined", 9, null));
-            catalog.Add(SubMenu("FEE_MANAGEMENT", "FEE_STRUCTURE_LIST", "Fee Structures", "/apps/fee-structure/list", null, "FeeStructures", "GetFeeStructures", 1));
+            // Fee configuration lives under SETUP (moved 2026-07-16, code/Id unchanged);
+            // FEE_MANAGEMENT below keeps only the transactional side. As of 2026-07-17 that's a
+            // single sidebar item -- Fee Payments no longer has its own SUB_MENU, it's a tab on
+            // the Fee Generation page (see the FEE_PAYMENT_* re-parenting note below).
+            catalog.Add(SubMenu("SETUP", "FEE_STRUCTURE_LIST", "Fee Structures", "/apps/fee-structure/list", null, "FeeStructures", "GetFeeStructures", 3));
             catalog.Add(Permission("FEE_STRUCTURE_LIST", "FEE_STRUCTURE_CREATE", "Create Fee Structure", "FeeStructures", "CreateFeeStructure", 1));
             catalog.Add(Permission("FEE_STRUCTURE_LIST", "FEE_STRUCTURE_DETAIL", "View Fee Structure Detail", "FeeStructures", "GetFeeStructureById", 2));
             catalog.Add(Permission("FEE_STRUCTURE_LIST", "FEE_STRUCTURE_UPDATE", "Update Fee Structure", "FeeStructures", "UpdateFeeStructure", 3));
@@ -213,8 +230,60 @@ namespace Infrastructure.Persistence.DataSeeder
             catalog.Add(Permission("FEE_STRUCTURE_LIST", "FEE_STRUCTURE_ITEM_UPDATE", "Update Fee Structure Item", "FeeStructures", "UpdateItem", 6));
             catalog.Add(Permission("FEE_STRUCTURE_LIST", "FEE_STRUCTURE_ITEM_REMOVE", "Remove Fee Structure Item", "FeeStructures", "RemoveItem", 7));
 
-            catalog.Add(MainMenu("PAYROLL_MANAGEMENT", "Payroll Management", "icons.BankOutlined", 10, null));
-            catalog.Add(SubMenu("PAYROLL_MANAGEMENT", "FISCAL_YEAR_LIST", "Fiscal Years", "/apps/fiscal-year/list", null, "FiscalYears", "GetFiscalYears", 1));
+            catalog.Add(SubMenu("SETUP", "FEE_RULE_LIST", "Fee Rules", "/apps/fee-rule/list", null, "FeeRules", "GetFeeRules", 4));
+            catalog.Add(Permission("FEE_RULE_LIST", "FEE_RULE_CREATE", "Create Fee Rule", "FeeRules", "CreateFeeRule", 1));
+            catalog.Add(Permission("FEE_RULE_LIST", "FEE_RULE_DETAIL", "View Fee Rule Detail", "FeeRules", "GetFeeRuleById", 2));
+            catalog.Add(Permission("FEE_RULE_LIST", "FEE_RULE_UPDATE", "Update Fee Rule", "FeeRules", "UpdateFeeRule", 3));
+            catalog.Add(Permission("FEE_RULE_LIST", "FEE_RULE_DELETE", "Delete Fee Rule", "FeeRules", "DeleteFeeRule", 4));
+
+            catalog.Add(MainMenu("FEE_MANAGEMENT", "Fee Management", "icons.DollarOutlined", 9, null));
+            catalog.Add(SubMenu("FEE_MANAGEMENT", "FEE_INVOICE_LIST", "Fee Generation", "/apps/fee-invoice/list", null, "FeeInvoices", "GetFeeInvoices", 1));
+            catalog.Add(Permission("FEE_INVOICE_LIST", "FEE_INVOICE_GENERATE", "Generate Fee Invoices", "FeeInvoices", "Generate", 1));
+            catalog.Add(Permission("FEE_INVOICE_LIST", "FEE_INVOICE_DETAIL", "View Fee Invoice Detail", "FeeInvoices", "GetFeeInvoiceById", 2));
+            catalog.Add(Permission("FEE_INVOICE_LIST", "FEE_INVOICE_UPDATE", "Update Fee Invoice", "FeeInvoices", "UpdateFeeInvoice", 3));
+            catalog.Add(Permission("FEE_INVOICE_LIST", "FEE_INVOICE_LINE_ADD", "Add Fee Invoice Line", "FeeInvoices", "AddLine", 4));
+            catalog.Add(Permission("FEE_INVOICE_LIST", "FEE_INVOICE_LINE_UPDATE", "Update Fee Invoice Line", "FeeInvoices", "UpdateLine", 5));
+            catalog.Add(Permission("FEE_INVOICE_LIST", "FEE_INVOICE_LINE_REMOVE", "Remove Fee Invoice Line", "FeeInvoices", "RemoveLine", 6));
+            catalog.Add(Permission("FEE_INVOICE_LIST", "FEE_INVOICE_SETTLE_ANNUAL", "Settle Annual Fee In Full", "FeeInvoices", "SettleAnnualInFull", 24));
+            catalog.Add(Permission("FEE_INVOICE_LIST", "FEE_INVOICE_FINALIZE", "Finalize Fee Invoices", "FeeInvoices", "Finalize", 7));
+            catalog.Add(Permission("FEE_INVOICE_LIST", "FEE_INVOICE_CANCEL", "Cancel Fee Invoice", "FeeInvoices", "Cancel", 8));
+            catalog.Add(Permission("FEE_INVOICE_LIST", "FEE_INVOICE_UNFINALIZE", "Unfinalize Fee Invoice", "FeeInvoices", "Unfinalize", 30));
+            catalog.Add(Permission("FEE_INVOICE_LIST", "FEE_INVOICE_STATEMENT", "View Fee Statement", "FeeInvoices", "GetStatement", 9));
+            catalog.Add(Permission("FEE_INVOICE_LIST", "FEE_ADJUSTMENT_LIST", "View Fee Adjustments", "FeeInvoices", "GetAdjustments", 10));
+            catalog.Add(Permission("FEE_INVOICE_LIST", "FEE_ADJUSTMENT_CREATE", "Create Fee Adjustment", "FeeInvoices", "CreateAdjustment", 11));
+            catalog.Add(Permission("FEE_INVOICE_LIST", "FEE_ADJUSTMENT_UPDATE", "Update Fee Adjustment", "FeeInvoices", "UpdateAdjustment", 12));
+            catalog.Add(Permission("FEE_INVOICE_LIST", "FEE_ADJUSTMENT_CANCEL", "Cancel Fee Adjustment", "FeeInvoices", "CancelAdjustment", 13));
+            catalog.Add(Permission("FEE_INVOICE_LIST", "FEE_ACCOUNT_STATEMENT", "View Statement of Account", "FeeInvoices", "GetAccountStatement", 14));
+            catalog.Add(Permission("FEE_INVOICE_LIST", "FEE_STUDENT_SEARCH", "Search Students (Fee Module)", "FeeInvoices", "SearchStudents", 15));
+            catalog.Add(Permission("FEE_INVOICE_LIST", "FEE_ADJUSTMENT_BULK_CREATE", "Bulk-Create Fee Adjustments", "FeeInvoices", "CreateBulkAdjustment", 16));
+
+            // FEE_PAYMENT_LIST retired as a visible SUB_MENU (2026-07-17) -- Fee Payments folds
+            // into a tab on the Fee Generation page instead of its own sidebar item. Same
+            // TEACHER_LIST precedent as the 2026-07-16 ACADEMIC_MANAGEMENT/TEACHER_MANAGEMENT
+            // retirement above: code and every child's code/id kept exactly, re-parented under
+            // the surviving FEE_INVOICE_LIST sub-menu as hidden PERMISSION rows so existing role
+            // grants survive untouched.
+            catalog.Add(Permission("FEE_INVOICE_LIST", "FEE_PAYMENT_LIST", "View Fee Payments (legacy list API)", "FeePayments", "GetPayments", 17));
+            catalog.Add(Permission("FEE_INVOICE_LIST", "FEE_PAYMENT_PREVIEW", "Preview Fee Payment", "FeePayments", "Preview", 18));
+            catalog.Add(Permission("FEE_INVOICE_LIST", "FEE_PAYMENT_CREATE", "Record Fee Payment", "FeePayments", "CreatePayment", 19));
+            catalog.Add(Permission("FEE_INVOICE_LIST", "FEE_PAYMENT_DETAIL", "View Fee Payment Detail", "FeePayments", "GetPaymentById", 20));
+            catalog.Add(Permission("FEE_INVOICE_LIST", "FEE_PAYMENT_VOID", "Void Fee Payment", "FeePayments", "VoidPayment", 21));
+            catalog.Add(Permission("FEE_INVOICE_LIST", "FEE_PAYMENT_RECEIPT", "Print Fee Payment Receipt", "FeePayments", "GetReceipt", 22));
+            catalog.Add(Permission("FEE_INVOICE_LIST", "FEE_PAYMENT_ADVANCE_QUOTE", "Quote Advance Fee Payment", "FeePayments", "GetAdvanceQuote", 23));
+
+            // Fee generation's master table (2026-07-18): a period-keyed FeeGenerationRun header
+            // grouping a billing month's invoices by class -> student, same "master table" role
+            // PayrollRun plays on the payroll side. Hidden -- surfaced as a tab/drill-down on the
+            // existing Fee Generation page, not its own sidebar item.
+            catalog.Add(Permission("FEE_INVOICE_LIST", "FEE_GENERATION_RUN_LIST", "View Fee Generation Runs", "FeeGenerationRuns", "GetFeeGenerationRuns", 25));
+            catalog.Add(Permission("FEE_INVOICE_LIST", "FEE_GENERATION_RUN_DETAIL", "View Fee Generation Run Detail", "FeeGenerationRuns", "GetFeeGenerationRunById", 26));
+            catalog.Add(Permission("FEE_INVOICE_LIST", "FEE_GENERATION_RUN_CLASS_DETAIL", "View Fee Generation Run Class Detail", "FeeGenerationRuns", "GetFeeGenerationRunClassDetail", 27));
+            catalog.Add(Permission("FEE_INVOICE_LIST", "FEE_GENERATION_RUN_REFRESH", "Refresh Fee Generation Run", "FeeGenerationRuns", "RefreshRun", 28));
+            catalog.Add(Permission("FEE_INVOICE_LIST", "FEE_GENERATION_RUN_CLASS_REFRESH", "Refresh Fee Generation Run Class", "FeeGenerationRuns", "RefreshRunClass", 29));
+
+            // Fiscal years/tax slabs live under SETUP (moved 2026-07-16, code/Id unchanged);
+            // PAYROLL_MANAGEMENT below keeps only the transactional side (salary generation).
+            catalog.Add(SubMenu("SETUP", "FISCAL_YEAR_LIST", "Fiscal Years", "/apps/fiscal-year/list", null, "FiscalYears", "GetFiscalYears", 5));
             catalog.Add(Permission("FISCAL_YEAR_LIST", "FISCAL_YEAR_CREATE", "Create Fiscal Year", "FiscalYears", "CreateFiscalYear", 1));
             catalog.Add(Permission("FISCAL_YEAR_LIST", "FISCAL_YEAR_DETAIL", "View Fiscal Year Detail", "FiscalYears", "GetFiscalYearById", 2));
             catalog.Add(Permission("FISCAL_YEAR_LIST", "FISCAL_YEAR_UPDATE", "Update Fiscal Year", "FiscalYears", "UpdateFiscalYear", 3));
@@ -223,6 +292,52 @@ namespace Infrastructure.Persistence.DataSeeder
             catalog.Add(Permission("FISCAL_YEAR_LIST", "TAX_SLAB_LIST", "View Tax Slabs", "FiscalYears", "GetTaxSlabs", 6));
             catalog.Add(Permission("FISCAL_YEAR_LIST", "TAX_SLAB_UPDATE", "Update Tax Slab", "FiscalYears", "UpdateTaxSlab", 7));
             catalog.Add(Permission("FISCAL_YEAR_LIST", "TAX_SLAB_DELETE", "Delete Tax Slab", "FiscalYears", "RemoveTaxSlab", 8));
+
+            catalog.Add(MainMenu("PAYROLL_MANAGEMENT", "Payroll Management", "icons.BankOutlined", 10, null));
+            catalog.Add(SubMenu("PAYROLL_MANAGEMENT", "PAYROLL_RUN_LIST", "Salary Generation", "/apps/payroll-run/list", null, "PayrollRuns", "GetPayrollRuns", 1));
+            catalog.Add(Permission("PAYROLL_RUN_LIST", "PAYROLL_RUN_CREATE", "Generate Payroll Run", "PayrollRuns", "CreatePayrollRun", 1));
+            catalog.Add(Permission("PAYROLL_RUN_LIST", "PAYROLL_RUN_DETAIL", "View Payroll Run Detail", "PayrollRuns", "GetPayrollRunById", 2));
+            catalog.Add(Permission("PAYROLL_RUN_LIST", "PAYROLL_RUN_APPROVE", "Approve Payroll Run", "PayrollRuns", "ApproveRun", 3));
+            catalog.Add(Permission("PAYROLL_RUN_LIST", "PAYROLL_RUN_MARK_PAID", "Mark Payroll Run Paid", "PayrollRuns", "MarkPaid", 4));
+            catalog.Add(Permission("PAYROLL_RUN_LIST", "PAYROLL_RUN_CANCEL", "Cancel Payroll Run", "PayrollRuns", "CancelRun", 5));
+            catalog.Add(Permission("PAYROLL_RUN_LIST", "SALARY_SLIP_DETAIL", "View Salary Slip Detail", "PayrollRuns", "GetSlipById", 6));
+            catalog.Add(Permission("PAYROLL_RUN_LIST", "SALARY_SLIP_CANCEL", "Cancel Salary Slip", "PayrollRuns", "CancelSlip", 7));
+            catalog.Add(Permission("PAYROLL_RUN_LIST", "SALARY_SLIP_LINE_ADD", "Add Salary Slip Line", "PayrollRuns", "AddSlipLine", 8));
+            catalog.Add(Permission("PAYROLL_RUN_LIST", "SALARY_SLIP_LINE_UPDATE", "Update Salary Slip Line", "PayrollRuns", "UpdateSlipLine", 9));
+            catalog.Add(Permission("PAYROLL_RUN_LIST", "SALARY_SLIP_LINE_REMOVE", "Remove Salary Slip Line", "PayrollRuns", "RemoveSlipLine", 10));
+            catalog.Add(Permission("PAYROLL_RUN_LIST", "PAYROLL_RUN_REFRESH", "Refresh Payroll Run", "PayrollRuns", "RefreshRun", 11));
+            catalog.Add(SubMenu("PAYROLL_MANAGEMENT", "SALARY_CALCULATOR", "Salary Calculator", "/apps/payroll/salary-calculator", null, "SalaryCalculator", "CalculateSalaryStructure", 2));
+            catalog.Add(Permission("SALARY_CALCULATOR", "SALARY_CALCULATOR_ASSIGN", "Assign Calculated Salary To Employee", "SalaryCalculator", "AssignSalaryStructure", 1));
+
+            // Calendar configuration (BS month lengths, localization, weekly holidays) lives
+            // under SETUP like the other master data; the calendar view + meetings get their
+            // own CALENDAR_MANAGEMENT main below.
+            catalog.Add(SubMenu("SETUP", "CALENDAR_CONFIG_LIST", "BS Calendar Setup", "/apps/calendar-config/list", null, "CalendarConfiguration", "GetBsMonthLengths", 6));
+            catalog.Add(Permission("CALENDAR_CONFIG_LIST", "BS_MONTH_LENGTH_UPSERT", "Upsert BS Month Lengths", "CalendarConfiguration", "UpsertBsMonthLengths", 1));
+            catalog.Add(Permission("CALENDAR_CONFIG_LIST", "CALENDAR_LOCALIZATION", "View Calendar Localization", "CalendarConfiguration", "GetLocalizationData", 2));
+            catalog.Add(Permission("CALENDAR_CONFIG_LIST", "BS_WEEKDAY_UPDATE", "Update Weekday", "CalendarConfiguration", "UpdateWeekday", 3));
+
+            catalog.Add(MainMenu("CALENDAR_MANAGEMENT", "Calendar", "icons.CalendarOutlined", 12, null));
+            catalog.Add(SubMenu("CALENDAR_MANAGEMENT", "CALENDAR_VIEW", "Calendar", "/apps/calendar", null, "Calendar", "GetMonthView", 1));
+            catalog.Add(Permission("CALENDAR_VIEW", "CALENDAR_TODAY", "View Today (Dual Date)", "Calendar", "GetToday", 1));
+            catalog.Add(Permission("CALENDAR_VIEW", "CALENDAR_CONVERT_AD_BS", "Convert AD To BS", "Calendar", "ConvertAdToBs", 2));
+            catalog.Add(Permission("CALENDAR_VIEW", "CALENDAR_CONVERT_BS_AD", "Convert BS To AD", "Calendar", "ConvertBsToAd", 3));
+            catalog.Add(Permission("CALENDAR_VIEW", "CALENDAR_EVENT_LIST", "View Calendar Events", "Calendar", "GetCalendarEvents", 4));
+            catalog.Add(Permission("CALENDAR_VIEW", "CALENDAR_EVENT_CREATE", "Create Calendar Event", "Calendar", "CreateCalendarEvent", 5));
+            catalog.Add(Permission("CALENDAR_VIEW", "CALENDAR_EVENT_DETAIL", "View Calendar Event Detail", "Calendar", "GetCalendarEventById", 6));
+            catalog.Add(Permission("CALENDAR_VIEW", "CALENDAR_EVENT_UPDATE", "Update Calendar Event", "Calendar", "UpdateCalendarEvent", 7));
+            catalog.Add(Permission("CALENDAR_VIEW", "CALENDAR_EVENT_DELETE", "Delete Calendar Event", "Calendar", "DeleteCalendarEvent", 8));
+            catalog.Add(Permission("CALENDAR_VIEW", "FESTIVAL_LIST", "View Festivals", "Calendar", "GetFestivals", 9));
+            catalog.Add(Permission("CALENDAR_VIEW", "FESTIVAL_CREATE", "Create Festival", "Calendar", "CreateFestival", 10));
+            catalog.Add(Permission("CALENDAR_VIEW", "FESTIVAL_DETAIL", "View Festival Detail", "Calendar", "GetFestivalById", 11));
+            catalog.Add(Permission("CALENDAR_VIEW", "FESTIVAL_UPDATE", "Update Festival", "Calendar", "UpdateFestival", 12));
+            catalog.Add(Permission("CALENDAR_VIEW", "FESTIVAL_DELETE", "Delete Festival", "Calendar", "DeleteFestival", 13));
+            catalog.Add(SubMenu("CALENDAR_MANAGEMENT", "MEETING_LIST", "Meetings", "/apps/meeting/list", null, "Meetings", "GetMeetings", 2));
+            catalog.Add(Permission("MEETING_LIST", "MEETING_SCHEDULE", "Schedule Meeting", "Meetings", "ScheduleMeeting", 1));
+            catalog.Add(Permission("MEETING_LIST", "MEETING_DETAIL", "View Meeting Detail", "Meetings", "GetMeetingById", 2));
+            catalog.Add(Permission("MEETING_LIST", "MEETING_UPDATE", "Update Meeting", "Meetings", "UpdateMeeting", 3));
+            catalog.Add(Permission("MEETING_LIST", "MEETING_CANCEL", "Cancel Meeting", "Meetings", "DeleteMeeting", 4));
+            catalog.Add(Permission("MEETING_LIST", "MEETING_RESPOND", "Respond To Invitation", "Meetings", "RespondToInvitation", 5));
 
             catalog.Add(MainMenu("EMPLOYEE_MANAGEMENT", "Employee Management", "icons.IdcardOutlined", 11, null));
             catalog.Add(SubMenu("EMPLOYEE_MANAGEMENT", "EMPLOYEE_LIST", "Employees", "/apps/employee/list", null, "Employees", "GetEmployees", 1));
@@ -249,8 +364,38 @@ namespace Infrastructure.Persistence.DataSeeder
             catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_LOAN_APPROVE", "Approve Employee Loan", "Employees", "ApproveLoan", 21));
             catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_LOAN_REJECT", "Reject Employee Loan", "Employees", "RejectLoan", 22));
             catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_LOAN_CANCEL", "Cancel Employee Loan", "Employees", "CancelLoan", 23));
+            catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_SALARY_ADJUSTMENT_LIST", "View Salary Adjustments", "Employees", "GetSalaryAdjustments", 24));
+            catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_SALARY_ADJUSTMENT_CREATE", "Create Salary Adjustment", "Employees", "CreateSalaryAdjustment", 25));
+            catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_SALARY_ADJUSTMENT_UPDATE", "Update Salary Adjustment", "Employees", "UpdateSalaryAdjustment", 26));
+            catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_SALARY_ADJUSTMENT_CANCEL", "Cancel Salary Adjustment", "Employees", "CancelSalaryAdjustment", 27));
+            catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_SALARY_ADJUSTMENT_BULK", "Create Bulk Salary Adjustments", "Employees", "CreateBulkSalaryAdjustments", 28));
+            catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_SALARY_FORECAST", "View Employee Salary Forecast", "Employees", "GetSalaryForecast", 29));
+            catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_TAX_PLANNING", "View Employee Tax Planning", "Employees", "GetTaxPlanning", 30));
 
             return catalog;
+        }
+
+        // Menu codes this seeder used to own that no longer exist in the catalog. The sync pass
+        // only inserts and updates, so without this list a removed main menu would linger in the
+        // database forever. Retired rows are soft-deleted (their Code stays reserved by the
+        // unique index, same as any soft-deleted menu) -- ACADEMIC_MANAGEMENT and
+        // TEACHER_MANAGEMENT were retired 2026-07-16 when their submenus moved to SETUP /
+        // EMPLOYEE_LIST.
+        private static List<string> BuildRetiredMenuCodes()
+        {
+            var retiredCodes = new List<string>
+            {
+                "ACADEMIC_MANAGEMENT",
+                "TEACHER_MANAGEMENT",
+
+                // Retired 2026-07-19: Statement of Account left the Student Management sidebar
+                // -- it is now a tab on the student profile page, driven by the existing
+                // GET /api/feeinvoices/account-statement/{enrollmentId} endpoint, whose
+                // permission row (FEE_ACCOUNT_STATEMENT, under FEE_INVOICE_LIST) is unaffected.
+                "STATEMENT_OF_ACCOUNT_LIST"
+            };
+
+            return retiredCodes;
         }
 
         private static MenuSeedDefinition MainMenu(string code, string displayName, string icon, int order, string url)
@@ -388,6 +533,35 @@ namespace Infrastructure.Persistence.DataSeeder
                 menu.IsDeleted = false;
                 menu.DeletedBy = null;
                 menu.DeletedTs = null;
+            }
+
+            // Persist the sync BEFORE the retire pass: its has-children check queries the
+            // database, so pass 2's re-parenting must already be visible there.
+            await dbContext.SaveChangesAsync();
+
+            // Pass 3 (retire): soft-delete catalog-owned rows whose code left the catalog. Runs
+            // after the sync pass so any children have already been re-parented away; a retired
+            // row that still has live children (a hand-created menu parented under it) is
+            // skipped -- deleting it would orphan them in every tree build -- and picked up on a
+            // later boot once the children move.
+            var retiredCodes = BuildRetiredMenuCodes();
+            foreach (var retiredCode in retiredCodes)
+            {
+                if (!menusByCode.TryGetValue(retiredCode, out var retiredMenu) || retiredMenu.IsDeleted)
+                {
+                    continue;
+                }
+
+                var hasLiveChildren = await dbContext.Menus
+                    .AnyAsync(m => m.ParentId == retiredMenu.Id);
+                if (hasLiveChildren)
+                {
+                    continue;
+                }
+
+                retiredMenu.IsDeleted = true;
+                retiredMenu.DeletedBy = "system";
+                retiredMenu.DeletedTs = DateTime.UtcNow;
             }
 
             await dbContext.SaveChangesAsync();

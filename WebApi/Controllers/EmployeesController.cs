@@ -3,6 +3,7 @@ using Application.Employees;
 using Application.Employees.Commands;
 using Application.Employees.Dtos;
 using Application.Employees.Queries;
+using Domain.Enums;
 using Microsoft.AspNetCore.Mvc;
 
 namespace WebApi.Controllers
@@ -180,6 +181,23 @@ namespace WebApi.Controllers
             return Ok(response);
         }
 
+        [HttpGet("{id:guid}/salaries/tax-planning")]
+        public async Task<ActionResult<CommonResponse<TaxPlanningDto>>> GetTaxPlanning(Guid id, [FromQuery] Guid? fiscalYearId, CancellationToken cancellationToken)
+        {
+            var response = await _employeeService.GetTaxPlanningAsync(id, fiscalYearId, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            if (response.ResponseCode != ResponseCodes.Success)
+            {
+                return BadRequest(response);
+            }
+
+            return Ok(response);
+        }
+
         [HttpGet("{id:guid}/payslips")]
         public async Task<ActionResult<CommonResponse<List<PayslipSummaryDto>>>> GetPayslips(Guid id, [FromQuery] Guid? fiscalYearId, CancellationToken cancellationToken)
         {
@@ -201,6 +219,23 @@ namespace WebApi.Controllers
         public async Task<ActionResult<CommonResponse<PayslipDetailDto>>> GetPayslipDetail(Guid id, Guid fiscalYearId, int monthIndex, CancellationToken cancellationToken)
         {
             var response = await _employeeService.GetPayslipDetailAsync(id, fiscalYearId, monthIndex, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            if (response.ResponseCode != ResponseCodes.Success)
+            {
+                return BadRequest(response);
+            }
+
+            return Ok(response);
+        }
+
+        [HttpGet("{id:guid}/salary-forecast")]
+        public async Task<ActionResult<CommonResponse<SalaryForecastDto>>> GetSalaryForecast(Guid id, [FromQuery] Guid? fiscalYearId, CancellationToken cancellationToken)
+        {
+            var response = await _employeeService.GetSalaryForecastAsync(id, fiscalYearId, cancellationToken);
             if (response.ResponseCode == ResponseCodes.NotFound)
             {
                 return NotFound(response);
@@ -383,6 +418,86 @@ namespace WebApi.Controllers
         public async Task<ActionResult<CommonResponse<bool>>> RemoveInsurancePremium(Guid id, Guid salaryId, Guid premiumId, CancellationToken cancellationToken)
         {
             var response = await _employeeService.RemoveInsurancePremiumAsync(id, salaryId, premiumId, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            if (response.ResponseCode != ResponseCodes.Success)
+            {
+                return BadRequest(response);
+            }
+
+            return Ok(response);
+        }
+
+        [HttpGet("{id:guid}/adjustments")]
+        public async Task<ActionResult<CommonResponse<List<SalaryAdjustmentDto>>>> GetSalaryAdjustments(Guid id, [FromQuery] Guid? fiscalYearId, [FromQuery] int? monthIndex, [FromQuery] AdjustmentStatus? status, CancellationToken cancellationToken)
+        {
+            var response = await _employeeService.GetSalaryAdjustmentsAsync(id, fiscalYearId, monthIndex, status, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            return Ok(response);
+        }
+
+        [HttpPost("adjustments/bulk")]
+        public async Task<ActionResult<CommonResponse<BulkSalaryAdjustmentResultDto>>> CreateBulkSalaryAdjustments([FromBody] CreateBulkSalaryAdjustmentCommand command, CancellationToken cancellationToken)
+        {
+            var response = await _employeeService.CreateBulkSalaryAdjustmentsAsync(command, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            if (response.ResponseCode != ResponseCodes.Success)
+            {
+                return BadRequest(response);
+            }
+
+            return Ok(response);
+        }
+
+        [HttpPost("{id:guid}/adjustments")]
+        public async Task<ActionResult<CommonResponse<SalaryAdjustmentDto>>> CreateSalaryAdjustment(Guid id, [FromBody] CreateSalaryAdjustmentCommand command, CancellationToken cancellationToken)
+        {
+            var response = await _employeeService.CreateSalaryAdjustmentAsync(id, command, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            if (response.ResponseCode != ResponseCodes.Success)
+            {
+                return BadRequest(response);
+            }
+
+            return Ok(response);
+        }
+
+        [HttpPut("{id:guid}/adjustments/{adjustmentId:guid}")]
+        public async Task<ActionResult<CommonResponse<SalaryAdjustmentDto>>> UpdateSalaryAdjustment(Guid id, Guid adjustmentId, [FromBody] UpdateSalaryAdjustmentCommand command, CancellationToken cancellationToken)
+        {
+            var response = await _employeeService.UpdateSalaryAdjustmentAsync(id, adjustmentId, command, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            if (response.ResponseCode != ResponseCodes.Success)
+            {
+                return BadRequest(response);
+            }
+
+            return Ok(response);
+        }
+
+        [HttpDelete("{id:guid}/adjustments/{adjustmentId:guid}")]
+        public async Task<ActionResult<CommonResponse<bool>>> CancelSalaryAdjustment(Guid id, Guid adjustmentId, CancellationToken cancellationToken)
+        {
+            var response = await _employeeService.CancelSalaryAdjustmentAsync(id, adjustmentId, cancellationToken);
             if (response.ResponseCode == ResponseCodes.NotFound)
             {
                 return NotFound(response);

@@ -291,5 +291,101 @@ namespace Infrastructure.Persistence.Repositories
         {
             await DbContext.Set<EmployeeLoan>().AddAsync(loan, cancellationToken);
         }
+
+        public async Task<IReadOnlyList<Employee>> GetPayrollEligibleEmployeesAsync(CancellationToken cancellationToken = default)
+        {
+            var payableStatuses = new[] { EmploymentStatus.Active, EmploymentStatus.OnLeave };
+
+            var employees = await DbSet
+                .Include(e => e.Salaries)
+                    .ThenInclude(salary => salary.Components)
+                .Include(e => e.Salaries)
+                    .ThenInclude(salary => salary.Deductions)
+                .Include(e => e.Salaries)
+                    .ThenInclude(salary => salary.InsurancePremiums)
+                .Where(e => payableStatuses.Contains(e.EmploymentStatus) && e.Salaries.Any())
+                .ToListAsync(cancellationToken);
+
+            return employees;
+        }
+
+        public async Task<IReadOnlyList<EmployeeLoan>> GetApprovedLoansByEmployeeIdsAsync(IReadOnlyList<Guid> employeeIds, CancellationToken cancellationToken = default)
+        {
+            var loans = await DbContext.Set<EmployeeLoan>()
+                .Where(loan => loan.Status == LoanStatus.Approved && employeeIds.Contains(loan.EmployeeId))
+                .ToListAsync(cancellationToken);
+
+            return loans;
+        }
+
+        public async Task<IReadOnlyList<SalaryAdjustment>> GetSalaryAdjustmentsByFilterAsync(Guid? employeeId, Guid? fiscalYearId, int? monthIndex, AdjustmentStatus? status, CancellationToken cancellationToken = default)
+        {
+            IQueryable<SalaryAdjustment> adjustmentsQuery = DbContext.Set<SalaryAdjustment>();
+
+            if (employeeId.HasValue)
+            {
+                adjustmentsQuery = adjustmentsQuery.Where(a => a.EmployeeId == employeeId.Value);
+            }
+
+            if (fiscalYearId.HasValue)
+            {
+                adjustmentsQuery = adjustmentsQuery.Where(a => a.FiscalYearId == fiscalYearId.Value);
+            }
+
+            if (monthIndex.HasValue)
+            {
+                adjustmentsQuery = adjustmentsQuery.Where(a => a.MonthIndex == monthIndex.Value);
+            }
+
+            if (status.HasValue)
+            {
+                adjustmentsQuery = adjustmentsQuery.Where(a => a.Status == status.Value);
+            }
+
+            var adjustments = await adjustmentsQuery
+                .OrderBy(a => a.MonthIndex)
+                .ThenBy(a => a.CreatedTs)
+                .ToListAsync(cancellationToken);
+
+            return adjustments;
+        }
+
+        public async Task<SalaryAdjustment> GetSalaryAdjustmentByIdAsync(Guid adjustmentId, CancellationToken cancellationToken = default)
+        {
+            var adjustment = await DbContext.Set<SalaryAdjustment>()
+                .FirstOrDefaultAsync(a => a.Id == adjustmentId, cancellationToken);
+
+            return adjustment;
+        }
+
+        public async Task<IReadOnlyList<SalaryAdjustment>> GetPendingSalaryAdjustmentsForPeriodAsync(Guid fiscalYearId, int monthIndex, CancellationToken cancellationToken = default)
+        {
+            var adjustments = await DbContext.Set<SalaryAdjustment>()
+                .Where(a => a.FiscalYearId == fiscalYearId
+                    && a.MonthIndex == monthIndex
+                    && a.Status == AdjustmentStatus.Pending)
+                .ToListAsync(cancellationToken);
+
+            return adjustments;
+        }
+
+        public async Task<IReadOnlyList<SalaryAdjustment>> GetSalaryAdjustmentsAppliedToSlipsAsync(IReadOnlyList<Guid> slipIds, CancellationToken cancellationToken = default)
+        {
+            var adjustments = await DbContext.Set<SalaryAdjustment>()
+                .Where(a => a.AppliedSalarySlipId != null && slipIds.Contains(a.AppliedSalarySlipId.Value))
+                .ToListAsync(cancellationToken);
+
+            return adjustments;
+        }
+
+        public async Task AddSalaryAdjustmentAsync(SalaryAdjustment adjustment, CancellationToken cancellationToken = default)
+        {
+            await DbContext.Set<SalaryAdjustment>().AddAsync(adjustment, cancellationToken);
+        }
+
+        public void RemoveSalaryAdjustment(SalaryAdjustment adjustment)
+        {
+            DbContext.Set<SalaryAdjustment>().Remove(adjustment);
+        }
     }
 }

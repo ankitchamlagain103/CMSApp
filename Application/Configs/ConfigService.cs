@@ -4,6 +4,7 @@ using Application.Configs.Commands;
 using Application.Configs.Dtos;
 using Application.Configs.Queries;
 using Application.Configs.Validators;
+using Domain.Constants;
 using Domain.Entities;
 using FluentValidation.Results;
 
@@ -185,6 +186,13 @@ namespace Application.Configs
                 return conflictResponse;
             }
 
+            var feeFrequencyError = ValidateFeeCategoryFrequency(command.TypeCode, command.AdditionalValue1);
+            if (feeFrequencyError != null)
+            {
+                var feeFrequencyFailureResponse = CommonResponse<ConfigDto>.Fail(ResponseCodes.ValidationError, feeFrequencyError);
+                return feeFrequencyFailureResponse;
+            }
+
             var config = new Config
             {
                 Id = Guid.NewGuid(),
@@ -250,6 +258,13 @@ namespace Application.Configs
                 }
             }
 
+            var feeFrequencyError = ValidateFeeCategoryFrequency(config.TypeCode, command.AdditionalValue1);
+            if (feeFrequencyError != null)
+            {
+                var feeFrequencyFailureResponse = CommonResponse<ConfigDto>.Fail(ResponseCodes.ValidationError, feeFrequencyError);
+                return feeFrequencyFailureResponse;
+            }
+
             config.Code = command.Code;
             config.Label = command.Label;
             config.Order = command.Order;
@@ -295,6 +310,26 @@ namespace Application.Configs
 
             var successResponse = CommonResponse<List<DropdownItemDto>>.Success(dropdownItemDtos);
             return successResponse;
+        }
+
+        // fee_frequency hook (2026-07-16): for FeeCategory options, AdditionalValue1 is the
+        // normative billing frequency fee generation defaults from, so a missing/unknown value
+        // is rejected here rather than surfacing later as a silently-Monthly category. Other
+        // catalogs keep AdditionalValue1 free-form.
+        private static string ValidateFeeCategoryFrequency(int typeCode, string additionalValue1)
+        {
+            if (typeCode != ConfigTypeCodes.FeeCategory)
+            {
+                return null;
+            }
+
+            var trimmedValue = additionalValue1?.Trim();
+            if (string.IsNullOrWhiteSpace(trimmedValue) || !FeeFrequencyCodes.All.Contains(trimmedValue))
+            {
+                return "A FeeCategory option's AdditionalValue1 must be its fee_frequency: one of " + string.Join(", ", FeeFrequencyCodes.All) + ".";
+            }
+
+            return null;
         }
 
         private static string BuildValidationErrorMessage(ValidationResult validationResult)

@@ -15,7 +15,8 @@ namespace Application.Payroll.FiscalYears
                 StartDate = fiscalYear.StartDate,
                 EndDate = fiscalYear.EndDate,
                 IsCurrent = fiscalYear.IsCurrent,
-                Status = fiscalYear.Status
+                Status = fiscalYear.Status,
+                RetirementExemptionCapAmount = fiscalYear.RetirementExemptionCapAmount
             };
 
             return fiscalYearDto;

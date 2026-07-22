@@ -10,6 +10,10 @@ namespace Application.Employees.Dtos
         public Guid Id { get; set; }
         public Guid EmployeeId { get; set; }
         public string LoanTypeCode { get; set; }
+
+        // Human-readable DeductionType catalog label (2026-07-19); falls back to the code when
+        // the option no longer exists in the catalog.
+        public string LoanTypeLabel { get; set; }
         public decimal PrincipalAmount { get; set; }
         public decimal EmiAmount { get; set; }
         public DateTime RequestedDate { get; set; }

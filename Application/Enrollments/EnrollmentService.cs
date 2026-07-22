@@ -1,3 +1,4 @@
+using Application.Common.Helpers;
 using Application.Common.Interfaces;
 using Application.Common.Models;
 using Application.DocumentTemplates;
@@ -101,6 +102,54 @@ namespace Application.Enrollments
                 }
             }
 
+            // Optional-fee opt-ins (transportation/hostel/... checkboxes at onboarding) are
+            // validated against the class's fee structure before anything is created, so the
+            // enrollment + its selections save all-or-nothing in one SaveChangesAsync.
+            var selectedOptionalItems = new List<FeeStructureItem>();
+            if (command.OptionalFeeStructureItemIds != null && command.OptionalFeeStructureItemIds.Count > 0)
+            {
+                var classFeeStructure = await _unitOfWork.FeeStructures.GetByAcademicClassIdAsync(classSection.AcademicClassId, cancellationToken);
+                if (classFeeStructure == null)
+                {
+                    var noStructureResponse = CommonResponse<EnrollmentDto>.Fail(ResponseCodes.ValidationError, "Optional fee items were selected, but this class has no fee structure configured.");
+                    return noStructureResponse;
+                }
+
+                var seenItemIds = new List<Guid>();
+                foreach (var optionalItemId in command.OptionalFeeStructureItemIds)
+                {
+                    if (seenItemIds.Contains(optionalItemId))
+                    {
+                        continue;
+                    }
+
+                    seenItemIds.Add(optionalItemId);
+
+                    FeeStructureItem matchingItem = null;
+                    foreach (var item in classFeeStructure.Items)
+                    {
+                        if (item.Id == optionalItemId)
+                        {
+                            matchingItem = item;
+                        }
+                    }
+
+                    if (matchingItem == null)
+                    {
+                        var notChargedResponse = CommonResponse<EnrollmentDto>.Fail(ResponseCodes.ValidationError, "Fee item '" + optionalItemId + "' is not charged on this class's fee structure.");
+                        return notChargedResponse;
+                    }
+
+                    if (!matchingItem.IsOptional)
+                    {
+                        var notOptionalResponse = CommonResponse<EnrollmentDto>.Fail(ResponseCodes.ValidationError, "Fee item '" + matchingItem.FeeCategoryCode + "' is a mandatory fee -- it already applies automatically.");
+                        return notOptionalResponse;
+                    }
+
+                    selectedOptionalItems.Add(matchingItem);
+                }
+            }
+
             var enrollment = new Enrollment
             {
                 StudentId = command.StudentId,
@@ -113,6 +162,18 @@ namespace Application.Enrollments
             };
 
             await _unitOfWork.Enrollments.AddAsync(enrollment, cancellationToken);
+
+            foreach (var selectedItem in selectedOptionalItems)
+            {
+                var feeSelection = new EnrollmentFeeSelection
+                {
+                    EnrollmentId = enrollment.Id,
+                    FeeStructureItemId = selectedItem.Id,
+                    Enrollment = enrollment
+                };
+                await _unitOfWork.Enrollments.AddFeeSelectionAsync(feeSelection, cancellationToken);
+            }
+
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
             var enrollmentDto = EnrollmentMapper.ToDto(enrollment);
@@ -212,9 +273,107 @@ namespace Application.Enrollments
                 }
             }
 
+            // Three-way optional-fee sync (null = untouched, [] = clear, list = replace) --
+            // validated fully before the first mutation so the save stays all-or-nothing.
+            List<EnrollmentFeeSelection> selectionsToRemove = null;
+            List<FeeStructureItem> selectionsToAdd = null;
+            if (command.OptionalFeeStructureItemIds != null)
+            {
+                var requestedItemIds = new List<Guid>();
+                foreach (var optionalItemId in command.OptionalFeeStructureItemIds)
+                {
+                    if (!requestedItemIds.Contains(optionalItemId))
+                    {
+                        requestedItemIds.Add(optionalItemId);
+                    }
+                }
+
+                var classFeeStructure = await _unitOfWork.FeeStructures.GetByAcademicClassIdAsync(enrollment.ClassSection.AcademicClassId, cancellationToken);
+                if (requestedItemIds.Count > 0 && classFeeStructure == null)
+                {
+                    var noStructureResponse = CommonResponse<EnrollmentDto>.Fail(ResponseCodes.ValidationError, "Optional fee items were selected, but this class has no fee structure configured.");
+                    return noStructureResponse;
+                }
+
+                var requestedItems = new List<FeeStructureItem>();
+                foreach (var requestedItemId in requestedItemIds)
+                {
+                    FeeStructureItem matchingItem = null;
+                    foreach (var item in classFeeStructure.Items)
+                    {
+                        if (item.Id == requestedItemId)
+                        {
+                            matchingItem = item;
+                        }
+                    }
+
+                    if (matchingItem == null)
+                    {
+                        var notChargedResponse = CommonResponse<EnrollmentDto>.Fail(ResponseCodes.ValidationError, "Fee item '" + requestedItemId + "' is not charged on this class's fee structure.");
+                        return notChargedResponse;
+                    }
+
+                    if (!matchingItem.IsOptional)
+                    {
+                        var notOptionalResponse = CommonResponse<EnrollmentDto>.Fail(ResponseCodes.ValidationError, "Fee item '" + matchingItem.FeeCategoryCode + "' is a mandatory fee -- it already applies automatically.");
+                        return notOptionalResponse;
+                    }
+
+                    requestedItems.Add(matchingItem);
+                }
+
+                var existingSelections = await _unitOfWork.Enrollments.GetFeeSelectionsAsync(id, cancellationToken);
+
+                selectionsToRemove = new List<EnrollmentFeeSelection>();
+                foreach (var existingSelection in existingSelections)
+                {
+                    if (!requestedItemIds.Contains(existingSelection.FeeStructureItemId))
+                    {
+                        selectionsToRemove.Add(existingSelection);
+                    }
+                }
+
+                selectionsToAdd = new List<FeeStructureItem>();
+                foreach (var requestedItem in requestedItems)
+                {
+                    var alreadySelected = false;
+                    foreach (var existingSelection in existingSelections)
+                    {
+                        if (existingSelection.FeeStructureItemId == requestedItem.Id)
+                        {
+                            alreadySelected = true;
+                        }
+                    }
+
+                    if (!alreadySelected)
+                    {
+                        selectionsToAdd.Add(requestedItem);
+                    }
+                }
+            }
+
             enrollment.RollNumber = trimmedRollNumber;
             enrollment.EnrollmentDate = command.EnrollmentDate;
             enrollment.Status = command.Status;
+
+            if (selectionsToRemove != null)
+            {
+                foreach (var selectionToRemove in selectionsToRemove)
+                {
+                    _unitOfWork.Enrollments.RemoveFeeSelection(selectionToRemove);
+                }
+
+                foreach (var itemToAdd in selectionsToAdd)
+                {
+                    var newSelection = new EnrollmentFeeSelection
+                    {
+                        EnrollmentId = enrollment.Id,
+                        FeeStructureItemId = itemToAdd.Id,
+                        Enrollment = enrollment
+                    };
+                    await _unitOfWork.Enrollments.AddFeeSelectionAsync(newSelection, cancellationToken);
+                }
+            }
 
             _unitOfWork.Enrollments.Update(enrollment);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
@@ -430,11 +589,12 @@ namespace Application.Enrollments
             }
 
             var discounts = await _unitOfWork.Enrollments.GetDiscountsAsync(enrollmentId, cancellationToken);
+            var discountTypeLabels = ConfigLabelHelper.BuildLabelMap(await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.DiscountType, cancellationToken));
 
             var discountDtos = new List<StudentDiscountDto>();
             foreach (var discount in discounts)
             {
-                var discountDto = EnrollmentMapper.ToDiscountDto(discount);
+                var discountDto = EnrollmentMapper.ToDiscountDto(discount, discountTypeLabels);
                 discountDtos.Add(discountDto);
             }
 
@@ -549,11 +709,12 @@ namespace Application.Enrollments
             }
 
             var scholarships = await _unitOfWork.Enrollments.GetScholarshipsAsync(enrollmentId, cancellationToken);
+            var scholarshipTypeLabels = ConfigLabelHelper.BuildLabelMap(await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.ScholarshipType, cancellationToken));
 
             var scholarshipDtos = new List<StudentScholarshipDto>();
             foreach (var scholarship in scholarships)
             {
-                var scholarshipDto = EnrollmentMapper.ToScholarshipDto(scholarship);
+                var scholarshipDto = EnrollmentMapper.ToScholarshipDto(scholarship, scholarshipTypeLabels);
                 scholarshipDtos.Add(scholarshipDto);
             }
 
@@ -694,6 +855,8 @@ namespace Application.Enrollments
                 selectedItemIds.Add(feeSelection.FeeStructureItemId);
             }
 
+            var categoryLabels = ConfigLabelHelper.BuildLabelMap(await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.FeeCategory, cancellationToken));
+
             var feeItemDtos = new List<FeeLineItemDto>();
             if (classFeeStructure != null)
             {
@@ -705,8 +868,10 @@ namespace Application.Enrollments
                     {
                         FeeStructureItemId = item.Id,
                         FeeCategoryCode = item.FeeCategoryCode,
+                        FeeCategoryLabel = ConfigLabelHelper.Resolve(categoryLabels, item.FeeCategoryCode),
                         Amount = item.Amount,
                         FrequencyType = item.FrequencyType,
+                        InstallmentCount = item.InstallmentCount,
                         IsOptional = item.IsOptional,
                         IsRefundable = item.IsRefundable,
                         Applies = applies
@@ -718,17 +883,20 @@ namespace Application.Enrollments
             var discounts = await _unitOfWork.Enrollments.GetDiscountsAsync(enrollmentId, cancellationToken);
             var scholarships = await _unitOfWork.Enrollments.GetScholarshipsAsync(enrollmentId, cancellationToken);
 
+            var discountTypeLabels = ConfigLabelHelper.BuildLabelMap(await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.DiscountType, cancellationToken));
+            var scholarshipTypeLabels = ConfigLabelHelper.BuildLabelMap(await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.ScholarshipType, cancellationToken));
+
             var discountDtos = new List<StudentDiscountDto>();
             foreach (var discount in discounts)
             {
-                var discountDto = EnrollmentMapper.ToDiscountDto(discount);
+                var discountDto = EnrollmentMapper.ToDiscountDto(discount, discountTypeLabels);
                 discountDtos.Add(discountDto);
             }
 
             var scholarshipDtos = new List<StudentScholarshipDto>();
             foreach (var scholarship in scholarships)
             {
-                var scholarshipDto = EnrollmentMapper.ToScholarshipDto(scholarship);
+                var scholarshipDto = EnrollmentMapper.ToScholarshipDto(scholarship, scholarshipTypeLabels);
                 scholarshipDtos.Add(scholarshipDto);
             }
 
@@ -788,6 +956,7 @@ namespace Application.Enrollments
                 { "DiscountsRows", BuildDiscountsRows(feeStructureDto.Discounts) },
                 { "ScholarshipsRows", BuildScholarshipsRows(feeStructureDto.Scholarships) },
                 { "MonthlyRecurringTotal", feeStructureDto.Summary.MonthlyRecurringTotal.ToString("F2") },
+                { "AnnualInstallmentMonthlyShare", feeStructureDto.Summary.AnnualInstallmentMonthlyShare.ToString("F2") },
                 { "AnnualTotal", feeStructureDto.Summary.AnnualTotal.ToString("F2") },
                 { "OneTimeTotal", feeStructureDto.Summary.OneTimeTotal.ToString("F2") },
                 { "RefundableDepositTotal", feeStructureDto.Summary.RefundableDepositTotal.ToString("F2") },
@@ -850,6 +1019,7 @@ namespace Application.Enrollments
         private static FeeStructureSummaryDto BuildFeeStructureSummary(List<FeeLineItemDto> feeItems, IReadOnlyList<StudentDiscount> discounts, IReadOnlyList<StudentScholarship> scholarships)
         {
             decimal monthlyTotal = 0m;
+            decimal annualInstallmentMonthlyShare = 0m;
             decimal annualTotal = 0m;
             decimal oneTimeTotal = 0m;
             decimal refundableTotal = 0m;
@@ -874,6 +1044,16 @@ namespace Application.Enrollments
                 else if (feeItem.FrequencyType == FeeFrequencyType.Annual)
                 {
                     annualTotal += feeItem.Amount;
+
+                    // An Annual item configured with 2+ installments is genuinely billed every
+                    // month (an AnnualInstallment line on every generated invoice) -- its
+                    // per-month share belongs in the monthly recurring total, not just the
+                    // once-a-year bucket, or "Monthly Recurring" silently understates what the
+                    // family actually pays each month.
+                    if (feeItem.InstallmentCount.HasValue && feeItem.InstallmentCount.Value > 1)
+                    {
+                        annualInstallmentMonthlyShare += Math.Round(feeItem.Amount / feeItem.InstallmentCount.Value, 2);
+                    }
                 }
                 else
                 {
@@ -881,11 +1061,16 @@ namespace Application.Enrollments
                 }
             }
 
+            // Combined base discounts/scholarships resolve against -- matches what a real
+            // generated invoice's recurring subtotal (StructureItem + AnnualInstallment lines)
+            // actually discounts against.
+            var combinedMonthlyTotal = monthlyTotal + annualInstallmentMonthlyShare;
+
             decimal discountReduction = 0m;
             foreach (var discount in discounts)
             {
                 discountReduction += discount.ValueType == AwardValueType.Percentage
-                    ? monthlyTotal * (discount.Value / 100m)
+                    ? combinedMonthlyTotal * (discount.Value / 100m)
                     : discount.Value;
             }
 
@@ -893,19 +1078,20 @@ namespace Application.Enrollments
             foreach (var scholarship in scholarships)
             {
                 scholarshipReduction += scholarship.ValueType == AwardValueType.Percentage
-                    ? monthlyTotal * (scholarship.Value / 100m)
+                    ? combinedMonthlyTotal * (scholarship.Value / 100m)
                     : scholarship.Value;
             }
 
             var summary = new FeeStructureSummaryDto
             {
-                MonthlyRecurringTotal = monthlyTotal,
+                MonthlyRecurringTotal = combinedMonthlyTotal,
+                AnnualInstallmentMonthlyShare = annualInstallmentMonthlyShare,
                 AnnualTotal = annualTotal,
                 OneTimeTotal = oneTimeTotal,
                 RefundableDepositTotal = refundableTotal,
                 TotalDiscountReduction = discountReduction,
                 TotalScholarshipReduction = scholarshipReduction,
-                NetMonthlyRecurring = Math.Max(0m, monthlyTotal - discountReduction - scholarshipReduction)
+                NetMonthlyRecurring = Math.Max(0m, combinedMonthlyTotal - discountReduction - scholarshipReduction)
             };
 
             return summary;

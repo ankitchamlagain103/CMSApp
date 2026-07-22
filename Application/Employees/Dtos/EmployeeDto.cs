@@ -24,5 +24,9 @@ namespace Application.Employees.Dtos
 
         // Non-null only when this employee also has a Teacher profile (shared-PK 1:1).
         public bool HasTeacherProfile { get; set; }
+        public string CreatedBy { get; set; }
+        public DateTimeOffset CreatedTs { get; set; }
+        public string UpdatedBy { get; set; }
+        public DateTimeOffset? UpdatedTs { get; set; }
     }
 }

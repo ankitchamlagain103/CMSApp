@@ -62,7 +62,8 @@ namespace Application.Payroll.FiscalYears
                 StartDate = command.StartDate,
                 EndDate = command.EndDate,
                 IsCurrent = command.IsCurrent,
-                Status = RecordStatus.Active
+                Status = RecordStatus.Active,
+                RetirementExemptionCapAmount = command.RetirementExemptionCapAmount
             };
 
             await _unitOfWork.FiscalYears.AddAsync(fiscalYear, cancellationToken);
@@ -138,6 +139,7 @@ namespace Application.Payroll.FiscalYears
             fiscalYear.EndDate = command.EndDate;
             fiscalYear.IsCurrent = command.IsCurrent;
             fiscalYear.Status = command.Status;
+            fiscalYear.RetirementExemptionCapAmount = command.RetirementExemptionCapAmount;
 
             _unitOfWork.FiscalYears.Update(fiscalYear);
             await _unitOfWork.SaveChangesAsync(cancellationToken);

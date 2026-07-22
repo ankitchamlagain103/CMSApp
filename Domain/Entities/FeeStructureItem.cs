@@ -19,6 +19,13 @@ namespace Domain.Entities
         public string FeeCategoryCode { get; set; }
         public decimal Amount { get; set; }
         public FeeFrequencyType FrequencyType { get; set; }
+
+        // Annual items only (2026-07-17): how many equal monthly installments the annual
+        // amount is billed over, counted from the enrollment's first invoice. Null or 1 =
+        // charge the full amount on the first invoice -- installment splitting is opt-in per
+        // item, never auto-derived from the months remaining in the year (the admin, not the
+        // generator, decides "1/5"-style splits).
+        public int? InstallmentCount { get; set; }
         public bool IsOptional { get; set; }
         public bool IsRefundable { get; set; }
         public virtual FeeStructure FeeStructure { get; set; }

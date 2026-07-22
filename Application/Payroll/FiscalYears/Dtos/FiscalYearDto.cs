@@ -11,5 +11,6 @@ namespace Application.Payroll.FiscalYears.Dtos
         public DateTime EndDate { get; set; }
         public bool IsCurrent { get; set; }
         public RecordStatus Status { get; set; }
+        public decimal RetirementExemptionCapAmount { get; set; }
     }
 }

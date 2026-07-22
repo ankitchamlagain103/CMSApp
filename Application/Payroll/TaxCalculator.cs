@@ -34,7 +34,7 @@ namespace Application.Payroll
                     continue;
                 }
 
-                var taxForSlab = incomeInSlab * slab.TaxRate;
+                var taxForSlab = Math.Round(incomeInSlab * slab.TaxRate, 2);
                 totalTax += taxForSlab;
 
                 var breakdownItem = new TaxSlabBreakdownDto
@@ -49,7 +49,7 @@ namespace Application.Payroll
             }
 
             result.AnnualTax = totalTax;
-            result.MonthlyTax = totalTax / 12m;
+            result.MonthlyTax = Math.Round(totalTax / 12m, 2);
             return result;
         }
 
@@ -104,13 +104,13 @@ namespace Application.Payroll
 
             // "Least of three": actual retirement contributions, 1/3 of gross annual income, and
             // the fiscal year's configured cap.
-            var retirementExemption = Math.Min(retirementContributionAnnual, Math.Min(grossAnnualIncome / 3m, retirementExemptionCapAmount));
+            var retirementExemption = Math.Round(Math.Min(retirementContributionAnnual, Math.Min(grossAnnualIncome / 3m, retirementExemptionCapAmount)), 2);
 
             decimal insuranceDeduction = 0m;
             foreach (var premium in insurancePremiums)
             {
                 var cap = insuranceTypeCaps.TryGetValue(premium.InsuranceTypeCode, out var capValue) ? capValue : 0m;
-                insuranceDeduction += Math.Min(premium.AnnualPremiumAmount, cap);
+                insuranceDeduction += Math.Round(Math.Min(premium.AnnualPremiumAmount, cap), 2);
             }
 
             var taxableIncome = Math.Max(0m, grossAnnualIncome - retirementExemption - insuranceDeduction);
@@ -128,10 +128,13 @@ namespace Application.Payroll
         // disagree on what a single component/deduction resolves to in a given period.
         internal static decimal ResolveAmount(AwardValueType valueType, decimal value, decimal basicPeriodAmount)
         {
-            return valueType == AwardValueType.Percentage ? basicPeriodAmount * (value / 100m) : value;
+            return valueType == AwardValueType.Percentage ? Math.Round(basicPeriodAmount * (value / 100m), 2) : value;
         }
 
-        private static decimal Annualize(decimal periodAmount, PayFrequencyType frequencyType)
+        // Internal (not private) so the Investment & Tax Planning composite endpoint
+        // (EmployeeService.GetTaxPlanningAsync) can annualize each component/deduction the exact
+        // same way CalculateFromSalary does internally, for its per-line income breakdown.
+        internal static decimal Annualize(decimal periodAmount, PayFrequencyType frequencyType)
         {
             return frequencyType == PayFrequencyType.Monthly ? periodAmount * 12m : periodAmount;
         }

@@ -1,3 +1,4 @@
+using Application.Common.Helpers;
 using Application.Common.Interfaces;
 using Application.Common.Models;
 using Application.Fees.Commands;
@@ -93,6 +94,7 @@ namespace Application.Fees
                     FeeCategoryCode = itemInput.FeeCategoryCode.Trim(),
                     Amount = itemInput.Amount,
                     FrequencyType = itemInput.FrequencyType,
+                    InstallmentCount = itemInput.InstallmentCount,
                     IsOptional = itemInput.IsOptional,
                     IsRefundable = itemInput.IsRefundable,
                     FeeStructure = feeStructure
@@ -102,7 +104,8 @@ namespace Application.Fees
             await _unitOfWork.FeeStructures.AddAsync(feeStructure, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            var feeStructureDto = FeeStructureMapper.ToDto(feeStructure);
+            var categoryLabels = await LoadFeeCategoryLabelMapAsync(cancellationToken);
+            var feeStructureDto = FeeStructureMapper.ToDto(feeStructure, categoryLabels);
             var successResponse = CommonResponse<FeeStructureDto>.Success(feeStructureDto, "Fee structure created successfully.");
             return successResponse;
         }
@@ -116,7 +119,8 @@ namespace Application.Fees
                 return notFoundResponse;
             }
 
-            var feeStructureDto = FeeStructureMapper.ToDto(feeStructure);
+            var categoryLabels = await LoadFeeCategoryLabelMapAsync(cancellationToken);
+            var feeStructureDto = FeeStructureMapper.ToDto(feeStructure, categoryLabels);
             var successResponse = CommonResponse<FeeStructureDto>.Success(feeStructureDto);
             return successResponse;
         }
@@ -131,11 +135,12 @@ namespace Application.Fees
             };
 
             var pagedFeeStructures = await _unitOfWork.FeeStructures.GetPagedByFilterAsync(filter, query.Page, query.PageSize, cancellationToken);
+            var categoryLabels = await LoadFeeCategoryLabelMapAsync(cancellationToken);
 
             var feeStructureDtos = new List<FeeStructureDto>();
             foreach (var feeStructure in pagedFeeStructures.Items)
             {
-                var feeStructureDto = FeeStructureMapper.ToDto(feeStructure);
+                var feeStructureDto = FeeStructureMapper.ToDto(feeStructure, categoryLabels);
                 feeStructureDtos.Add(feeStructureDto);
             }
 
@@ -173,7 +178,8 @@ namespace Application.Fees
             _unitOfWork.FeeStructures.Update(feeStructure);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            var feeStructureDto = FeeStructureMapper.ToDto(feeStructure);
+            var categoryLabels = await LoadFeeCategoryLabelMapAsync(cancellationToken);
+            var feeStructureDto = FeeStructureMapper.ToDto(feeStructure, categoryLabels);
             var successResponse = CommonResponse<FeeStructureDto>.Success(feeStructureDto, "Fee structure updated successfully.");
             return successResponse;
         }
@@ -245,6 +251,7 @@ namespace Application.Fees
                 FeeCategoryCode = categoryCode,
                 Amount = command.Amount,
                 FrequencyType = command.FrequencyType,
+                InstallmentCount = command.InstallmentCount,
                 IsOptional = command.IsOptional,
                 IsRefundable = command.IsRefundable,
                 FeeStructure = feeStructure
@@ -253,7 +260,8 @@ namespace Application.Fees
             await _unitOfWork.FeeStructures.AddItemAsync(item, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            var itemDto = FeeStructureMapper.ToItemDto(item);
+            var categoryLabels = await LoadFeeCategoryLabelMapAsync(cancellationToken);
+            var itemDto = FeeStructureMapper.ToItemDto(item, categoryLabels);
             var successResponse = CommonResponse<FeeStructureItemDto>.Success(itemDto, "Fee structure item added successfully.");
             return successResponse;
         }
@@ -277,12 +285,14 @@ namespace Application.Fees
 
             item.Amount = command.Amount;
             item.FrequencyType = command.FrequencyType;
+            item.InstallmentCount = command.InstallmentCount;
             item.IsOptional = command.IsOptional;
             item.IsRefundable = command.IsRefundable;
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            var itemDto = FeeStructureMapper.ToItemDto(item);
+            var categoryLabels = await LoadFeeCategoryLabelMapAsync(cancellationToken);
+            var itemDto = FeeStructureMapper.ToItemDto(item, categoryLabels);
             var successResponse = CommonResponse<FeeStructureItemDto>.Success(itemDto, "Fee structure item updated successfully.");
             return successResponse;
         }
@@ -308,6 +318,15 @@ namespace Application.Fees
 
             var successResponse = CommonResponse<bool>.Success(true, "Fee structure item removed successfully.");
             return successResponse;
+        }
+
+        // FeeCategory (1010) code -> Label map so every fee-structure DTO carries the
+        // human-readable category label alongside the stored code (2026-07-19).
+        private async Task<Dictionary<string, string>> LoadFeeCategoryLabelMapAsync(CancellationToken cancellationToken)
+        {
+            var options = await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.FeeCategory, cancellationToken);
+            var labelsByCode = ConfigLabelHelper.BuildLabelMap(options);
+            return labelsByCode;
         }
 
         private static string BuildValidationErrorMessage(ValidationResult validationResult)

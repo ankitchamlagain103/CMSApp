@@ -11,6 +11,10 @@ namespace Application.Fees.Commands
         public string FeeCategoryCode { get; set; }
         public decimal Amount { get; set; }
         public FeeFrequencyType FrequencyType { get; set; }
+
+        // Annual items only: split the amount over this many monthly installments (2-12).
+        // Omit (or 1) to charge the full amount on the enrollment's first invoice.
+        public int? InstallmentCount { get; set; }
         public bool IsOptional { get; set; }
         public bool IsRefundable { get; set; }
     }

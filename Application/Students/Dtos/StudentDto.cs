@@ -16,6 +16,10 @@ namespace Application.Students.Dtos
         public string Address { get; set; }
         public DateTime? AdmissionDate { get; set; }
         public RecordStatus Status { get; set; }
+        public string CreatedBy { get; set; }
+        public DateTimeOffset CreatedTs { get; set; }
+        public string UpdatedBy { get; set; }
+        public DateTimeOffset? UpdatedTs { get; set; }
 
         // Populated on the detail endpoint (and on create); the paged list leaves it empty to
         // keep the query light.

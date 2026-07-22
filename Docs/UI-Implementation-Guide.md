@@ -897,11 +897,192 @@ Full reference in `pay_and_taxes_implementation_guide.md`; orientation summary: 
 
 ---
 
+# Setup module, Fee Generation & Payroll Runs (2026-07-16)
+
+Full reference in `setup_fee_payroll_redesign_implementation_guide.md` (and the architecture blueprint in `setup_fee_payroll_redesign_implementation_plan.md`); orientation summary:
+
+- **Navigation**: new `SETUP` main menu now parents Academic Years, Classes, Fee Structures, Fiscal Years, and the new Fee Rules list; `ACADEMIC_MANAGEMENT` and `TEACHER_MANAGEMENT` mains are retired (teacher permissions/aliases live on under `EMPLOYEE_LIST`; teacher UI folds into the Employee profile, Compensation Plan tab always last). `FEE_MANAGEMENT`/`PAYROLL_MANAGEMENT` keep only the transactional pages below. The nav tree from `GET /api/roles/user-menus` re-shapes automatically; role grants survive.
+- **Fee rules** (`/api/feerules`, Setup): configurable payment-time discounts — advance-months ("pay X months together") and early-payment ("pay N days before due date"), percentage or fixed, class/category-scoped, priority + combinability.
+- **Fee generation** (`/api/feeinvoices`): `POST /generate` creates one Draft invoice per Enrolled enrollment per billing month — scoped by `academicClassId` (one grade, all sections) and/or `classSectionId` (2026-07-17; always send the class when the picker has one). Annual fees charge in full on the enrollment's first invoice unless the fee-structure item sets `installmentCount` (admin-configured split, no more automatic "1/5" installments); one-time charges on the first invoice only; discounts/scholarships/monthly adjustments folded in as lines. Admin edits Draft lines, then `POST /finalize` locks them. Statuses Draft→Generated→Pending(overdue)→PartiallyPaid→Paid / Cancelled. `GET /statement/{enrollmentId}` is the parent-facing dues view; `GET /account-statement/{enrollmentId}` is the ledger-style Statement of Account (invoice debits, payment credits, running balance, `closingBalance` = live pending amount); `GET /students?search=` finds a student (name/admission no/email) and returns their `enrollmentId` + outstanding balance; the invoice list also takes `search`. Pre-generation per-month overrides via `/api/feeinvoices/adjustments` (catalog 1017, one student/one month, optional category-scoped `feeCategoryCode`) or `POST /adjustments/bulk` (2026-07-17, same shape stamped onto every Enrolled enrollment in a year/class/section scope in one call — the "Education Tour Fee for all of Grade 9" case). The Fee Generation page now also hosts a **Fee Payments tab** (2026-07-17) — `FEE_PAYMENT_LIST` is no longer a separate sidebar menu, same API, folded navigation. **Annual fee "pay in full" (2026-07-17)**: `POST .../lines/{lineId}/settle-annual-in-full` on a Draft invoice's Annual-installment line bills the item's true remaining balance in one shot; the installment engine is remaining-balance-driven (reads actual earlier-invoice line amounts, not a schedule index), so later months automatically stop billing an item once it's fully settled — no separate flag. Full fixes reference: `fee_module_fixes_implementation_guide.md` (round 1), `fee_advance_payment_and_ux_implementation_guide.md` (round 2), `fee_advance_billing_and_annual_settlement_implementation_guide.md` (round 3).
+- **Fee payments** (`/api/feepayments`): preview-then-confirm — `POST /preview` returns the FIFO allocation plan (oldest month first) plus earned rule discounts and the exact collectable amount; `POST /` records the payment (receipt `RCP{year}{seq}`); `POST /{id}/void` reverses; `GET /{id}/receipt` renders the printable PaymentReceipt document template (redesigned 2026-07-17 with a school-header band from `AppConfig` `APP_NAME`/`SCHOOL_ADDRESS`/`SCHOOL_PHONE`) with every allocated invoice's Sr.No-led line details; the list takes `search` (name/admission no/email/receipt no). **Advance payment (2026-07-17)**: when the tendered `amount` exceeds what's currently outstanding, the service bills ahead — creates and finalizes the next consecutive months' invoices (same line composition as generation, up to a 12-month cap) so a Fee Rule like "pay 3 months together for Rs 5000 off" (`AdvanceMonthsDiscount`) has real fully-settled invoices to evaluate against; set `allowAdvanceBilling: false` to keep the old strict behavior. Response gains `monthsBilledInAdvance` and each allocation gets `isNewlyGenerated`. Regular generation automatically skips any month a payment already billed ahead. **`GET /advance-quote?enrollmentId=&monthsToPay=`** (2026-07-17, read-only) answers "how much for X months" so the Collect Payment form can auto-fill Amount before the cashier hits Preview/Confirm.
+- **Optional fees, editable anytime**: `POST /api/enrollments` (onboarding) and `PUT /api/enrollments/{id}` (2026-07-17, the student-profile edit) both take `optionalFeeStructureItemIds` — checkboxes (transportation, hostel, …) rendered from the class fee structure's `isOptional` items, three-way semantics on update (null=unchanged/[]=clear/list=replace-sync, same as `UpdateUserCommand.RoleIds`). Selections also directly editable via `/api/enrollments/{id}/fee-selections`.
+- **Fee summary fix (2026-07-17)**: `GET /api/enrollments/{id}/fee-structure`'s `summary.monthlyRecurringTotal` now folds in the per-month share of any Annual item with `installmentCount >= 2` (new `summary.annualInstallmentMonthlyShare` breaks it out) — previously it silently excluded a genuinely-monthly-billed Annual Fee's share, understating the true monthly cost. Discounts/scholarships now reduce against this combined total, matching what a real invoice actually discounts. Statement of Account is also reachable from Student Management now, not just the Fee Generation page.
+- **Salary adjustments** (`/api/employees/{id}/adjustments`, catalog 1016): pre-run monthly overrides — unpaid-leave day counts, late fines, bonuses, incentives; Pending until a payroll run consumes them.
+- **Payroll runs** (`/api/payrollruns`): `POST` snapshots every payable employee's effective compensation plan + TDS + due loan EMIs + Pending adjustments into Draft slips; review/edit Draft slip lines; `approve` (locks, records approver) → `mark-paid`. One live run per fiscal month; cancel re-pends adjustments. **`POST /{id}/refresh`** (2026-07-18) rebuilds a Draft run's slips in place from the *current* configuration (plan edits, slab fixes, new adjustments/loans) — Manual lines and individually-cancelled slips are preserved; see the Payroll fixes section below.
+- **Payslip endpoints** (`/api/employees/{id}/payslips*` + teacher aliases) gained `isProjection`: `false` = served from a persisted run slip (real payDays/UPL). **2026-07-21: `isProjection: true` no longer occurs on these two endpoints** — a month without an Approved/Paid `SalarySlip` (no run, or still Draft) returns nothing (list) / `404` (detail) instead of a live projection; the field stays on the DTO for shape stability. Use the Tax Details tab (`.../salaries/tax-calculation/monthly`) for a forward-looking estimate instead. Same date: every payroll/tax amount (`MonthlyTax`, `GrossMonthly`/`NetMonthly`, annual-frequency monthly splits, percentage-of-Basic resolutions, retirement exemption, insurance-premium deduction) is now rounded to 2 decimal places at the point it's calculated, fixing long repeating-decimal values (e.g. `39633.334166666666666666666667`) that could previously reach the API response.
+- **Common Salary Components (2026-07-21)**: the Compensation Plan's earnings dropdown (Config catalog 1013) gained `HOUSE_RENT_ALLOWANCE`/`MEDICAL_ALLOWANCE`/`OVERTIME`/`BONUS` — the standard Nepali payslip component set (`BASIC`, `DEARNESS_ALLOWANCE`, `HOUSE_RENT_ALLOWANCE`, `TRAVEL_ALLOWANCE`, `MEDICAL_ALLOWANCE`, `FESTIVAL_BONUS`, `OVERTIME`, `BONUS`) is now fully seeded, so admins no longer need to freehand these under `OTHER_ALLOWANCE`. The deductions dropdown (catalog 1014: `SSF_DEDUCTION`, `CIT_DEDUCTION`, `LOAN`, `ADVANCE`, `OTHER`) already covered the requested set — no change there. `Gross − SSF/PF − TDS − other deductions = Net` was already exactly how the payslip/payroll-run math worked; nothing changed there.
+- **`GET /api/employees/{id}/salary-forecast?fiscalYearId=`** (+ `Teachers` alias, 2026-07-21, permission `EMPLOYEE_SALARY_FORECAST`/`TEACHER_SALARY_FORECAST`): a forward-looking "next month's estimated pay" built off the employee's current compensation plan — unlike the Payslip endpoints, it needs no Approved/Paid payroll run to exist. Returns income/deduction lines (including that month's TDS share and any due loan EMI), `grossSalary`, `totalDeductions`, `netSalary`. `404` if today is in the fiscal year's last month (pass the next fiscal year's id). Full shape in `pay_and_taxes_implementation_guide.md`.
+- **`GET /api/employees/{id}/salaries/tax-planning?fiscalYearId=`** (+ `Teachers` alias, 2026-07-21, permission `EMPLOYEE_TAX_PLANNING`/`TEACHER_TAX_PLANNING`): the single composite response for the Investment & Tax Planning tab — income lines (every earning component, taxable or not, with `valueType`/`isTaxable`), `totalAnnualIncome`, the retirement-fund `a`/`b`/`c`/`exemptionApplied` breakdown, insurance premium lines + the capped total, `assessmentType`, and the full `taxCalculation` (monthly/annual tax, slab breakdown). One call instead of assembling it from the tax-calculation endpoint, salary history, and the fiscal year record. Full field reference, failure table, and a complete worked JSON example (matching real screenshot numbers) in `Docs/investment_and_tax_planning_implementation_guide.md`. Note `valueType` serializes as the raw `AwardValueType` int (`1` = Percentage, `2` = FixedAmount) — no string enum converter is registered anywhere in this API.
+- **fee_frequency**: a FeeCategory (catalog 1010) option's `additionalValue1` must now be `MONTHLY`/`ANNUAL`/`ONE_TIME` — it drives generation defaults and is validated on create/update.
+- **Needs a migration that doesn't exist yet**: 10 new tables — every endpoint in this section 500s until it's applied. The 2026-07-17 fee-module fixes additionally need `fee_structure_items.installment_count` (nullable int).
+
+---
+
+# Payroll fixes & Salary Calculator (2026-07-18)
+
+Full reference in `payroll_fixes_implementation_guide.md`; orientation summary (no new migration needed):
+
+- **Run list totals fixed**: `GET /api/payrollruns` now returns real `slipCount`/`totalGrossEarnings`/`totalNetPay` (they were always 0). Cancelled slips are excluded from these aggregates everywhere — they still appear in the detail's `slips` array (`status: 4`), so render them greyed out.
+- **`POST /api/payrollruns/{id}/refresh`** (`PAYROLL_RUN_REFRESH`): Draft-only in-place regeneration — picks up compensation-plan edits, tax-slab changes, newly Pending adjustments and newly approved loans made after generation. Preserves Manual slip lines and individually-cancelled slips; adds slips for newly eligible employees; cancels slips of no-longer-payable ones; response = same `{ run, skipped[] }` shape as create. Add a Refresh button on the Run Detail page while `status` is Draft. This is also the remedy when a run seems to use stale tax slabs: runs are immutable snapshots — fix the fiscal year's slabs, then Refresh.
+- **SSF rates catalog 1018** (`GET /api/configs/dropdown/1018`, no grant needed): `EMPLOYEE_SHARE` (11) / `EMPLOYER_SHARE` (20), the percentage in `additionalValue1`, admin-editable. Prefill SSF lines in the Add Salary Revision form from it instead of hardcoding. Correct plan shape: `SSF_CONTRIBUTION` component = employer 20% of Basic (taxable, retirement-flagged); `SSF_DEDUCTION` deduction = employee 11% of Basic (retirement-flagged).
+- **Employer-share payslip offset (round 2)**: a retirement-flagged *component* (the employer SSF/EPF share) now automatically produces an equal deduction line with the same code on payslips/slips/monthly breakdowns — it's fund money, not cash, so it stays in gross but no longer inflates net pay. Render the pair under earnings and deductions as-is.
+- **`POST /api/salarycalculator`** (`SALARY_CALCULATOR`, new sub-menu under Payroll Management, url `/apps/payroll/salary-calculator`): HR structuring tool — fix one monthly figure (`basis`: 1 NetPayment / 2 GrossPayment / 3 Ctc) plus `amount`, optional `fiscalYearId`/`assessmentType`/`includeSsf`, Basic pinned exactly (`basicSalaryAmount`) or as a percent (`basicPercentOfGross`, default 60), plus round-2 knobs `annualBonusAmount` (Dashain/festival bonus — taxed annually, excluded from monthly cash), `monthlyCitAmount` (CIT savings, retirement-flagged), `annualLifeInsurancePremium`/`annualHealthInsurancePremium` (capped per catalog 1015). Returns the solved structure (Basic, Other Allowance, both SSF shares, CIT, monthly TDS via the year's real slabs, net, CTC, annuals incl. bonus, full `taxCalculation` breakdown) plus `suggestedComponents`/`suggestedDeductions`/`suggestedInsurancePremiums` shaped exactly like `POST /api/employees/{id}/salaries` line inputs.
+- **`POST /api/salarycalculator/assign`** (`SALARY_CALCULATOR_ASSIGN`, round 2): same body + `employeeId` + `effectiveFromDate` — recomputes server-side and persists the structure as a real salary revision (same conflict/validation path as the manual form). Response: `{ calculation, salary }`.
+- **`POST /api/employees/adjustments/bulk`** (`EMPLOYEE_SALARY_ADJUSTMENT_BULK`, round 2): one Pending salary adjustment per in-scope employee in one call (Dashain allowance/bonus/leave-encashment/deduction for everyone) — scope = explicit `employeeIds`, or all payroll-eligible optionally narrowed by `employeeCategoryCode`. Response: `{ createdCount, adjustments, skipped }`. Same past-Draft `409` guard as the single endpoint; a Draft run picks them up on Refresh.
+- **Verified, not a bug**: identical TDS across FY-SAMPLE and 2084/85 is correct for the current dev data — the employee's taxable income (Rs. 440,000) sits inside the first bracket of both years and both first brackets are 1%; they only diverge above Rs. 500,000. Also both fiscal years currently have `retirementExemptionCapAmount = 0`, which zeroes the retirement exemption — set a real cap (e.g. 500,000) via `PUT /api/fiscalyears/{id}`. Deduction Type catalog 1014 gained `CIT_DEDUCTION`.
+
+---
+
+# Fee Generation Run & Carry-Forward (2026-07-18)
+
+Full reference in `fee_generation_run_and_carry_forward_implementation_guide.md`; orientation
+summary (needs a migration — see below):
+
+- **Fee Generation Runs** (`GET /api/feegenerationruns` / `GET /api/feegenerationruns/{id}` /
+  `GET /api/feegenerationruns/{id}/classes/{academicClassId}`): the fee-side counterpart of
+  Payroll Runs — a period-keyed master row (one per `academicYearId`/`billingYear`/
+  `billingMonth`) found-or-created automatically by `POST /api/feeinvoices/generate`, so it
+  accumulates across however many scoped generate calls hit the same month (one class at a time,
+  or "all classes"). List rows carry `invoiceCount`/`classCount`/`studentCount`/
+  `totalNetAmount`/`totalPaidAmount`/`totalOutstandingAmount`. **2026-07-21**: the detail endpoint
+  was split in two so it's never bulky — `GET .../{id}` returns only per-class rollups
+  (`classes[{ gradeCode, invoiceCount, studentCount, draftInvoiceCount, totalNetAmount,
+  totalPaidAmount, totalOutstandingAmount }]`, no students/invoices), and expanding a class in the
+  UI fires the new `GET .../{id}/classes/{academicClassId}` for that one class's
+  `students[{ ..., invoices[] }]` tree — build the Fee Generation page's master table (collapsed
+  class rows, expand-to-fetch student/invoice detail) around this pair. **Also 2026-07-21**:
+  `POST .../{id}/refresh` and `POST .../{id}/classes/{academicClassId}/refresh` (no body) re-run
+  generation with `regenerateDrafts: true` for the run's own period — the fix for "I added a Bulk
+  Adjustment but the run detail still shows the old amounts" (an adjustment only folds into an
+  invoice at generation time; refresh is the discoverable way to re-trigger that from this page
+  instead of the separate Generate Invoices dialog). Only Draft invoices are touched; both return
+  the same `FeeGenerationResultDto` the generate endpoint does — refresh **never** changes an
+  invoice's status (only `POST /api/feeinvoices/finalize` does that); if a class shows mostly
+  `Generated` right after a refresh, that status predates the refresh click. **`POST
+  /api/feeinvoices/{id}/unfinalize`** (2026-07-21) is the new way back to Draft for one already-
+  finalized invoice — the only path for a locked invoice to become eligible for refresh again —
+  refused once it has a payment against it (void that first), same guard `cancel` uses.
+- **Automatic carry-forward voids the old invoice**: generation now auto-creates a Pending
+  `CARRY_CORRECTION` adjustment (catalog 1017) whenever an enrollment has an outstanding balance
+  from a strictly earlier billing period, folding it into the new invoice as a normal adjustment
+  line (its description reads "Carried forward from INV..." for self-explanatory traceability).
+  Every contributing older invoice is voided in the same stroke — `status` flips to `6 Cancelled`
+  (a system transition; the user-facing `POST /{id}/cancel` still refuses invoices with payments)
+  — and stamped `carriedForwardAmount` (display only) + `carriedForwardToInvoiceId` (the new
+  invoice's id — the reference, readable from either invoice). Being genuinely Cancelled means
+  the voided invoice is automatically excluded from every outstanding-balance total (statement,
+  student search, payment allocation) with no separate exclusion logic — it just disappears from
+  the account-statement ledger's running balance (still readable directly via
+  `GET /api/feeinvoices/{id}` or by filtering the list for `status=6`). Regenerating a Draft that
+  already carried a balance forward doesn't recompute the amount — it just repoints the voided
+  invoice(s)' reference to the replacement invoice.
+- **Fee adjustments carry student/class context now**: `GET /api/feeinvoices/adjustments`
+  rows gained `studentName`/`admissionNo`/`gradeCode`/`sectionCode` — a broad query like
+  `?billingYear=2026` used to be unreadable without a second lookup per row.
+  `PUT`/`DELETE .../adjustments/{id}` (edit/cancel) already existed, Pending-only.
+- **Student search default view reworked**: `GET /api/feeinvoices/students` default page size is
+  now 20; with no `search` text, results sort by `outstandingAmount` descending instead of
+  alphabetically. An active search still returns matches regardless of balance, sorted
+  alphabetically as before. **2026-07-21**: a no-search call now returns every enrolled student in
+  scope, not just those who owe something — it previously hid zero-balance students entirely,
+  which broke a plain `?academicYearId=` roster browse.
+- **`GET /api/feeinvoices` now accepts multiple `status` values** — repeat the key
+  (`status=4&status=6`) or comma-separate (`status=4,6`); a single value still works as before.
+- **Two generation bugs fixed**: regenerating a Draft invoice no longer silently drops an
+  adjustment that was already applied to it; `previousDueAmount` and the Annual-installment
+  "already billed" math now only consider invoices strictly earlier than the period being
+  generated (previously an out-of-order invoice, e.g. one created ahead by advance payment,
+  could skew both).
+- **Full-name search fixed (2026-07-21)**: the shared student search backing
+  `GET /api/feeinvoices/students` (and enrollment search generally) now splits multi-word queries
+  and requires every word to match somewhere across first/middle/last name, admission no, or
+  email — so `"Sandhya Adhikari"` now finds the student, not just `"Sandhya"` or `"Adhikari"`
+  alone.
+- **Needs a migration that doesn't exist yet**: new table `dbo.fee_generation_runs`; new columns
+  `dbo.fee_invoices.carried_forward_amount numeric NOT NULL DEFAULT 0` and
+  `dbo.fee_invoices.carried_forward_to_invoice_id uuid NULL`.
+
+---
+
+# Audit fields + simplified generate response (2026-07-21)
+
+Full reference in `audit_fields_and_generation_response_implementation_guide.md`; no migration
+(pure DTO/mapper exposure of columns that already existed). Summary:
+
+- **`POST /api/feeinvoices/generate` (and its refresh wrappers) response simplified**: `skipped[]`
+  (one row per skipped enrollment — up to hundreds on a regenerate call) is replaced by
+  `skippedCount` (int, unchanged meaning) + `skippedSummary[{ reason, count }]` grouped by a fixed
+  set of short reason strings (`"Invoice Already Generated"`, `"Draft Invoice Already Exists"`,
+  `"No Fee Structure Configured"`, `"Fee Structure Not Active"`). **Breaking change** — the old
+  `skipped[]` field is gone, not deprecated-alongside. `POST /api/feeinvoices/adjustments/bulk`'s
+  `skipped[{ enrollmentId, studentName, reason }]` is unrelated and unchanged.
+- **`createdBy`/`createdTs` added to list rows, `updatedBy`/`updatedTs` also added to detail**,
+  for: Fee Generation Runs (`GET /api/feegenerationruns` / `GET .../{id}`), Students, Employees,
+  Users, Payroll Runs. All four entities already had these columns via `IAuditableEntity` — this
+  only exposes them on the DTOs; no new data. Students/Employees/Users/Payroll Runs share one DTO
+  for list and detail, so all four fields are always present (list rows just carry
+  `updatedBy`/`updatedTs` too, harmless); Fee Generation Runs has a real List/Detail DTO split, so
+  the split follows that: base = `createdBy`/`createdTs`, detail subclass adds
+  `updatedBy`/`updatedTs`.
+- Scoped to the five named areas + their GetById endpoints — the same recipe applies identically
+  to any other entity in the system on request (see the guide's §3).
+
+---
+
+# Fee Payment UX, Config Labels & Fee-Rule Fix (2026-07-19)
+
+Full reference in `fee_payment_ux_and_labels_implementation_guide.md`; orientation summary
+(no migration needed — code/seed-only):
+
+- **Payment preview shows what is collected**: `POST /api/feepayments/preview` allocations
+  now carry a `lines[]` array (the allocated invoice's full line breakdown — `source`,
+  `feeCategoryCode`, `feeCategoryLabel`, `description`, `amount`), including advance-billed
+  months that don't exist yet. Preview-only; the confirm response leaves it empty (use the
+  receipt endpoint after confirming).
+- **Fee rules actually apply now**: the payment planner previously required the *pre-discount*
+  total to be tendered for a rule to match, then rejected that very amount as an over-payment —
+  so no rule ever landed on a confirmed payment. Earned discounts now count toward settlement:
+  collecting the quoted `netAmountToCollect` (advance-quote) or the preview's recommended
+  amount earns the discount and settles the months in full. Reminder: a rule scoped to a class
+  (e.g. Nursery) never fires for another class's enrollment — clear the class scope for a
+  school-wide rule.
+- **Labels alongside codes, everywhere**: every DTO that stores a Config option code now also
+  returns the catalog Label (`feeCategoryLabel`, `adjustmentTypeLabel`, `discountTypeLabel`,
+  `scholarshipTypeLabel`, `componentLabel`, `deductionLabel`, `insuranceTypeLabel`,
+  `loanTypeLabel`, `label` on payslip/tax-detail lines) — bind display columns to these; they
+  fall back to the code, never blank. Newly generated fee-invoice lines and salary-slip lines
+  also write label-based `description`s; existing rows keep their old code-based descriptions
+  (refresh a Draft payroll run / regenerate a Draft invoice to pick labels up).
+- **Statement of Account moved**: the Student Management sidebar entry is retired (menu
+  seeder retire pass); build it as a tab on the student profile instead, calling the existing
+  `GET /api/feeinvoices/account-statement/{enrollmentId}` with `currentEnrollment.id`.
+- **Statement of Account now shows discounts as their own line (2026-07-20 fix)**: an invoice's
+  `debit` is now `grossAmount` (pre-discount) rather than `netAmount`; any discount/scholarship/
+  rule-discount/negative-adjustment on that invoice posts a same-date `credit` entry right after
+  it (`entryType` `"Discount"`/`"Scholarship"`/`"Rule Discount"`/`"Adjustment"`, `description`
+  taken from the invoice line, e.g. `"Discount - Sibling Discount"`) instead of being silently
+  netted into the invoice row with no visible trace. `closingBalance`/running `balance` math is
+  unchanged — treat any `entryType` beyond `"Invoice"`/`"Payment"` as a generic credit row rather
+  than hardcoding just those two. See `Docs/fee_module_fixes_implementation_guide.md` §3.
+- **Monthly Adjustments clarified**: rows typed `CARRY_CORRECTION` ("Opening Balance / Carry
+  Correction") are system-generated carry-forwards — render them read-only. Manual
+  adjustments are editable while Pending via `PUT /api/feeinvoices/adjustments/{id}` and
+  cancellable via `DELETE /api/feeinvoices/adjustments/{id}`; both 409 once Applied
+  (regenerate/cancel the invoice to re-pend them first).
+
+---
+
+# Dual Calendar (AD / Bikram Sambat) & Meetings (2026-07-16)
+
+Full reference in `dual_calendar_implementation_guide.md`; orientation summary: everything is stored AD-canonical with the BS date denormalized alongside, so every payload carries both calendars and the UI never converts anything itself. BS month lengths are DB-driven (`bs_month_lengths`, seeded BS 2000–2090, admin-extends yearly via `POST /api/calendar-configuration/bs-month-lengths`; anchor BS 2000-01-01 = AD **1943-04-14** — the design doc's 04-13 was off by one, verified against known reference dates). `GET /api/calendar-configuration/localization-data` returns the 12 BS month names + 7 weekday names (EN/NP, `isWeeklyHoliday` — Saturday seeded true); `PUT …/weekdays/{index}` edits them. `GET /api/calendar/month-view?year=&month=&mode=BS|AD` is the one calendar-page call — one row per day with both dates, localized day names, weekly-holiday/`isToday` flags (Nepal-time today), and that day's events, festivals, and meetings pre-joined. `GET /api/calendar/today` and `GET /api/calendar/convert/ad-to-bs|bs-to-ad` power dual date pickers (all three return the same `DualDateDto`; open to any authenticated user). `CalendarEvent` CRUD lives at `/api/calendar/events` (types: 0 Note, 1 PublicHoliday, 2 InternalEvent; date enterable on either calendar via `isBsDate`); BS-anchored shifting festivals (Dashain/Tihar) at `/api/calendar/festivals` (one row per festival per BS year, entered in BS, AD range computed; 409 on duplicate name+year). Meetings at `/api/meetings` — `POST /schedule` (either-calendar date via `isBsScheduled`, host defaults to the caller, attendee emails start Pending, **409 when the host is double-booked** on an overlapping time block), paged list, update (attendee replace-sync, host immutable), soft-delete cancel, and `POST /respond` (`{ meetingId, email, status }`, open to all authenticated users). **The 7 new tables need a migration that doesn't exist yet** — every endpoint in this section 500s until it's applied, and `CalendarSeeder` (month/weekday names + the month-length table) skips until then.
+
+---
+
 # Seeded data (first run against a migrated DB)
 
 - Roles `SuperAdmin` / `Admin` / `User`, one account per role (credentials from the `Seed` config section).
-- Main menus `USER_MANAGEMENT` / `ROLE_MANAGEMENT` / `MENU_MANAGEMENT` / `CONFIG_MANAGEMENT` / `DASHBOARD` / `ACADEMIC_MANAGEMENT` / `TEACHER_MANAGEMENT` / `STUDENT_MANAGEMENT` / `FEE_MANAGEMENT` / `PAYROLL_MANAGEMENT` / `EMPLOYEE_MANAGEMENT` with permission leaves covering every protected endpoint; **all permissions granted to the SuperAdmin role** — and SuperAdmin-typed accounts additionally bypass the permission check entirely, so the seeded superadmin works everywhere immediately.
-- Config catalogs for student management (`typeCode` 1001–1007) plus discount/scholarship/fee-category types (`1008`/`1009`/`1010`) plus employee-category/job-position/salary-component/deduction/insurance-type (`1011`–`1015`); default guardian-relationship, teacher-qualification, document-type (teacher + student), discount/scholarship-type (with default rates), all 11 fee-category options, and all employee-side options (categories, positions, salary components, deductions, insurance types with tax-deduction caps); a baseline of app-config settings (`GENERAL`/`THEME`/`ANNOUNCEMENT`); one placeholder `FY-SAMPLE` fiscal year with illustrative Individual/Couple tax slabs and retirement-exemption cap (verify before real payroll use); one default `DocumentTemplate` HTML row per type (Payslip/FeeReceipt/StudentIdCard/TeacherIdCard) so the preview endpoints work out of the box.
+- Main menus `DASHBOARD` / `USER_MANAGEMENT` / `CONFIG_MANAGEMENT` / `SETUP` / `STUDENT_MANAGEMENT` / `FEE_MANAGEMENT` / `PAYROLL_MANAGEMENT` / `EMPLOYEE_MANAGEMENT` / `CALENDAR_MANAGEMENT` with permission leaves covering every protected endpoint (`ACADEMIC_MANAGEMENT`/`TEACHER_MANAGEMENT` retired 2026-07-16 — their contents live under `SETUP`/`EMPLOYEE_LIST`); **all permissions granted to the SuperAdmin role** — and SuperAdmin-typed accounts additionally bypass the permission check entirely, so the seeded superadmin works everywhere immediately.
+- Config catalogs for student management (`typeCode` 1001–1007) plus discount/scholarship/fee-category types (`1008`/`1009`/`1010`, fee categories carrying their normative `fee_frequency`) plus employee-category/job-position/salary-component/deduction/insurance-type (`1011`–`1015`) plus salary/fee adjustment types (`1016`/`1017`) plus SSF rates (`1018`, employee/employer share percentages in `additionalValue1`); default guardian-relationship, teacher-qualification, document-type (teacher + student), discount/scholarship-type (with default rates), all 11 fee-category options, and all employee-side options (categories, positions, salary components, deductions, insurance types with tax-deduction caps); a baseline of app-config settings (`GENERAL`/`THEME`/`ANNOUNCEMENT`, including `FEE_DUE_DAY_OF_MONTH`); one placeholder `FY-SAMPLE` fiscal year with illustrative Individual/Couple tax slabs and retirement-exemption cap (verify before real payroll use); one default `DocumentTemplate` HTML row per type (Payslip/FeeReceipt/StudentIdCard/TeacherIdCard) so the preview endpoints work out of the box; BS calendar reference data (12 month names + 7 weekday names EN/NP with Saturday as the weekly holiday, and the BS 2000–2090 month-length table) so the dual-calendar endpoints work out of the box.
 - `Admin`/`User` roles start with **zero** permissions; grant via `POST /api/roles/claims` while signed in as superadmin.
 
 # Error-handling checklist for the UI

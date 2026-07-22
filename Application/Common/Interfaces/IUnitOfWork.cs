@@ -30,11 +30,25 @@ namespace Application.Common.Interfaces
 
         IFeeStructureRepository FeeStructures { get; }
 
+        IFeeRuleRepository FeeRules { get; }
+
+        IFeeInvoiceRepository FeeInvoices { get; }
+
+        IFeeGenerationRunRepository FeeGenerationRuns { get; }
+
+        IPayrollRunRepository PayrollRuns { get; }
+
         IFiscalYearRepository FiscalYears { get; }
 
         IEmployeeRepository Employees { get; }
 
         IDocumentTemplateRepository DocumentTemplates { get; }
+
+        ICalendarConfigRepository CalendarConfigs { get; }
+
+        ICalendarEventRepository CalendarEvents { get; }
+
+        IMeetingRepository Meetings { get; }
 
         Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
     }

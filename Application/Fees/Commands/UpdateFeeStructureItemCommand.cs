@@ -8,6 +8,7 @@ namespace Application.Fees.Commands
     {
         public decimal Amount { get; set; }
         public FeeFrequencyType FrequencyType { get; set; }
+        public int? InstallmentCount { get; set; }
         public bool IsOptional { get; set; }
         public bool IsRefundable { get; set; }
     }
