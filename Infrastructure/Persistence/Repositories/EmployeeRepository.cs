@@ -387,5 +387,64 @@ namespace Infrastructure.Persistence.Repositories
         {
             DbContext.Set<SalaryAdjustment>().Remove(adjustment);
         }
+
+        // Qualifications and Documents (2026-07-23, moved here from TeacherRepository).
+
+        public async Task<IReadOnlyList<EmployeeQualification>> GetQualificationsAsync(Guid employeeId, CancellationToken cancellationToken = default)
+        {
+            var qualifications = await DbContext.Set<EmployeeQualification>()
+                .Where(qualification => qualification.EmployeeId == employeeId)
+                .OrderByDescending(qualification => qualification.CompletionYear)
+                .ToListAsync(cancellationToken);
+
+            return qualifications;
+        }
+
+        public async Task<EmployeeQualification> GetQualificationByIdAsync(Guid qualificationId, CancellationToken cancellationToken = default)
+        {
+            var qualification = await DbContext.Set<EmployeeQualification>()
+                .FirstOrDefaultAsync(q => q.Id == qualificationId, cancellationToken);
+
+            return qualification;
+        }
+
+        public async Task AddQualificationAsync(EmployeeQualification qualification, CancellationToken cancellationToken = default)
+        {
+            await DbContext.Set<EmployeeQualification>().AddAsync(qualification, cancellationToken);
+        }
+
+        public void RemoveQualification(EmployeeQualification qualification)
+        {
+            DbContext.Set<EmployeeQualification>().Remove(qualification);
+        }
+
+        public async Task<IReadOnlyList<EmployeeDocument>> GetDocumentsAsync(Guid employeeId, CancellationToken cancellationToken = default)
+        {
+            var documents = await DbContext.Set<EmployeeDocument>()
+                .Where(document => document.EmployeeId == employeeId)
+                .OrderBy(document => document.DocumentTypeCode)
+                .ThenBy(document => document.DocumentName)
+                .ToListAsync(cancellationToken);
+
+            return documents;
+        }
+
+        public async Task<EmployeeDocument> GetDocumentByIdAsync(Guid documentId, CancellationToken cancellationToken = default)
+        {
+            var document = await DbContext.Set<EmployeeDocument>()
+                .FirstOrDefaultAsync(d => d.Id == documentId, cancellationToken);
+
+            return document;
+        }
+
+        public async Task AddDocumentAsync(EmployeeDocument document, CancellationToken cancellationToken = default)
+        {
+            await DbContext.Set<EmployeeDocument>().AddAsync(document, cancellationToken);
+        }
+
+        public void RemoveDocument(EmployeeDocument document)
+        {
+            DbContext.Set<EmployeeDocument>().Remove(document);
+        }
     }
 }

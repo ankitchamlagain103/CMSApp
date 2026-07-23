@@ -23,6 +23,21 @@ namespace Application.Employees.Validators
                 .NotEmpty()
                 .MaximumLength(100);
 
+            RuleFor(command => command.PanNumber)
+                .MaximumLength(50);
+
+            RuleFor(command => command.ProvidentFundNumber)
+                .MaximumLength(50);
+
+            RuleFor(command => command.SsfNumber)
+                .MaximumLength(50);
+
+            RuleFor(command => command.CitNumber)
+                .MaximumLength(50);
+
+            RuleFor(command => command.GratuityNumber)
+                .MaximumLength(50);
+
             RuleFor(command => command.JoinDate)
                 .GreaterThanOrEqualTo(command => command.DateOfBirth)
                     .WithMessage("JoinDate cannot be before DateOfBirth.")

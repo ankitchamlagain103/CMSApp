@@ -8,7 +8,7 @@ namespace Infrastructure.Persistence.DataSeeder
     // Seeds the ConfigType catalogs the student-management feature validates against (TypeCodes
     // from Domain/Constants/ConfigTypeCodes -- keep the two in sync). Grade/Section/Subject get
     // the TYPE only: their options vary per school and are admin data (POST /api/configs).
-    // GuardianRelationship and TeacherQualification also get default OPTION rows, since those
+    // GuardianRelationship and EmployeeQualification also get default OPTION rows, since those
     // vocabularies are near-universal. Idempotent: types by TypeCode, options by (TypeCode, Code),
     // create-if-missing only.
     public static class ConfigCatalogSeeder
@@ -22,18 +22,18 @@ namespace Infrastructure.Persistence.DataSeeder
             await EnsureConfigTypeAsync(dbContext, ConfigTypeCodes.Section, "Section", "Class section catalog (student management)");
             await EnsureConfigTypeAsync(dbContext, ConfigTypeCodes.Subject, "Subject", "Subject catalog (student management); AdditionalValue1 = short name, AdditionalValue2 = credit, AdditionalValue3 = category");
             await EnsureConfigTypeAsync(dbContext, ConfigTypeCodes.GuardianRelationship, "Guardian Relationship", "Student-guardian relationship catalog");
-            await EnsureConfigTypeAsync(dbContext, ConfigTypeCodes.TeacherQualification, "Teacher Qualification", "Teacher qualification level catalog");
-            await EnsureConfigTypeAsync(dbContext, ConfigTypeCodes.DocumentType, "Document Type", "Identity/verification document catalog (teacher documents); AdditionalValue1 = 'Y' when the document typically has an expiry (license/report)");
+            await EnsureConfigTypeAsync(dbContext, ConfigTypeCodes.EmployeeQualification, "Employee Qualification", "Employee qualification level catalog (2026-07-23: renamed from 'Teacher Qualification' -- generic to every staff member, not teaching-specific)");
+            await EnsureConfigTypeAsync(dbContext, ConfigTypeCodes.DocumentType, "Document Type", "Identity/verification document catalog (employee documents); AdditionalValue1 = 'Y' when the document typically has an expiry (license/report)");
             await EnsureConfigTypeAsync(dbContext, ConfigTypeCodes.StudentDocumentType, "Student Document Type", "Admission/record document catalog (student documents)");
             await EnsureConfigTypeAsync(dbContext, ConfigTypeCodes.DiscountType, "Discount Type", "Fee discount reason catalog (fee management)");
             await EnsureConfigTypeAsync(dbContext, ConfigTypeCodes.ScholarshipType, "Scholarship Type", "Scholarship criteria catalog (fee management) -- the configurable 'topper/exam/social category/...' criteria; admin-extensible via POST /api/configs");
             await EnsureConfigTypeAsync(dbContext, ConfigTypeCodes.FeeCategory, "Fee Category", "Permitted school fee categories (fee management) -- Tuition/Annual/Admission/Deposit/Examination/Computer/SpecialTraining/Hostel/Meal/Transportation/EducationalTour");
             await EnsureConfigTypeAsync(dbContext, ConfigTypeCodes.EmployeeCategory, "Employee Category", "Staff department/category catalog (employee management)");
             await EnsureConfigTypeAsync(dbContext, ConfigTypeCodes.JobPosition, "Job Position", "Staff job position catalog (employee management) -- Teacher/Principal/Vice Principal are the only positions eligible for a Teacher profile (see Domain/Constants/JobPositionCodes)");
-            await EnsureConfigTypeAsync(dbContext, ConfigTypeCodes.SalaryComponentType, "Salary Component Type", "Compensation-plan income line items (payroll) -- 'BASIC' (Domain/Constants/SalaryComponentCodes) is the well-known code Percentage-valued components/deductions resolve their rate against");
-            await EnsureConfigTypeAsync(dbContext, ConfigTypeCodes.DeductionType, "Deduction Type", "Compensation-plan deduction/loan/advance line items (payroll)");
-            await EnsureConfigTypeAsync(dbContext, ConfigTypeCodes.InsuranceType, "Insurance Type", "Life/Health/Housing insurance catalog (payroll); AdditionalValue1 = that type's Nepal tax-deduction cap amount");
-            await EnsureConfigTypeAsync(dbContext, ConfigTypeCodes.SalaryAdjustmentType, "Salary Adjustment Type", "Pre-run monthly payroll override catalog (payroll runs) -- UNPAID_LEAVE gets special day-count handling (Domain/Constants/SalaryAdjustmentTypeCodes); AdditionalValue1 = suggested direction (EARNING/DEDUCTION) a UI can prefill from");
+            await EnsureConfigTypeAsync(dbContext, ConfigTypeCodes.SalaryComponentType, "Salary Component Type", "Compensation-plan income line items (payroll) -- 'BASIC' (Domain/Constants/SalaryComponentCodes) is the well-known code Percentage-valued components/deductions resolve their rate against by default; AdditionalValue1 is the composite \"CALCULATE_TYPE|TYPE|FREQUENCY\" rule (Domain/Constants/SalaryLineCalculationModes), e.g. \"ADDITION|PERCENTAGE|MONTHLY\" for SSF_CONTRIBUTION at 20% (AdditionalValue2) of BASIC (AdditionalValue3) -- blank/unparseable keeps free-form per-line entry");
+            await EnsureConfigTypeAsync(dbContext, ConfigTypeCodes.DeductionType, "Deduction Type", "Compensation-plan deduction/loan/advance line items (payroll) -- same composite AdditionalValue1 convention as Salary Component Type (SSF_DEDUCTION is locked to \"DEDUCTION|PERCENTAGE|MONTHLY\", 11% of BASIC)");
+            await EnsureConfigTypeAsync(dbContext, ConfigTypeCodes.InsuranceType, "Insurance Type", "Life/Health/Housing insurance + Children's Education catalog (payroll); AdditionalValue1 = that type's Nepal tax-deduction cap amount, AdditionalValue2 = percentage of the actual annual amount that's eligible before the cap applies (blank/100 = the full amount, as for a straight insurance premium)");
+            await EnsureConfigTypeAsync(dbContext, ConfigTypeCodes.SalaryAdjustmentType, "Salary Adjustment Type", "Pre-run monthly payroll override catalog (payroll runs) -- UNPAID_LEAVE gets special day-count handling (Domain/Constants/SalaryAdjustmentTypeCodes); AdditionalValue1 is the same composite \"CALCULATE_TYPE|TYPE|FREQUENCY\" rule as Salary Component/Deduction Type (2026-07-23, replacing the old bare EARNING/DEDUCTION value) -- CALCULATE_TYPE is enforced against the adjustment's own Direction (ADDITION requires Increase, DEDUCTION requires Decrease); TYPE/FREQUENCY are metadata only (SalaryAdjustment has no catalog-enforced percentage lock or FrequencyType field) -- blank (e.g. OTHER) leaves Direction free");
             await EnsureConfigTypeAsync(dbContext, ConfigTypeCodes.FeeAdjustmentType, "Fee Adjustment Type", "Pre-generation monthly fee override catalog (fee invoices); AdditionalValue1 = suggested direction (CHARGE/CREDIT) a UI can prefill from");
             await EnsureConfigTypeAsync(dbContext, ConfigTypeCodes.SsfRate, "SSF Rate", "Social Security Fund contribution rates (payroll) -- EMPLOYEE_SHARE/EMPLOYER_SHARE (Domain/Constants/SsfShareCodes); AdditionalValue1 = that share's percentage of Basic Salary, admin-editable when the law changes");
 
@@ -48,12 +48,12 @@ namespace Infrastructure.Persistence.DataSeeder
             await EnsureConfigAsync(dbContext, ConfigTypeCodes.GuardianRelationship, "LEGAL_GUARDIAN", "Legal Guardian", 9);
             await EnsureConfigAsync(dbContext, ConfigTypeCodes.GuardianRelationship, "OTHER", "Other", 10);
 
-            await EnsureConfigAsync(dbContext, ConfigTypeCodes.TeacherQualification, "PHD", "Doctorate (PhD)", 1);
-            await EnsureConfigAsync(dbContext, ConfigTypeCodes.TeacherQualification, "MASTERS", "Master's Degree", 2);
-            await EnsureConfigAsync(dbContext, ConfigTypeCodes.TeacherQualification, "BACHELORS", "Bachelor's Degree", 3);
-            await EnsureConfigAsync(dbContext, ConfigTypeCodes.TeacherQualification, "DIPLOMA", "Diploma", 4);
-            await EnsureConfigAsync(dbContext, ConfigTypeCodes.TeacherQualification, "CERTIFICATE", "Certificate", 5);
-            await EnsureConfigAsync(dbContext, ConfigTypeCodes.TeacherQualification, "OTHER", "Other", 6);
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.EmployeeQualification, "PHD", "Doctorate (PhD)", 1);
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.EmployeeQualification, "MASTERS", "Master's Degree", 2);
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.EmployeeQualification, "BACHELORS", "Bachelor's Degree", 3);
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.EmployeeQualification, "DIPLOMA", "Diploma", 4);
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.EmployeeQualification, "CERTIFICATE", "Certificate", 5);
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.EmployeeQualification, "OTHER", "Other", 6);
 
             await EnsureConfigAsync(dbContext, ConfigTypeCodes.DocumentType, "CITIZENSHIP", "Citizenship Certificate", 1);
             await EnsureConfigAsync(dbContext, ConfigTypeCodes.DocumentType, "ID_CARD", "ID Card", 2);
@@ -148,45 +148,70 @@ namespace Infrastructure.Persistence.DataSeeder
 
             // "BASIC" (Domain/Constants/SalaryComponentCodes.Basic) must exist as a component
             // code option here for the "resolve percentages against Basic Salary" convention to
-            // make sense to an admin building a compensation plan.
-            await EnsureConfigAsync(dbContext, ConfigTypeCodes.SalaryComponentType, "BASIC", "Basic Salary", 1);
-            await EnsureConfigAsync(dbContext, ConfigTypeCodes.SalaryComponentType, "SSF_CONTRIBUTION", "SSF Contribution", 2);
-            await EnsureConfigAsync(dbContext, ConfigTypeCodes.SalaryComponentType, "COMMUNICATION_ALLOWANCE", "Communication Allowance", 3);
-            await EnsureConfigAsync(dbContext, ConfigTypeCodes.SalaryComponentType, "DEARNESS_ALLOWANCE", "Dearness Allowance", 4);
-            await EnsureConfigAsync(dbContext, ConfigTypeCodes.SalaryComponentType, "TRAVEL_ALLOWANCE", "Travel Allowance", 5);
-            await EnsureConfigAsync(dbContext, ConfigTypeCodes.SalaryComponentType, "OTHER_ALLOWANCE", "Other Allowance", 6);
-            await EnsureConfigAsync(dbContext, ConfigTypeCodes.SalaryComponentType, "FESTIVAL_BONUS", "Festival (Dashain) Bonus", 7);
-            await EnsureConfigAsync(dbContext, ConfigTypeCodes.SalaryComponentType, "LEAVE_ENCASHMENT", "Leave Encashment", 8);
+            // make sense to an admin building a compensation plan. AdditionalValue1 is the
+            // composite "CALCULATE_TYPE|TYPE|FREQUENCY" rule (2026-07-23, Domain/Constants/
+            // SalaryLineCalculationModes) -- every SalaryComponentType row below carries it now,
+            // not just the percentage-locked ones.
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.SalaryComponentType, "BASIC", "Basic Salary", 1, additionalValue1: "ADDITION|FIXED|MONTHLY");
+            // Percentage-locked (2026-07-22, format updated 2026-07-23): AdditionalValue2 = the
+            // statutory employer SSF rate, AdditionalValue3 = the base component's code -- see
+            // SalaryLineCalculationHelper. Locks out exactly the mistake that prompted this
+            // ("SSF_CONTRIBUTION"/"SSF_DEDUCTION" hand-entered at the wrong percentage, e.g. 31%
+            // combining both shares into one line).
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.SalaryComponentType, "SSF_CONTRIBUTION", "SSF Contribution", 2, additionalValue1: "ADDITION|PERCENTAGE|MONTHLY", additionalValue2: "20", additionalValue3: "BASIC");
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.SalaryComponentType, "COMMUNICATION_ALLOWANCE", "Communication Allowance", 3, additionalValue1: "ADDITION|FIXED|MONTHLY");
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.SalaryComponentType, "DEARNESS_ALLOWANCE", "Dearness Allowance", 4, additionalValue1: "ADDITION|FIXED|MONTHLY");
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.SalaryComponentType, "TRAVEL_ALLOWANCE", "Travel Allowance", 5, additionalValue1: "ADDITION|FIXED|MONTHLY");
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.SalaryComponentType, "OTHER_ALLOWANCE", "Other Allowance", 6, additionalValue1: "ADDITION|FIXED|MONTHLY");
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.SalaryComponentType, "FESTIVAL_BONUS", "Festival (Dashain) Bonus", 7, additionalValue1: "ADDITION|FIXED|ONE_TIME");
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.SalaryComponentType, "LEAVE_ENCASHMENT", "Leave Encashment", 8, additionalValue1: "ADDITION|FIXED|ONE_TIME");
             // 2026-07-21: rounds out the "Common Salary Components" earnings list requested for
             // the Compensation Plan form (House Rent/Medical/Overtime/Bonus were missing options,
             // forcing admins to mistype them under the catch-all OTHER_ALLOWANCE code).
-            await EnsureConfigAsync(dbContext, ConfigTypeCodes.SalaryComponentType, "HOUSE_RENT_ALLOWANCE", "House Rent Allowance", 9);
-            await EnsureConfigAsync(dbContext, ConfigTypeCodes.SalaryComponentType, "MEDICAL_ALLOWANCE", "Medical Allowance", 10);
-            await EnsureConfigAsync(dbContext, ConfigTypeCodes.SalaryComponentType, "OVERTIME", "Overtime", 11);
-            await EnsureConfigAsync(dbContext, ConfigTypeCodes.SalaryComponentType, "BONUS", "Bonus", 12);
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.SalaryComponentType, "HOUSE_RENT_ALLOWANCE", "House Rent Allowance", 9, additionalValue1: "ADDITION|FIXED|MONTHLY");
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.SalaryComponentType, "MEDICAL_ALLOWANCE", "Medical Allowance", 10, additionalValue1: "ADDITION|FIXED|MONTHLY");
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.SalaryComponentType, "OVERTIME", "Overtime", 11, additionalValue1: "ADDITION|FIXED|MONTHLY");
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.SalaryComponentType, "BONUS", "Bonus", 12, additionalValue1: "ADDITION|FIXED|ONE_TIME");
 
-            await EnsureConfigAsync(dbContext, ConfigTypeCodes.DeductionType, "SSF_DEDUCTION", "SSF Deduction", 1);
-            await EnsureConfigAsync(dbContext, ConfigTypeCodes.DeductionType, "CIT_DEDUCTION", "Citizen Investment Trust (CIT)", 2);
-            await EnsureConfigAsync(dbContext, ConfigTypeCodes.DeductionType, "LOAN", "Loan", 3);
-            await EnsureConfigAsync(dbContext, ConfigTypeCodes.DeductionType, "ADVANCE", "Advance", 4);
-            await EnsureConfigAsync(dbContext, ConfigTypeCodes.DeductionType, "OTHER", "Other", 5);
+            // Percentage-locked, same convention as SSF_CONTRIBUTION above -- the employee's own
+            // 11% share, not the combined 31% (employee 11% + employer 20%) that was mistakenly
+            // hand-entered here on a real salary revision. Every DeductionType row below carries
+            // the composite AdditionalValue1 rule now (2026-07-23), not just this one.
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.DeductionType, "SSF_DEDUCTION", "SSF Deduction", 1, additionalValue1: "DEDUCTION|PERCENTAGE|MONTHLY", additionalValue2: "11", additionalValue3: "BASIC");
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.DeductionType, "CIT_DEDUCTION", "Citizen Investment Trust (CIT)", 2, additionalValue1: "DEDUCTION|FIXED|MONTHLY");
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.DeductionType, "LOAN", "Loan", 3, additionalValue1: "DEDUCTION|FIXED|MONTHLY");
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.DeductionType, "ADVANCE", "Advance", 4, additionalValue1: "DEDUCTION|FIXED|MONTHLY");
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.DeductionType, "OTHER", "Other", 5, additionalValue1: "DEDUCTION|FIXED|MONTHLY");
 
             // AdditionalValue1 = that insurance type's Nepal tax-deduction cap (illustrative --
             // verify against the current Income Tax Act figures before relying on it, same
             // caution as the seeded tax slabs in PayrollSeeder).
             await EnsureConfigAsync(dbContext, ConfigTypeCodes.InsuranceType, "LIFE", "Life Insurance", 1, additionalValue1: "40000");
-            await EnsureConfigAsync(dbContext, ConfigTypeCodes.InsuranceType, "HEALTH", "Health Insurance", 2, additionalValue1: "20000");
-            await EnsureConfigAsync(dbContext, ConfigTypeCodes.InsuranceType, "HOUSING", "Housing Insurance", 3, additionalValue1: "25000");
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.InsuranceType, "HEALTH", "Health/Medical Insurance", 2, additionalValue1: "20000");
+            // NPR 10,000 per the FY 2083/84 formula doc -- previously seeded at 25,000 (an earlier
+            // guess before that reference doc was provided). Fresh databases get the corrected
+            // value; an already-seeded row (create-if-missing) needs a manual PUT to pick it up.
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.InsuranceType, "HOUSING", "Private House Insurance", 3, additionalValue1: "10000");
+            // Children's Education Fee deduction: only 25% of the actual annual education expense
+            // counts before the NPR 25,000 cap applies (AdditionalValue2 = "25"; every other
+            // InsuranceType option leaves this blank, meaning 100% of the actual amount counts).
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.InsuranceType, "EDUCATION", "Children's Education", 4, additionalValue1: "25000", additionalValue2: "25");
 
             // Pre-run monthly payroll overrides. UNPAID_LEAVE is the one code with special
             // generation-time handling (day-count Quantity); the rest are plain amount/percentage
-            // lines. AdditionalValue1 = suggested direction.
-            await EnsureConfigAsync(dbContext, ConfigTypeCodes.SalaryAdjustmentType, "UNPAID_LEAVE", "Unpaid Leave", 1, additionalValue1: "DEDUCTION");
-            await EnsureConfigAsync(dbContext, ConfigTypeCodes.SalaryAdjustmentType, "LATE_FINE", "Late Arrival Fine", 2, additionalValue1: "DEDUCTION");
-            await EnsureConfigAsync(dbContext, ConfigTypeCodes.SalaryAdjustmentType, "OVERTIME", "Overtime", 3, additionalValue1: "EARNING");
-            await EnsureConfigAsync(dbContext, ConfigTypeCodes.SalaryAdjustmentType, "BONUS", "Bonus", 4, additionalValue1: "EARNING");
-            await EnsureConfigAsync(dbContext, ConfigTypeCodes.SalaryAdjustmentType, "INCENTIVE", "Incentive", 5, additionalValue1: "EARNING");
-            await EnsureConfigAsync(dbContext, ConfigTypeCodes.SalaryAdjustmentType, "ARREAR", "Arrear", 6, additionalValue1: "EARNING");
+            // lines. AdditionalValue1's CALCULATE_TYPE segment (2026-07-23, replacing the old bare
+            // EARNING/DEDUCTION value) is enforced against the adjustment's Direction -- ADDITION
+            // requires Increase, DEDUCTION requires Decrease (EmployeeService.
+            // CreateSalaryAdjustmentAsync/UpdateSalaryAdjustmentAsync/
+            // CreateBulkSalaryAdjustmentsAsync). TYPE/FREQUENCY are carried for consistency but
+            // not enforced (SalaryAdjustment has no catalog percentage lock or FrequencyType
+            // field). OTHER is left blank -- it can go either direction, so Direction stays free.
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.SalaryAdjustmentType, "UNPAID_LEAVE", "Unpaid Leave", 1, additionalValue1: "DEDUCTION|FIXED|ONE_TIME");
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.SalaryAdjustmentType, "LATE_FINE", "Late Arrival Fine", 2, additionalValue1: "DEDUCTION|FIXED|ONE_TIME");
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.SalaryAdjustmentType, "OVERTIME", "Overtime", 3, additionalValue1: "ADDITION|FIXED|ONE_TIME");
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.SalaryAdjustmentType, "BONUS", "Bonus", 4, additionalValue1: "ADDITION|FIXED|ONE_TIME");
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.SalaryAdjustmentType, "INCENTIVE", "Incentive", 5, additionalValue1: "ADDITION|FIXED|ONE_TIME");
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.SalaryAdjustmentType, "ARREAR", "Arrear", 6, additionalValue1: "ADDITION|FIXED|ONE_TIME");
             await EnsureConfigAsync(dbContext, ConfigTypeCodes.SalaryAdjustmentType, "OTHER", "Other", 7);
 
             // Nepal SSF: 31% of Basic Salary total -- 11% deducted from the employee's pay,

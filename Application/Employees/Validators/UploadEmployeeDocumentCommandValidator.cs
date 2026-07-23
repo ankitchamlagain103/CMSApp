@@ -1,11 +1,11 @@
-using Application.Teachers.Commands;
+using Application.Employees.Commands;
 using FluentValidation;
 
-namespace Application.Teachers.Validators
+namespace Application.Employees.Validators
 {
-    public class UploadTeacherDocumentCommandValidator : AbstractValidator<UploadTeacherDocumentCommand>
+    public class UploadEmployeeDocumentCommandValidator : AbstractValidator<UploadEmployeeDocumentCommand>
     {
-        public UploadTeacherDocumentCommandValidator()
+        public UploadEmployeeDocumentCommandValidator()
         {
             RuleFor(command => command.DocumentTypeCode)
                 .NotEmpty()

@@ -1,10 +1,10 @@
-namespace Application.Teachers.Dtos
+namespace Application.Employees.Dtos
 {
     // FilePath is deliberately NOT exposed -- the file is fetched via the download endpoint.
-    public class TeacherDocumentDto
+    public class EmployeeDocumentDto
     {
         public Guid Id { get; set; }
-        public Guid TeacherId { get; set; }
+        public Guid EmployeeId { get; set; }
         public string DocumentTypeCode { get; set; }
         public string DocumentName { get; set; }
         public string FileName { get; set; }

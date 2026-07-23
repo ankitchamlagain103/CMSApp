@@ -12,6 +12,14 @@ sections below (the last one has its own dedicated guide,
 `Docs/investment_and_tax_planning_implementation_guide.md`, since it needed a
 full worked example).
 
+**2026-07-23 addendum**: the frontend's Compensation Plan and Investment & Tax
+Planning tabs were redesigned, the Annual Forecast tab was replaced by a new
+Tax Details tab (against the `GET .../salaries/tax-details` endpoint
+documented above), and every tab's data now fetches only once it's actually
+clicked instead of all at once on page load — see the updated "Frontend"
+section below. None of this changes any backend endpoint or DTO documented
+above; it's presentation-only.
+
 All three reuse `TaxCalculator`'s existing annual computation and add
 `Application/Payroll/MonthlyBreakdownCalculator.cs`, a pure static helper (same shape
 as `TaxCalculator`) that turns a salary's components/deductions into 12 fiscal-month
@@ -52,6 +60,85 @@ actually paid" field to key off instead.
 `monthGrossIncome` sums every income line regardless of `isTaxable` (it's a pay
 figure, not a taxable-income figure — different purpose than `taxCalculation.
 grossAnnualIncome`, which only sums `isTaxable` components).
+
+## Tax Details — spreadsheet grid (2026-07-23)
+
+`GET /api/employees/{id}/salaries/tax-details?fiscalYearId=` (+
+`/api/teachers/{id}/...` alias) → `TaxDetailsGridDto` — a flat, spreadsheet-row
+alternative to the `.../tax-calculation/monthly` shape above, purpose-built to
+match a reference HRMS's Tax Details table 1:1 (one row per `Particulars`
+line, one column per fiscal month) instead of the nested `months[]` structure.
+This is a **separate, additive endpoint** — `.../tax-calculation/monthly`,
+`EmployeeMonthlyTaxBreakdownDto`, and its hooks are untouched.
+
+```jsonc
+{
+  "list": [
+    { "rowNumber": 1, "isHeader": true, "isBold": false, "isTab": false,
+      "particulars": "Incomes", "description": null, "total": 0,
+      "month1Amount": 0, "month2Amount": 0, /* ... month3..month12Amount */ },
+    { "rowNumber": 2, "isHeader": false, "isBold": false, "isTab": false,
+      "particulars": "Basic Salary", "description": "Fixed Income",
+      "total": 216000.00, "month1Amount": 18000.00, /* ... one amount per month */ },
+    // ... one row per income component, then "Annual Income Forecast" (header),
+    // "Retirement Fund" (header), "SSF Deduction", the a)/b)/c)/"Min of a, b or c"
+    // rows, "Annual Adjusted Taxable Amount" (header), one row per tax slab that
+    // has income in it ("SST 0%" / "TDS 10%" / ... -- see below), "Total SST for
+    // the Year" / "Total TDS for the Year" (headers), "SST/TDS Paid in Past
+    // Month", "Remaining SST/TDS in 12 month", "SST/TDS this Month"
+  ],
+  "name": "Ankit Chamlagain", "gender": "Male", "taxPaidAs": "Couple",
+  "isHandicapped": false,
+  "month1IsForecast": false, "month2IsForecast": true, /* ... month3..12IsForecast */
+}
+```
+
+**Field notes:**
+
+- `isBold`/`isTab` are always `false` from this backend today — kept on the row
+  shape only so the consuming grid component's contract doesn't need a follow-up
+  change if bold/indented rows are ever introduced; don't build UI logic that
+  expects them to vary yet.
+- `isHandicapped` is **not modeled anywhere in this codebase** (no
+  disability/handicapped flag on `Employee`, no additional-exemption rule in
+  `TaxCalculator`) — always `false`. Shown only because the reference UI's
+  config panel displays it.
+- `monthNIsForecast` follows the same rule `GetAnnualForecastAsync` already
+  uses: `false` (Actual) when a real Approved/Paid `SalarySlip` exists for that
+  fiscal month, `true` (Forecast) otherwise.
+- **The retirement-fund a)/b)/c)/min rows, "Annual Adjusted Taxable Amount",
+  the per-slab SST/TDS rows, and every "Total/Paid/Remaining/this Month" row
+  are populated in exactly one month column — the "assessment month"** (the
+  fiscal month containing today, Nepal time; a fiscal year that doesn't contain
+  today falls back to month 1 if entirely future, month 12 if entirely past) —
+  and `0` everywhere else. These are a *current status* snapshot, not something
+  meaningful to project across all 12 months (same reasoning
+  `GetAnnualForecastAsync` already documents for its a/b/c/min rows).
+- **Slab rows are dynamic, not a fixed two-row shape**: one row per `TaxSlab`
+  that actually has taxable income in it (whatever the fiscal year's real
+  slab configuration is), labeled `"SST "` for the first slab (index 0, by
+  construction the Social Security Tax bracket — shows `0%` when the SSF
+  waiver applies even though the configured rate is nonzero) and `"TDS "` for
+  every slab after it. `description` on a slab row is that slab's
+  `taxableAmountInSlab`, comma-formatted.
+- **"Paid in Past Month" is TDS only, sourced from real disbursed history**:
+  for every actual month strictly before the assessment month, its own
+  snapshotted salary revision is re-run through `TaxCalculator` (same
+  technique `GetAnnualForecastAsync` already uses for its a/b/c/min rows) to
+  get that month's own SST/TDS split, then summed. **`SST Paid in Past Month`
+  is always `0`** — a documented simplification: this codebase's persisted
+  `SalarySlip` only stores one combined `TDS` tax line, not a separate SST
+  line, so there's nothing to sum historically; in practice this is rarely
+  wrong, since the SST bracket is usually waived to `0` for an SSF-contributing
+  employee anyway.
+- **`SST/TDS this Month` amortizes the remaining liability over the rest of
+  the year** (`(Total for Year − Paid in Past Month) / (12 − assessmentMonth + 1)`),
+  not the flat `annualTax / 12` used everywhere else in this codebase
+  (payslips, payroll-run slips, monthly-breakdown projections). This is a
+  more accurate "how much should be withheld this month, given what's already
+  been withheld" figure, deliberately scoped to just this one grid — the flat
+  `MonthlyTax`/`monthTax` used elsewhere is unchanged.
+- New permissions: `EMPLOYEE_TAX_DETAILS_GRID`, `TEACHER_TAX_DETAILS_GRID`.
 
 ## Investment & Tax Planning (2026-07-21)
 
@@ -242,17 +329,37 @@ in this feature.
 ## Frontend
 
 `sections/apps/common/CompensationPanel.jsx` was renamed to `PayAndTaxesPanel.jsx`,
-each sibling tab its own component file in `sections/apps/common/`. The Tax
-Details tab (originally one of these siblings) was later removed from the UI,
-then its slot (right after Payslip) was reused for the new Salary Forecast tab
-(`SalaryForecastTab.jsx` — see "Salary Forecast" below) — current tabs are
-Payslip, Salary Forecast, Compensation Plan, Salary Adjustments, Accounts and
-Taxes, Investment & Tax Planning, Loans and Advances. The outer profile-page tab
-label changed from "Compensation & Tax" (employee) / "Salary & Tax" (teacher) to
-"Pay & Taxes" in `employee-profile.jsx`/`teacher-profile.jsx`. "Accounts and
-Taxes" is a read-only display of `Employee.bankName`/`bankAccountNumber`/
-`paymentMode` — those fields already existed on `EmployeeDto`/`TeacherDto`, so
-this tab needed zero backend change.
+each sibling tab its own component file in `sections/apps/common/`. The
+original nested-`months[]` Tax Details tab (`.../tax-calculation/monthly`) was
+removed from the UI once, then **reintroduced (2026-07-23) against the flat
+spreadsheet-grid endpoint** (`GET .../salaries/tax-details`, `TaxDetailsGridDto`
+— see its own section above) as `TaxDetailsTab.jsx`, replacing the tab that had
+briefly taken its slot, Annual Forecast (`AnnualForecastTab.jsx` — deleted; its
+backend, `GET .../salaries/annual-forecast`, is untouched and still documented
+in its own dedicated guide, just no longer surfaced by any tab here). **Current
+tabs, in order: Payslip, Tax Details, Compensation Plan, Salary Adjustments,
+Accounts and Taxes, Investment & Tax Planning, Loans and Advances.** The outer
+profile-page tab label changed from "Compensation & Tax" (employee) / "Salary &
+Tax" (teacher) to "Pay & Taxes" in
+`employee-profile.jsx`/`teacher-profile.jsx`. "Accounts and Taxes" is a
+read-only display of `Employee.bankName`/`bankAccountNumber`/`paymentMode` —
+those fields already existed on `EmployeeDto`/`TeacherDto`, so this tab needed
+zero backend change.
+
+**Tabs fetch on click, not all at once (2026-07-23).** `activeTab` used to be
+`PayAndTaxesPanel.jsx`'s own internal `useState` — meaning every sibling tab's
+SWR hook fired the moment the profile page mounted, regardless of which tab was
+actually showing. `activeTab`/`onActiveTabChange` are now controlled props
+instead, owned by `EmployeeCompensation.jsx`/`TeacherSalary.jsx` (the two
+wrappers that actually call the data-fetching hooks), and every hook there is
+gated on `activeTab === '<tab>'` — `useGetEmployeeSalaries`/`useGetEmployeeLoans`
+(no `enabled` option) by passing `null` as the id argument when their tab isn't
+active, `useGetEmployeePayslips`/`useGetEmployeeTaxPlanning`/
+`useGetEmployeeTaxDetails` (which do take `{ enabled }`) by adding the same
+`activeTab === '<tab>'` check alongside their existing fiscal-year-ready check.
+Salary Adjustments and Accounts and Taxes needed no such change — their hooks
+already live inside `SalaryAdjustmentsTab.jsx`/`AccountsTaxesTab.jsx`
+themselves, so React never invokes them until those components actually mount.
 
 **Payslip export**: PDF uses `@react-pdf/renderer` (already a project dependency —
 see `sections/apps/invoice/export-pdf/` for the precedent), a real downloaded
@@ -261,31 +368,115 @@ dependency exists in this project) — Excel opens a `.csv` directly, so this co
 the common case; ask for a real `.xlsx` via the `xlsx` package if that distinction
 matters.
 
-**Salary Forecast**: `useGetEmployeeSalaryForecast`/`useGetTeacherSalaryForecast`
-(`api/employee-service.js`/`api/teacher-service.js`, thin `silentError: true` SWR
-hooks over `GET .../salary-forecast`) feed their own `SalaryForecastTab.jsx` —
-its own fiscal-year selector (independent of the Payslip tab's), a "Forecast —
-not yet generated" chip next to the month label, and the same income/deduction
-line breakdown style as `PayslipDetailModal`. A 404 (fiscal year's last month
-already started) renders as an inline message rather than an error state. Both
-hooks are invalidated by `revalidateSalaryAndTax` alongside the tax-calculation
-and payslip caches, so approving/rejecting a loan or editing a salary revision
-refreshes the forecast too.
+**Salary Forecast — backend-only today.** The `GET .../salary-forecast`
+endpoint and `SalaryForecastDto` described above exist and work, but no
+`SalaryForecastTab.jsx` / `useGetEmployeeSalaryForecast` /
+`useGetTeacherSalaryForecast` was ever built into `PayAndTaxesPanel.jsx` — an
+earlier draft of this guide described that plan before it was implemented, and
+it never landed. If a standalone Salary Forecast tab is wanted later, the
+backend is already there — just add the two hooks and a tab, same
+`silentError: true` SWR pattern every other tab here uses.
+
+**Tax Details tab (2026-07-23).** `useGetEmployeeTaxDetails`/
+`useGetTeacherTaxDetails` (`api/employee-service.js`/`api/teacher-service.js`,
+same `silentError: true` SWR pattern as every other tab, `GET
+.../salaries/tax-details?fiscalYearId=`) feed `TaxDetailsTab.jsx`: a small
+Name/Gender/Tax paid as/Handicapped info table, then the flat spreadsheet grid
+itself — one column per `FISCAL_MONTHS` entry (`api/student-catalogs.js`,
+already the shared Shrawan..Ashad list every other fiscal-month picker in this
+app uses), horizontally scrollable. Per row, `row.isHeader` drives bold text
+plus a tinted row background — this is a real, working signal (unlike
+`isBold`/`isTab`, which the backend always sends `false`) and is `true` for
+both pure section titles ("Incomes", "Retirement Fund") and real summary/total
+rows ("Annual Income Forecast", "Annual Adjusted Taxable Amount", "Total
+SST/TDS for the Year"), not just section titles — don't assume `isHeader`
+means "no amount," most `isHeader` rows carry a real `total`. **Row 1
+("Incomes") is the one exception worth knowing**: `BuildGridHeaderRow` gives it
+`Total = 0` and every `monthNAmount = 0` (there's nothing to sum into a bare
+section title), so rendering it as ordinary zero amounts would just be visual
+noise — `TaxDetailsTab.jsx` instead uses that row's month cells to show each
+column's Actual/Forecast status (`taxDetails.month{N}IsForecast`, a DTO-root
+flag with no row of its own otherwise). Every other row's zero-valued month
+cells (e.g. "SST Paid in Past Month" outside the one assessment month it's
+computed for) render as a blank cell rather than "0.00" — a plain
+`amount ? currencyFormat(amount) : ''` check, not a special case. Every month
+column whose `monthNIsForecast` is `true` renders in a lighter `text.disabled`
+color across **every** row, not just row 1's Actual/Forecast label itself — a
+month that hasn't actually arrived yet reads as visually lighter/less certain
+than a settled Actual month, matching the reference HRMS. Both tables (the
+Name/Gender/Tax paid as/Handicapped info box and the spreadsheet grid) draw a
+visible `1px solid` border on every cell (`& .MuiTableCell-root` in the
+`Table`'s own `sx`) instead of MUI's default borderless-except-underline
+look — deliberately spreadsheet-like, matching the reference. Tab order:
+Tax Details sits right after Payslip (before Compensation Plan), not at the
+end — both `<Tab>` and its matching `{activeTab === 'tax-details' && (...)}`
+block in `PayAndTaxesPanel.jsx` were moved together so the JSX order still
+matches the visible tab order.
 
 **Investment & Tax Planning** (`investment_and_tax_planning_implementation_guide.md`):
 `useGetEmployeeTaxPlanning`/`useGetTeacherTaxPlanning` (same
-`silentError: true` SWR pattern, `GET .../salaries/tax-planning`) feed the new
+`silentError: true` SWR pattern, `GET .../salaries/tax-planning`) feed
 `InvestmentTaxPlanningTab.jsx`, which replaces the tab's old hand-assembled
 version (three separate hooks — `useGetEmployeeTaxCalculation` + the raw
 `salaries` list + the fiscal year's `retirementExemptionCapAmount` — stitched
-together inside `PayAndTaxesPanel.jsx` itself). The old
-`useGetEmployeeTaxCalculation`/`useGetTeacherTaxCalculation` hooks are still
-called, but now only for the Compensation Plan tab's Gross/Net Monthly summary
-cards — `PayAndTaxesPanel.jsx` no longer reads their loading/error state itself.
-Renders `taxPlanning.fiscalYearCode`, never `fiscalYearId` (the raw-GUID
-display the dedicated guide flags as a pre-existing bug), and binds the
-Income table's "Type" column to `incomeLines[].valueType` via
-`SALARY_VALUE_TYPE_OPTIONS` instead of a hardcoded "Fixed Income" string.
+together inside `PayAndTaxesPanel.jsx` itself). Renders `taxPlanning.
+fiscalYearCode`, never `fiscalYearId` (the raw-GUID display the dedicated guide
+flags as a pre-existing bug), and binds the Income table's "Type" column to
+`incomeLines[].valueType` via `SALARY_VALUE_TYPE_OPTIONS` instead of a
+hardcoded "Fixed Income" string. **2026-07-23:** the tab's own "Tax Calculation
+on Annual Taxable Income" summary row (six tiles: Gross Monthly, Retirement
+Exemption, Insurance Deduction, Monthly Tax, Annual Tax, Net Monthly) was
+removed — the tax-slab breakdown table now sits directly under the section
+heading. The `useGetEmployeeTaxCalculation`/`useGetTeacherTaxCalculation` hooks
+(previously kept alive only to feed a matching four-tile Gross/Net Monthly
+summary on the Compensation Plan tab) were removed from
+`EmployeeCompensation.jsx`/`TeacherSalary.jsx` too, once that Compensation Plan
+summary row was also removed — nothing in `PayAndTaxesPanel.jsx` reads their
+loading/error state anymore. The endpoint and hooks themselves are untouched
+and still work if a future screen wants them.
+
+**Compensation Plan tab redesign (2026-07-23).** `PayAndTaxesPanel.jsx`'s
+`ComponentsSubPanel`/`DeductionsSubPanel`/`InsuranceSubPanel`:
+
+- The inline "add a row" form is now a visually distinct dashed-border card
+  (`Add Component`/`Add Deduction`/`Add Premium` overline label) instead of a
+  bare `Grid` blending straight into the table, and the add action is a full
+  `Add` button (with a loading spinner while the request is in flight) instead
+  of a bare icon.
+- Each existing row gets an **Edit** action on its Frequency value, alongside
+  Remove. There is no `PUT` endpoint for a single
+  `EmployeeSalaryComponent`/`EmployeeSalaryDeduction` row (only `POST`/`DELETE`
+  — see `employee_management_implementation_guide.md`), so this "edit" is
+  composed client-side as delete-then-re-add with every other field (code,
+  value, valueType, taxable, retirement) carried over unchanged, only
+  `frequencyType` replaced. Disabled, with an explanatory tooltip, on any code
+  whose catalog option locks its frequency (see below) — a locked frequency is
+  never editable, same as it's never freely enterable on add.
+- The Frequency picker (add-row and the inline edit above) is restricted to
+  **Monthly / One Time only** (`SALARY_LINE_FREQUENCY_OPTIONS` in
+  `api/student-catalogs.js`, excluding `Annual`) — a salary component/deduction
+  line is never meaningfully Annual in practice, even though the backend's
+  `PayFrequencyType` enum and validation still technically allow it (Fee
+  Structure rows elsewhere in the app still use the full
+  `FREQUENCY_TYPE_OPTIONS` including Annual — this restriction is scoped to
+  salary lines only).
+- The percentage lock (force `valueType`/`value` for a catalog-locked code,
+  e.g. `SSF_CONTRIBUTION`) and the new frequency lock both now parse the
+  composite `additionalValue1` catalog format `CALCULATE_TYPE|TYPE|FREQUENCY`
+  via `parseSalaryLineRule` in `api/student-catalogs.js` — full spec in
+  `salary_structure_and_slip_adjustments_implementation_guide.md`.
+- Component/deduction/insurance codes (`BASIC`, `SSF_CONTRIBUTION`, ...) render
+  as a small monospace "code badge" (muted text, tinted background, rounded)
+  instead of plain caption text, and every currency amount renders through a
+  shared `Money` component that bolds just the currency code (`NPR`) and keeps
+  the number at regular weight. An earlier pass of this redesign also added a
+  green/red/blue color dot per section and per row to distinguish
+  Earning/Deduction/Insurance lines — this was tried and then **removed**
+  (2026-07-23) in favor of the code badge alone; don't reintroduce the dots.
+- The tab's own four-tile summary row (Gross Monthly, Net Monthly, Effective
+  From, Assessed As) that used to sit above "Salary Revisions" was removed
+  entirely (2026-07-23) — see the Investment & Tax Planning note above for the
+  matching hook cleanup this triggered.
 
 ## Known gaps
 

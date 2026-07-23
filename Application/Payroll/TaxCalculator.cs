@@ -1,3 +1,4 @@
+using Application.Common.Helpers;
 using Application.Payroll.Dtos;
 using Domain.Constants;
 using Domain.Entities;
@@ -12,16 +13,26 @@ namespace Application.Payroll
     // admin-configured, not hardcoded here).
     public static class TaxCalculator
     {
-        public static TaxCalculationResultDto Calculate(decimal annualTaxableIncome, IReadOnlyList<TaxSlab> orderedTaxSlabs)
+        // isSsfContributor (2026-07-22): Nepal's Social Security Tax rule -- the 1% tax on the
+        // first income slab is waived entirely for anyone contributing to the Social Security
+        // Fund (they're already funding the government's own social-security scheme via SSF, so
+        // the separate 1% "Social Security Tax" bracket doesn't apply on top of it). This is
+        // distinct from the retirement-fund "least of three" exemption on taxable income above --
+        // that reduces the taxable base; this zeroes the tax on the first bracket specifically.
+        // Only the first slab (orderedTaxSlabs[0], by construction the lowest bracket) is waived;
+        // any income spilling into higher slabs is taxed normally.
+        public static TaxCalculationResultDto Calculate(decimal annualTaxableIncome, IReadOnlyList<TaxSlab> orderedTaxSlabs, bool isSsfContributor = false)
         {
             var result = new TaxCalculationResultDto
             {
-                AnnualTaxableIncome = annualTaxableIncome
+                AnnualTaxableIncome = annualTaxableIncome,
+                IsSsfExemptionApplied = isSsfContributor
             };
 
             decimal totalTax = 0m;
-            foreach (var slab in orderedTaxSlabs)
+            for (var slabIndex = 0; slabIndex < orderedTaxSlabs.Count; slabIndex++)
             {
+                var slab = orderedTaxSlabs[slabIndex];
                 if (annualTaxableIncome <= slab.MinAmount)
                 {
                     continue;
@@ -34,7 +45,8 @@ namespace Application.Payroll
                     continue;
                 }
 
-                var taxForSlab = Math.Round(incomeInSlab * slab.TaxRate, 2);
+                var isSsfExemptSlab = slabIndex == 0 && isSsfContributor;
+                var taxForSlab = isSsfExemptSlab ? 0m : Math.Round(incomeInSlab * slab.TaxRate, 2);
                 totalTax += taxForSlab;
 
                 var breakdownItem = new TaxSlabBreakdownDto
@@ -43,7 +55,8 @@ namespace Application.Payroll
                     MaxAmount = slab.MaxAmount,
                     TaxRate = slab.TaxRate,
                     TaxableAmountInSlab = incomeInSlab,
-                    TaxForSlab = taxForSlab
+                    TaxForSlab = taxForSlab,
+                    IsSsfExempted = isSsfExemptSlab
                 };
                 result.Breakdown.Add(breakdownItem);
             }
@@ -66,18 +79,23 @@ namespace Application.Payroll
             IReadOnlyList<EmployeeSalaryComponent> components,
             IReadOnlyList<EmployeeSalaryDeduction> deductions,
             IReadOnlyList<EmployeeInsurancePremium> insurancePremiums,
-            IReadOnlyDictionary<string, decimal> insuranceTypeCaps,
+            IReadOnlyDictionary<string, InsuranceCapConfig> insuranceTypeCaps,
             decimal retirementExemptionCapAmount,
-            IReadOnlyList<TaxSlab> orderedTaxSlabs)
+            IReadOnlyList<TaxSlab> orderedTaxSlabs,
+            IReadOnlyDictionary<string, string> labelsByCode = null,
+            IReadOnlyDictionary<string, SalaryLineCalculationConfig> calculationConfigByCode = null)
         {
             var basicPeriodAmount = FindBasicPeriodAmount(components);
 
             decimal grossAnnualIncome = 0m;
             decimal retirementContributionAnnual = 0m;
+            decimal cashDeductionsAnnual = 0m;
+            var hasSsfContribution = false;
 
             foreach (var component in components)
             {
-                var periodAmount = ResolveAmount(component.ValueType, component.Value, basicPeriodAmount);
+                var baseAmount = ResolvePercentageBaseAmount(component.ComponentCode, basicPeriodAmount, components, calculationConfigByCode);
+                var periodAmount = ResolveAmount(component.ValueType, component.Value, baseAmount);
                 var annualAmount = Annualize(periodAmount, component.FrequencyType);
 
                 if (component.IsTaxable)
@@ -88,18 +106,41 @@ namespace Application.Payroll
                 if (component.IsRetirementContribution)
                 {
                     retirementContributionAnnual += annualAmount;
+
+                    // An employer-funded retirement contribution (SSF/EPF employer share) is
+                    // money deposited with the fund, not cash paid to the employee -- it belongs
+                    // in gross/taxable income (it's a real taxable benefit) but must not inflate
+                    // net take-home pay. Same offsetting rule MonthlyBreakdownCalculator already
+                    // applies per month; this is its annual equivalent.
+                    cashDeductionsAnnual += annualAmount;
+                }
+
+                if (component.ComponentCode == SalaryComponentCodes.SsfContribution && annualAmount > 0m)
+                {
+                    hasSsfContribution = true;
                 }
             }
 
             foreach (var deduction in deductions)
             {
-                if (!deduction.IsRetirementContribution)
+                var baseAmount = ResolvePercentageBaseAmount(deduction.DeductionCode, basicPeriodAmount, components, calculationConfigByCode);
+                var periodAmount = ResolveAmount(deduction.ValueType, deduction.Value, baseAmount);
+                var annualAmount = Annualize(periodAmount, deduction.FrequencyType);
+
+                if (deduction.IsRetirementContribution)
                 {
-                    continue;
+                    retirementContributionAnnual += annualAmount;
                 }
 
-                var periodAmount = ResolveAmount(deduction.ValueType, deduction.Value, basicPeriodAmount);
-                retirementContributionAnnual += Annualize(periodAmount, deduction.FrequencyType);
+                // Every deduction reduces cash take-home, regardless of its retirement flag
+                // (SSF_DEDUCTION/CIT_DEDUCTION are retirement-flagged; a LOAN/ADVANCE deduction
+                // isn't, but still comes out of pay).
+                cashDeductionsAnnual += annualAmount;
+
+                if (deduction.DeductionCode == SalaryDeductionCodes.SsfDeduction && annualAmount > 0m)
+                {
+                    hasSsfContribution = true;
+                }
             }
 
             // "Least of three": actual retirement contributions, 1/3 of gross annual income, and
@@ -107,19 +148,45 @@ namespace Application.Payroll
             var retirementExemption = Math.Round(Math.Min(retirementContributionAnnual, Math.Min(grossAnnualIncome / 3m, retirementExemptionCapAmount)), 2);
 
             decimal insuranceDeduction = 0m;
+            var insuranceDeductionLines = new List<TaxDeductionLineDto>();
             foreach (var premium in insurancePremiums)
             {
-                var cap = insuranceTypeCaps.TryGetValue(premium.InsuranceTypeCode, out var capValue) ? capValue : 0m;
-                insuranceDeduction += Math.Round(Math.Min(premium.AnnualPremiumAmount, cap), 2);
+                var capConfig = insuranceTypeCaps.TryGetValue(premium.InsuranceTypeCode, out var config) ? config : new InsuranceCapConfig { Cap = 0m };
+
+                // Most types (Life/Health/Housing) deduct the full premium up to the cap
+                // (EligiblePercentage 100). A type like Children's Education only lets a
+                // percentage of the actual expense count before the cap applies.
+                var eligibleAmount = Math.Round(premium.AnnualPremiumAmount * (capConfig.EligiblePercentage / 100m), 2);
+                var deductedAmount = Math.Round(Math.Min(eligibleAmount, capConfig.Cap), 2);
+                insuranceDeduction += deductedAmount;
+
+                var remainingEligibleHeadroom = Math.Max(0m, capConfig.Cap - deductedAmount);
+                var additionalAmountAvailable = capConfig.EligiblePercentage > 0m
+                    ? Math.Round(remainingEligibleHeadroom / (capConfig.EligiblePercentage / 100m), 2)
+                    : 0m;
+
+                insuranceDeductionLines.Add(new TaxDeductionLineDto
+                {
+                    Code = premium.InsuranceTypeCode,
+                    Label = ConfigLabelHelper.Resolve(labelsByCode, premium.InsuranceTypeCode),
+                    ActualAmount = premium.AnnualPremiumAmount,
+                    EligiblePercentage = capConfig.EligiblePercentage,
+                    CapAmount = capConfig.Cap,
+                    DeductedAmount = deductedAmount,
+                    AdditionalAmountAvailable = additionalAmountAvailable
+                });
             }
 
             var taxableIncome = Math.Max(0m, grossAnnualIncome - retirementExemption - insuranceDeduction);
 
-            var result = Calculate(taxableIncome, orderedTaxSlabs);
+            var result = Calculate(taxableIncome, orderedTaxSlabs, hasSsfContribution);
             result.GrossAnnualIncome = grossAnnualIncome;
             result.RetirementContributionAnnual = retirementContributionAnnual;
             result.RetirementExemption = retirementExemption;
             result.InsuranceDeduction = insuranceDeduction;
+            result.InsuranceDeductionLines = insuranceDeductionLines;
+            result.CashDeductionsAnnual = cashDeductionsAnnual;
+            result.NetAnnualIncome = Math.Max(0m, grossAnnualIncome - cashDeductionsAnnual - result.AnnualTax);
             return result;
         }
 
@@ -140,19 +207,50 @@ namespace Application.Payroll
         }
 
         // Shared with MonthlyBreakdownCalculator: finds the sibling "BASIC" component's own
-        // (Fixed) period amount that percentage-valued components/deductions resolve against.
+        // (Fixed) period amount that percentage-valued components/deductions resolve against
+        // by default (see ResolvePercentageBaseAmount for the catalog-overridable case).
         internal static decimal FindBasicPeriodAmount(IReadOnlyList<EmployeeSalaryComponent> components)
         {
-            var basicPeriodAmount = 0m;
+            return FindComponentPeriodAmount(components, SalaryComponentCodes.Basic);
+        }
+
+        // General form of FindBasicPeriodAmount -- looks up any named sibling component's own
+        // period amount, for percentage lines whose catalog names a base other than Basic. Only
+        // meaningful for a Fixed-valued base component (chaining one percentage off another
+        // isn't a supported case); a Percentage-valued or missing base resolves to 0.
+        internal static decimal FindComponentPeriodAmount(IReadOnlyList<EmployeeSalaryComponent> components, string code)
+        {
             foreach (var component in components)
             {
-                if (component.ComponentCode == SalaryComponentCodes.Basic)
+                if (component.ComponentCode == code && component.ValueType == AwardValueType.FixedAmount)
                 {
-                    basicPeriodAmount = component.Value;
+                    return component.Value;
                 }
             }
 
-            return basicPeriodAmount;
+            return 0m;
+        }
+
+        // 2026-07-22: which sibling component's period amount a Percentage-valued line resolves
+        // against. Defaults to Basic (today's only behavior) unless the SalaryComponentType/
+        // DeductionType catalog names a different base via AdditionalValue3 (see
+        // SalaryLineCalculationHelper) -- e.g. an "Overtime = 150% of Basic" component still
+        // uses Basic, but a future "Bonus = 8.33% of Gross" component could name a different
+        // base without any change here. calculationConfigByCode is optional (null = always
+        // Basic) so every existing caller that doesn't pass it keeps its exact prior behavior.
+        internal static decimal ResolvePercentageBaseAmount(string code, decimal basicPeriodAmount, IReadOnlyList<EmployeeSalaryComponent> components, IReadOnlyDictionary<string, SalaryLineCalculationConfig> calculationConfigByCode)
+        {
+            if (calculationConfigByCode == null || !calculationConfigByCode.TryGetValue(code, out var config))
+            {
+                return basicPeriodAmount;
+            }
+
+            if (config.BaseComponentCode == SalaryComponentCodes.Basic)
+            {
+                return basicPeriodAmount;
+            }
+
+            return FindComponentPeriodAmount(components, config.BaseComponentCode);
         }
     }
 }

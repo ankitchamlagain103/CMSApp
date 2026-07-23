@@ -96,17 +96,26 @@ namespace Infrastructure.Persistence.DataSeeder
                 RetirementExemptionCapAmount = 500_000m
             };
 
-            AddSlab(fiscalYear, TaxAssessmentType.Individual, 1m, 1_000_000m, 0.01m, 1);
-            AddSlab(fiscalYear, TaxAssessmentType.Individual, 1_000_001m, 1_500_000m, 0.10m, 2);
-            AddSlab(fiscalYear, TaxAssessmentType.Individual, 1_500_001m, 2_500_000m, 0.20m, 3);
-            AddSlab(fiscalYear, TaxAssessmentType.Individual, 2_500_001m, 4_000_000m, 0.27m, 4);
-            AddSlab(fiscalYear, TaxAssessmentType.Individual, 4_000_001m, null, 0.29m, 5);
+            // Boundaries are contiguous (each slab's MinAmount == the previous slab's MaxAmount,
+            // first slab starts at 0), same convention as FY-SAMPLE above -- Calculate(...)'s
+            // "if (annualTaxableIncome <= slab.MinAmount) continue;" + Math.Min(income, ceiling)
+            // combo already prevents double-taxing the exact boundary rupee, so no "+1" offset is
+            // needed between slabs. An earlier version of this data used a "+1" gap (1 /
+            // 1,000,001 / 1,500,001 / ...), copied verbatim from a live dev-DB fiscal year that
+            // had been hand-entered that way -- it silently understated taxable income by exactly
+            // 1 rupee at every bracket transition (verified 2026-07-22 against a real HRMS
+            // system's payslip, which taxes the full contiguous width per bracket with no gap).
+            AddSlab(fiscalYear, TaxAssessmentType.Individual, 0m, 1_000_000m, 0.01m, 1);
+            AddSlab(fiscalYear, TaxAssessmentType.Individual, 1_000_000m, 1_500_000m, 0.10m, 2);
+            AddSlab(fiscalYear, TaxAssessmentType.Individual, 1_500_000m, 2_500_000m, 0.20m, 3);
+            AddSlab(fiscalYear, TaxAssessmentType.Individual, 2_500_000m, 4_000_000m, 0.27m, 4);
+            AddSlab(fiscalYear, TaxAssessmentType.Individual, 4_000_000m, null, 0.29m, 5);
 
-            AddSlab(fiscalYear, TaxAssessmentType.Couple, 1m, 1_000_000m, 0.01m, 1);
-            AddSlab(fiscalYear, TaxAssessmentType.Couple, 1_000_001m, 1_500_000m, 0.10m, 2);
-            AddSlab(fiscalYear, TaxAssessmentType.Couple, 1_500_001m, 2_500_000m, 0.20m, 3);
-            AddSlab(fiscalYear, TaxAssessmentType.Couple, 2_500_001m, 4_000_000m, 0.27m, 4);
-            AddSlab(fiscalYear, TaxAssessmentType.Couple, 4_000_001m, null, 0.29m, 5);
+            AddSlab(fiscalYear, TaxAssessmentType.Couple, 0m, 1_000_000m, 0.01m, 1);
+            AddSlab(fiscalYear, TaxAssessmentType.Couple, 1_000_000m, 1_500_000m, 0.10m, 2);
+            AddSlab(fiscalYear, TaxAssessmentType.Couple, 1_500_000m, 2_500_000m, 0.20m, 3);
+            AddSlab(fiscalYear, TaxAssessmentType.Couple, 2_500_000m, 4_000_000m, 0.27m, 4);
+            AddSlab(fiscalYear, TaxAssessmentType.Couple, 4_000_000m, null, 0.29m, 5);
 
             dbContext.Set<FiscalYear>().Add(fiscalYear);
             await dbContext.SaveChangesAsync();

@@ -1,6 +1,7 @@
 using Application.Common.Helpers;
 using Application.Employees.Dtos;
 using Application.Payroll;
+using Domain.Constants;
 using Domain.Entities;
 
 namespace Application.Employees
@@ -31,6 +32,11 @@ namespace Application.Employees
                 BankName = employee.BankName,
                 BankAccountNumber = employee.BankAccountNumber,
                 PaymentMode = employee.PaymentMode,
+                PanNumber = employee.PanNumber,
+                ProvidentFundNumber = employee.ProvidentFundNumber,
+                SsfNumber = employee.SsfNumber,
+                CitNumber = employee.CitNumber,
+                GratuityNumber = employee.GratuityNumber,
                 HasTeacherProfile = hasTeacherProfile || employee.Teacher != null,
                 CreatedBy = employee.CreatedBy,
                 CreatedTs = employee.CreatedTs,
@@ -118,6 +124,84 @@ namespace Application.Employees
             };
 
             return deductionDto;
+        }
+
+        // 2026-07-23: the two adapters AddSalaryLineAsync uses to present whichever of
+        // ToComponentDto/ToDeductionDto it actually built as the unified SalaryLineDto shape.
+        public static SalaryLineDto ToLineDto(SalaryComponentDto componentDto)
+        {
+            var lineDto = new SalaryLineDto
+            {
+                Id = componentDto.Id,
+                EmployeeSalaryId = componentDto.EmployeeSalaryId,
+                Code = componentDto.ComponentCode,
+                Label = componentDto.ComponentLabel,
+                CalculateType = SalaryLineCalculateTypes.Addition,
+                ValueType = componentDto.ValueType,
+                Value = componentDto.Value,
+                FrequencyType = componentDto.FrequencyType,
+                IsTaxable = componentDto.IsTaxable,
+                IsRetirementContribution = componentDto.IsRetirementContribution
+            };
+
+            return lineDto;
+        }
+
+        public static SalaryLineDto ToLineDto(SalaryDeductionDto deductionDto)
+        {
+            var lineDto = new SalaryLineDto
+            {
+                Id = deductionDto.Id,
+                EmployeeSalaryId = deductionDto.EmployeeSalaryId,
+                Code = deductionDto.DeductionCode,
+                Label = deductionDto.DeductionLabel,
+                CalculateType = SalaryLineCalculateTypes.Deduction,
+                ValueType = deductionDto.ValueType,
+                Value = deductionDto.Value,
+                FrequencyType = deductionDto.FrequencyType,
+                IsTaxable = null,
+                IsRetirementContribution = deductionDto.IsRetirementContribution
+            };
+
+            return lineDto;
+        }
+
+        // Qualifications and Documents (2026-07-23, moved here from TeacherMapper -- neither
+        // concept is teaching-specific).
+        public static EmployeeQualificationDto ToQualificationDto(EmployeeQualification qualification)
+        {
+            var qualificationDto = new EmployeeQualificationDto
+            {
+                Id = qualification.Id,
+                EmployeeId = qualification.EmployeeId,
+                QualificationCode = qualification.QualificationCode,
+                CourseName = qualification.CourseName,
+                Institution = qualification.Institution,
+                CompletionYear = qualification.CompletionYear,
+                Score = qualification.Score,
+                Remarks = qualification.Remarks
+            };
+
+            return qualificationDto;
+        }
+
+        public static EmployeeDocumentDto ToDocumentDto(EmployeeDocument document)
+        {
+            var documentDto = new EmployeeDocumentDto
+            {
+                Id = document.Id,
+                EmployeeId = document.EmployeeId,
+                DocumentTypeCode = document.DocumentTypeCode,
+                DocumentName = document.DocumentName,
+                FileName = document.FileName,
+                ContentType = document.ContentType,
+                FileSizeBytes = document.FileSizeBytes,
+                ValidUntil = document.ValidUntil,
+                Remarks = document.Remarks,
+                UploadedTs = document.CreatedTs
+            };
+
+            return documentDto;
         }
 
         public static InsurancePremiumDto ToInsurancePremiumDto(EmployeeInsurancePremium premium, IReadOnlyDictionary<string, string> labelsByCode = null)

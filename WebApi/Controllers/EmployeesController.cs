@@ -101,6 +101,136 @@ namespace WebApi.Controllers
             return Ok(response);
         }
 
+        // 2026-07-23: Qualifications and Documents, generic to every employee (moved off
+        // Teacher entirely -- neither concept was ever teaching-specific).
+
+        [HttpPost("{id:guid}/qualifications")]
+        public async Task<ActionResult<CommonResponse<EmployeeQualificationDto>>> AddQualification(Guid id, [FromBody] AddEmployeeQualificationCommand command, CancellationToken cancellationToken)
+        {
+            var response = await _employeeService.AddQualificationAsync(id, command, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            if (response.ResponseCode != ResponseCodes.Success)
+            {
+                return BadRequest(response);
+            }
+
+            return Ok(response);
+        }
+
+        [HttpDelete("{id:guid}/qualifications/{qualificationId:guid}")]
+        public async Task<ActionResult<CommonResponse<bool>>> RemoveQualification(Guid id, Guid qualificationId, CancellationToken cancellationToken)
+        {
+            var response = await _employeeService.RemoveQualificationAsync(id, qualificationId, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            if (response.ResponseCode != ResponseCodes.Success)
+            {
+                return BadRequest(response);
+            }
+
+            return Ok(response);
+        }
+
+        [HttpGet("{id:guid}/qualifications")]
+        public async Task<ActionResult<CommonResponse<List<EmployeeQualificationDto>>>> GetQualifications(Guid id, CancellationToken cancellationToken)
+        {
+            var response = await _employeeService.GetQualificationsAsync(id, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            return Ok(response);
+        }
+
+        // Multipart form-data: the file plus the metadata fields. The service owns every rule
+        // (type catalog, extension whitelist, size cap) -- the controller only unwraps IFormFile,
+        // since Application can't reference ASP.NET Core types.
+        [HttpPost("{id:guid}/documents")]
+        public async Task<ActionResult<CommonResponse<EmployeeDocumentDto>>> UploadDocument(Guid id, [FromForm] IFormFile file, [FromForm] string documentTypeCode, [FromForm] string documentName, [FromForm] DateTime? validUntil, [FromForm] string remarks, CancellationToken cancellationToken)
+        {
+            var command = new UploadEmployeeDocumentCommand
+            {
+                DocumentTypeCode = documentTypeCode,
+                DocumentName = documentName,
+                ValidUntil = validUntil,
+                Remarks = remarks
+            };
+
+            CommonResponse<EmployeeDocumentDto> response;
+            if (file == null)
+            {
+                response = await _employeeService.UploadDocumentAsync(id, command, null, null, null, 0, cancellationToken);
+            }
+            else
+            {
+                using var fileStream = file.OpenReadStream();
+                response = await _employeeService.UploadDocumentAsync(id, command, fileStream, file.FileName, file.ContentType, file.Length, cancellationToken);
+            }
+
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            if (response.ResponseCode != ResponseCodes.Success)
+            {
+                return BadRequest(response);
+            }
+
+            return Ok(response);
+        }
+
+        [HttpGet("{id:guid}/documents")]
+        public async Task<ActionResult<CommonResponse<List<EmployeeDocumentDto>>>> GetDocuments(Guid id, CancellationToken cancellationToken)
+        {
+            var response = await _employeeService.GetDocumentsAsync(id, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            return Ok(response);
+        }
+
+        // Streams the raw file (no envelope) -- errors still come back enveloped.
+        [HttpGet("{id:guid}/documents/{documentId:guid}/download")]
+        public async Task<IActionResult> DownloadDocument(Guid id, Guid documentId, CancellationToken cancellationToken)
+        {
+            var response = await _employeeService.GetDocumentFileAsync(id, documentId, cancellationToken);
+            if (response.ResponseCode != ResponseCodes.Success)
+            {
+                return NotFound(response);
+            }
+
+            var fileResult = File(response.Data.Content, response.Data.ContentType, response.Data.FileName);
+            return fileResult;
+        }
+
+        [HttpDelete("{id:guid}/documents/{documentId:guid}")]
+        public async Task<ActionResult<CommonResponse<bool>>> DeleteDocument(Guid id, Guid documentId, CancellationToken cancellationToken)
+        {
+            var response = await _employeeService.DeleteDocumentAsync(id, documentId, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            if (response.ResponseCode != ResponseCodes.Success)
+            {
+                return BadRequest(response);
+            }
+
+            return Ok(response);
+        }
+
         [HttpPost("{id:guid}/salaries")]
         public async Task<ActionResult<CommonResponse<EmployeeSalaryDto>>> AddSalary(Guid id, [FromBody] AddEmployeeSalaryCommand command, CancellationToken cancellationToken)
         {
@@ -125,23 +255,6 @@ namespace WebApi.Controllers
             if (response.ResponseCode == ResponseCodes.NotFound)
             {
                 return NotFound(response);
-            }
-
-            return Ok(response);
-        }
-
-        [HttpGet("{id:guid}/salaries/tax-calculation")]
-        public async Task<ActionResult<CommonResponse<EmployeeTaxCalculationDto>>> GetSalaryTaxCalculation(Guid id, [FromQuery] Guid? fiscalYearId, CancellationToken cancellationToken)
-        {
-            var response = await _employeeService.GetCurrentSalaryTaxCalculationAsync(id, fiscalYearId, cancellationToken);
-            if (response.ResponseCode == ResponseCodes.NotFound)
-            {
-                return NotFound(response);
-            }
-
-            if (response.ResponseCode != ResponseCodes.Success)
-            {
-                return BadRequest(response);
             }
 
             return Ok(response);
@@ -185,6 +298,40 @@ namespace WebApi.Controllers
         public async Task<ActionResult<CommonResponse<TaxPlanningDto>>> GetTaxPlanning(Guid id, [FromQuery] Guid? fiscalYearId, CancellationToken cancellationToken)
         {
             var response = await _employeeService.GetTaxPlanningAsync(id, fiscalYearId, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            if (response.ResponseCode != ResponseCodes.Success)
+            {
+                return BadRequest(response);
+            }
+
+            return Ok(response);
+        }
+
+        [HttpGet("{id:guid}/salaries/annual-forecast")]
+        public async Task<ActionResult<CommonResponse<SalaryAnnualForecastDto>>> GetAnnualForecast(Guid id, [FromQuery] Guid? fiscalYearId, CancellationToken cancellationToken)
+        {
+            var response = await _employeeService.GetAnnualForecastAsync(id, fiscalYearId, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            if (response.ResponseCode != ResponseCodes.Success)
+            {
+                return BadRequest(response);
+            }
+
+            return Ok(response);
+        }
+
+        [HttpGet("{id:guid}/salaries/tax-details")]
+        public async Task<ActionResult<CommonResponse<TaxDetailsGridDto>>> GetTaxDetailsGrid(Guid id, [FromQuery] Guid? fiscalYearId, CancellationToken cancellationToken)
+        {
+            var response = await _employeeService.GetTaxDetailsGridAsync(id, fiscalYearId, cancellationToken);
             if (response.ResponseCode == ResponseCodes.NotFound)
             {
                 return NotFound(response);
@@ -384,6 +531,40 @@ namespace WebApi.Controllers
         public async Task<ActionResult<CommonResponse<bool>>> RemoveSalaryDeduction(Guid id, Guid salaryId, Guid deductionId, CancellationToken cancellationToken)
         {
             var response = await _employeeService.RemoveSalaryDeductionAsync(id, salaryId, deductionId, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            if (response.ResponseCode != ResponseCodes.Success)
+            {
+                return BadRequest(response);
+            }
+
+            return Ok(response);
+        }
+
+        [HttpPost("{id:guid}/salaries/{salaryId:guid}/lines")]
+        public async Task<ActionResult<CommonResponse<SalaryLineDto>>> AddSalaryLine(Guid id, Guid salaryId, [FromBody] SalaryLineInput command, CancellationToken cancellationToken)
+        {
+            var response = await _employeeService.AddSalaryLineAsync(id, salaryId, command, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            if (response.ResponseCode != ResponseCodes.Success)
+            {
+                return BadRequest(response);
+            }
+
+            return Ok(response);
+        }
+
+        [HttpDelete("{id:guid}/salaries/{salaryId:guid}/lines/{lineId:guid}")]
+        public async Task<ActionResult<CommonResponse<bool>>> RemoveSalaryLine(Guid id, Guid salaryId, Guid lineId, CancellationToken cancellationToken)
+        {
+            var response = await _employeeService.RemoveSalaryLineAsync(id, salaryId, lineId, cancellationToken);
             if (response.ResponseCode == ResponseCodes.NotFound)
             {
                 return NotFound(response);

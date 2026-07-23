@@ -25,6 +25,10 @@ namespace Application.PayrollRuns
 
         Task<CommonResponse<SalarySlipDto>> CancelSlipAsync(Guid runId, Guid slipId, CancellationToken cancellationToken = default);
 
+        Task<CommonResponse<SalarySlipDto>> ApproveSlipAsync(Guid runId, Guid slipId, CancellationToken cancellationToken = default);
+
+        Task<CommonResponse<SalarySlipDto>> RegenerateSlipAsync(Guid runId, Guid slipId, CancellationToken cancellationToken = default);
+
         Task<CommonResponse<SalarySlipDto>> AddSlipLineAsync(Guid runId, Guid slipId, SalarySlipLineInput command, CancellationToken cancellationToken = default);
 
         Task<CommonResponse<SalarySlipDto>> UpdateSlipLineAsync(Guid runId, Guid slipId, Guid lineId, UpdateSalarySlipLineCommand command, CancellationToken cancellationToken = default);

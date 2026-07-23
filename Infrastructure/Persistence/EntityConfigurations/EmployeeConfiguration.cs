@@ -88,6 +88,28 @@ namespace Infrastructure.Persistence.EntityConfigurations
                     .HasColumnName("payment_mode")
                     .IsRequired();
 
+            // "Accounts and Codes" (2026-07-23) -- free-form, all optional, no format enforced
+            // (see the doc comment on Employee.PanNumber for why).
+            builder.Property(e => e.PanNumber)
+                    .HasColumnName("pan_number")
+                    .HasMaxLength(50);
+
+            builder.Property(e => e.ProvidentFundNumber)
+                    .HasColumnName("provident_fund_number")
+                    .HasMaxLength(50);
+
+            builder.Property(e => e.SsfNumber)
+                    .HasColumnName("ssf_number")
+                    .HasMaxLength(50);
+
+            builder.Property(e => e.CitNumber)
+                    .HasColumnName("cit_number")
+                    .HasMaxLength(50);
+
+            builder.Property(e => e.GratuityNumber)
+                    .HasColumnName("gratuity_number")
+                    .HasMaxLength(50);
+
             builder.HasIndex(e => e.EmployeeCode)
                     .IsUnique()
                     .HasDatabaseName("ix_employees_employee_code");

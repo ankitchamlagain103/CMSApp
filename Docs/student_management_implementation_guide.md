@@ -10,7 +10,7 @@
 
 ## Key design point: dropdown catalogs instead of tables
 
-Grade, Section, Subject, Guardian Relationship, and Teacher Qualification are **not** their own tables/endpoints — they are entries in the existing Config catalog, referenced everywhere **by their `code` string** (not id). Populate every such dropdown from the existing endpoint:
+Grade, Section, Subject, Guardian Relationship, and Employee Qualification (catalog `1005`, renamed 2026-07-23 from "Teacher Qualification" — same TypeCode, now generic to every staff member, not teaching-specific) are **not** their own tables/endpoints — they are entries in the existing Config catalog, referenced everywhere **by their `code` string** (not id). Populate every such dropdown from the existing endpoint:
 
 ```
 GET /api/configs/dropdown/{typeCode}     (any authenticated user, no permission needed)
@@ -23,7 +23,7 @@ GET /api/configs/dropdown/{typeCode}     (any authenticated user, no permission 
 | Subject | `1003` | ❌ admin creates them; convention: `additionalValue1` = short name, `additionalValue2` = credit, `additionalValue3` = category (`CORE`/`ELECTIVE` display hint) |
 | Guardian relationship | `1004` | ✅ FATHER, MOTHER, GRANDFATHER, GRANDMOTHER, BROTHER, SISTER, UNCLE, AUNT, LEGAL_GUARDIAN, OTHER |
 | Teacher qualification | `1005` | ✅ PHD, MASTERS, BACHELORS, DIPLOMA, CERTIFICATE, OTHER |
-| Document type (teacher) | `1006` | ✅ CITIZENSHIP, ID_CARD, PAN_CARD, PASSPORT, DRIVING_LICENSE, POLICE_REPORT, ACADEMIC_CERTIFICATE, APPOINTMENT_LETTER, OTHER (see `teacher_documents_implementation_guide.md`) |
+| Document type (employee) | `1006` | ✅ CITIZENSHIP, ID_CARD, PAN_CARD, PASSPORT, DRIVING_LICENSE, POLICE_REPORT, ACADEMIC_CERTIFICATE, APPOINTMENT_LETTER, OTHER (see `employee_documents_and_qualifications_implementation_guide.md`) |
 | Document type (student) | `1007` | ✅ BIRTH_CERTIFICATE, TRANSFER_CERTIFICATE, CHARACTER_CERTIFICATE, PREVIOUS_MARKSHEET, CITIZENSHIP, PASSPORT, PHOTO, IMMUNIZATION_RECORD, DISABILITY_CARD, MIGRATION_CERTIFICATE, GUARDIAN_CITIZENSHIP, OTHER (same guide) |
 
 The `ConfigType` rows themselves are seeded at startup (`ConfigCatalogSeeder`). **Sending a code that isn't in the catalog fails with `400 VALIDATION_ERROR`** (e.g. `"GradeCode 'GRADE_99' is not a known grade option."`). API responses return codes only — resolve display labels from the cached dropdown data.
@@ -84,15 +84,11 @@ A class = **one grade within one academic year** (`(year, gradeCode)` unique); i
 | `GET /api/teachers?page=1&pageSize=20&search=priya&phone=…&qualificationCode=…&status=1&dateField=1&fromDate=2026-01-01&toDate=2026-06-30` | | `search` matches first/last name or employeeCode, case-insensitive. `dateField` (`0` CreatedDate default / `1` JoiningDate) picks which column `fromDate`/`toDate` filters. `status` is now `EmploymentStatus` (`1` Active / `2` OnLeave / `3` Suspended / `4` Resigned / `5` Terminated / `6` Retired), read off the owning `Employee` row. Full filter list: `filters_update.md` |
 | `GET /api/teachers/{id}` · `PUT /api/teachers/{id}` (adds `employmentStatus`, **no `employeeCode`**) · `DELETE /api/teachers/{id}` | | Detail adds `serviceHistory` (assignments with their academic years, oldest first — "teaching here since"; see `student_profile_enhancements_implementation_guide.md`). Delete soft-deletes the owning `Employee` row; `409` while the teacher has assignments |
 | `POST /api/employees/{id}/teacher-profile` | `{ "teachingLicenseNo", "experienceYears", "specialization" }` | Alternate path: promotes an *existing* `Employee` (e.g. hired as Office Assistant, later becomes a teacher) into also having a Teacher profile — requires `employeeCategoryCode = ACADEMIC` + a Teacher/Principal/Vice Principal `jobPositionCode`; `409` if a profile already exists. See `employee_management_implementation_guide.md` |
-| `POST/GET /api/teachers/{id}/salaries` · `GET …/salaries/tax-calculation?fiscalYearId=` | | Thin aliases over `/api/employees/{id}/salaries` (the teacher's id *is* its Employee id via the shared-PK link) — full compensation-plan/tax-calculation reference in `employee_management_implementation_guide.md` |
-| `POST /api/teachers/{id}/qualifications` | `{ "qualificationCode": "MASTERS", "courseName": "M.Sc. Mathematics", "institution": "Tribhuvan University", "completionYear": 2018, "score": "3.7 GPA", "remarks": null }` | Only `qualificationCode` required (catalog 1005); `completionYear` 1950–2100 |
-| `GET /api/teachers/{id}/qualifications` | | Newest completion year first |
-| `DELETE /api/teachers/{id}/qualifications/{qualificationId}` | | Hard delete |
+| `POST/GET /api/teachers/{id}/salaries` · `GET …/salaries/tax-calculation?fiscalYearId=` | | `salaries` is a thin alias over `/api/employees/{id}/salaries` (the teacher's id *is* its Employee id via the shared-PK link); `tax-calculation` forwards to the same underlying computation but, as of 2026-07-23, only exists as this Teachers route — the Employees-side route was removed in favor of `GET .../salaries/tax-planning`. Full reference in `employee_management_implementation_guide.md` |
+| **`/api/teachers/{id}/qualifications` and `/api/teachers/{id}/documents` — removed 2026-07-23** | | Qualifications and documents moved to `/api/employees/{id}/qualifications` and `/api/employees/{id}/documents` (no Teacher-side alias kept) — generic to every staff member now, not teaching-specific. Full reference: `employee_documents_and_qualifications_implementation_guide.md` |
 | `POST /api/teachers/{id}/assignments` | `{ "classSubjectId": "…", "classSectionId": null, "isClassTeacher": false }` | `classSectionId` optional (null = teaches the subject to all sections; must belong to the subject's class). `409` if that exact teacher+subject+section combination exists; `isClassTeacher: true` **requires** a `classSectionId` (`400`) and `409`s if that section already has a class teacher (one per section) |
 | `GET /api/teachers/{id}/assignments` | | Returns `{ id, teacherId, classSubjectId, academicClassId, subjectCode, classSectionId, sectionCode, scope, isClassTeacher }` (`classSectionId`/`sectionCode` null = all sections; `scope` `0` ClassWide / `1` Section). **Behavior fix (2026-07-15)**: assigning a teacher to a section-scoped subject now always pins the assignment to that subject's own section (previously a caller could omit `classSectionId` and end up with an assignment that looked like "all sections" for a subject that isn't offered everywhere) — see `filters_update.md` |
 | `DELETE /api/teachers/{id}/assignments/{assignmentId}` | | Hard delete |
-| `POST /api/teachers/{id}/documents` | **multipart/form-data**: `file` + `documentTypeCode` + `documentName` + optional `validUntil`/`remarks` | PDF/JPG/JPEG/PNG, max 10 MB; type from catalog 1006. Full reference: `teacher_documents_implementation_guide.md` |
-| `GET /api/teachers/{id}/documents` · `GET …/documents/{documentId}/download` · `DELETE …/documents/{documentId}` | | List (metadata only) / raw file stream / hard delete incl. the stored file |
 
 ## Guardians — `/api/guardians`
 
@@ -109,7 +105,7 @@ Body: `{ "firstName", "lastName", "email", "phone", "occupation", "address" }` (
 | `POST /api/students/{id}/guardians` | `{ "guardianId": "…", "relationshipCode": "FATHER", "isPrimary": true }` | `409` if already linked; `isPrimary: true` automatically demotes the previous primary |
 | `GET /api/students/{id}/guardians` | | Primary first; each row flattens guardian name/phone/email — no per-row guardian lookup needed |
 | `DELETE /api/students/{id}/guardians/{linkId}` | | `linkId` is the link row's `id`, **not** the guardianId |
-| `POST /api/students/{id}/documents` | **multipart/form-data**: `file` + `documentTypeCode` + `documentName` + optional `validUntil`/`remarks` | PDF/JPG/JPEG/PNG, max 10 MB; type from catalog 1007. Same shape as teacher documents — `teacher_documents_implementation_guide.md` |
+| `POST /api/students/{id}/documents` | **multipart/form-data**: `file` + `documentTypeCode` + `documentName` + optional `validUntil`/`remarks` | PDF/JPG/JPEG/PNG, max 10 MB; type from catalog 1007. Same shape as employee documents — `employee_documents_and_qualifications_implementation_guide.md` |
 | `GET /api/students/{id}/documents` · `GET …/documents/{documentId}/download` · `DELETE …/documents/{documentId}` | | List (metadata only) / raw file stream / hard delete incl. the stored file |
 | `GET /api/students/{id}/id-card-preview` | | Renders an admin-configurable HTML template with this student's profile/enrollment/guardian data — see `document_preview_implementation_guide.md`. Same shape at `GET /api/teachers/{id}/id-card-preview` for teachers |
 
@@ -141,7 +137,7 @@ Body: `{ "firstName", "lastName", "email", "phone", "occupation", "address" }` (
 
 ## Permissions (seeded to SuperAdmin only, grant to other roles via `POST /api/roles/claims`)
 
-Three new admin main menus: `ACADEMIC_MANAGEMENT`, `TEACHER_MANAGEMENT`, `STUDENT_MANAGEMENT`. Permission codes follow the existing convention — `YEAR_*`, `CLASS_*`, `CLASS_SECTION_*`, `CLASS_SUBJECT_*`, `TEACHER_*`, `TEACHER_QUALIFICATION_*`, `TEACHER_ASSIGNMENT_*`, `TEACHER_DOCUMENT_*`, `STUDENT_*`, `STUDENT_GUARDIAN_*`, `STUDENT_DOCUMENT_*`, `GUARDIAN_*`, `ENROLLMENT_*`, `ENROLLMENT_SUBJECT_*`.
+Three new admin main menus: `ACADEMIC_MANAGEMENT`, `TEACHER_MANAGEMENT`, `STUDENT_MANAGEMENT` (the first two were later retired 2026-07-16, see `CLAUDE.md`). Permission codes follow the existing convention — `YEAR_*`, `CLASS_*`, `CLASS_SECTION_*`, `CLASS_SUBJECT_*`, `TEACHER_*`, `TEACHER_ASSIGNMENT_*`, `STUDENT_*`, `STUDENT_GUARDIAN_*`, `STUDENT_DOCUMENT_*`, `GUARDIAN_*`, `ENROLLMENT_*`, `ENROLLMENT_SUBJECT_*`. **`TEACHER_QUALIFICATION_*`/`TEACHER_DOCUMENT_*` were retired 2026-07-23** in favor of `EMPLOYEE_QUALIFICATION_*`/`EMPLOYEE_DOCUMENT_*` — see `employee_documents_and_qualifications_implementation_guide.md`.
 
 ## Typical UI flows
 
@@ -152,6 +148,6 @@ Three new admin main menus: `ACADEMIC_MANAGEMENT`, `TEACHER_MANAGEMENT`, `STUDEN
 
 ## Backend notes
 
-- 12 tables (`dbo.academic_years`, `dbo.academic_classes`, `dbo.class_sections`, `dbo.class_subjects`, `dbo.teachers`, `dbo.teacher_qualifications`, `dbo.teacher_assignments`, `dbo.guardians`, `dbo.students`, `dbo.student_guardians`, `dbo.enrollments`, `dbo.enrollment_subjects`). The original 11 have their EF Core migration (2026-07-12); **the 2026-07-13 restructure (new `class_sections`, changed `academic_classes`/`enrollments`) still needs its migration** — user-owned, as always.
+- 12 tables (`dbo.academic_years`, `dbo.academic_classes`, `dbo.class_sections`, `dbo.class_subjects`, `dbo.teachers`, `dbo.teacher_qualifications`, `dbo.teacher_assignments`, `dbo.guardians`, `dbo.students`, `dbo.student_guardians`, `dbo.enrollments`, `dbo.enrollment_subjects`). The original 11 have their EF Core migration (2026-07-12); **the 2026-07-13 restructure (new `class_sections`, changed `academic_classes`/`enrollments`) still needs its migration** — user-owned, as always. **`dbo.teacher_qualifications` itself was renamed `dbo.employee_qualifications` 2026-07-23** (its `teacher_id` FK column renamed `employee_id`, repointed at `employees.id`) — see `employee_documents_and_qualifications_implementation_guide.md`'s migration section.
 - Config-code columns (`grade_code`, `section_code`, `subject_code`, `relationship_code`, `qualification_code`) are **not database FKs** (a Config code is only unique per type) — validity is enforced in the services. Corollary: **deleting a Config option that's already referenced leaves existing rows pointing at a dead code** — the admin UI should warn before deleting Grade/Section/Subject options that are in use.
 - Soft-deleted years/classes/teachers/students/enrollments keep their unique codes/pairs reserved (clean 409, by design). Link rows (subjects, assignments, guardian links, electives) hard-delete.

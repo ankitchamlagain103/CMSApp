@@ -1,6 +1,7 @@
 using Application.Common.Helpers;
 using Application.Common.Interfaces;
 using Application.Common.Models;
+using Application.Common.Validation;
 using Application.DocumentTemplates;
 using Application.Employees.Commands;
 using Application.Employees.Dtos;
@@ -19,44 +20,56 @@ namespace Application.Employees
     public class EmployeeService : IEmployeeService
     {
         private readonly IUnitOfWork _unitOfWork;
+        private readonly IFileStorageService _fileStorage;
         private readonly CreateEmployeeCommandValidator _createValidator;
         private readonly UpdateEmployeeCommandValidator _updateValidator;
         private readonly PromoteToTeacherCommandValidator _promoteValidator;
         private readonly AddEmployeeSalaryCommandValidator _addSalaryValidator;
         private readonly SalaryComponentInputValidator _componentValidator;
         private readonly SalaryDeductionInputValidator _deductionValidator;
+        private readonly SalaryLineInputValidator _lineValidator;
         private readonly InsurancePremiumInputValidator _premiumValidator;
         private readonly RequestLoanCommandValidator _requestLoanValidator;
         private readonly CreateSalaryAdjustmentCommandValidator _createSalaryAdjustmentValidator;
         private readonly UpdateSalaryAdjustmentCommandValidator _updateSalaryAdjustmentValidator;
         private readonly CreateBulkSalaryAdjustmentCommandValidator _createBulkSalaryAdjustmentValidator;
+        private readonly AddEmployeeQualificationCommandValidator _addQualificationValidator;
+        private readonly UploadEmployeeDocumentCommandValidator _uploadDocumentValidator;
 
         public EmployeeService(
             IUnitOfWork unitOfWork,
+            IFileStorageService fileStorage,
             CreateEmployeeCommandValidator createValidator,
             UpdateEmployeeCommandValidator updateValidator,
             PromoteToTeacherCommandValidator promoteValidator,
             AddEmployeeSalaryCommandValidator addSalaryValidator,
             SalaryComponentInputValidator componentValidator,
             SalaryDeductionInputValidator deductionValidator,
+            SalaryLineInputValidator lineValidator,
             InsurancePremiumInputValidator premiumValidator,
             RequestLoanCommandValidator requestLoanValidator,
             CreateSalaryAdjustmentCommandValidator createSalaryAdjustmentValidator,
             UpdateSalaryAdjustmentCommandValidator updateSalaryAdjustmentValidator,
-            CreateBulkSalaryAdjustmentCommandValidator createBulkSalaryAdjustmentValidator)
+            CreateBulkSalaryAdjustmentCommandValidator createBulkSalaryAdjustmentValidator,
+            AddEmployeeQualificationCommandValidator addQualificationValidator,
+            UploadEmployeeDocumentCommandValidator uploadDocumentValidator)
         {
             _unitOfWork = unitOfWork;
+            _fileStorage = fileStorage;
             _createValidator = createValidator;
             _updateValidator = updateValidator;
             _promoteValidator = promoteValidator;
             _addSalaryValidator = addSalaryValidator;
             _componentValidator = componentValidator;
             _deductionValidator = deductionValidator;
+            _lineValidator = lineValidator;
             _premiumValidator = premiumValidator;
             _requestLoanValidator = requestLoanValidator;
             _createSalaryAdjustmentValidator = createSalaryAdjustmentValidator;
             _updateSalaryAdjustmentValidator = updateSalaryAdjustmentValidator;
             _createBulkSalaryAdjustmentValidator = createBulkSalaryAdjustmentValidator;
+            _addQualificationValidator = addQualificationValidator;
+            _uploadDocumentValidator = uploadDocumentValidator;
         }
 
         public async Task<CommonResponse<EmployeeDto>> CreateEmployeeAsync(CreateEmployeeCommand command, CancellationToken cancellationToken = default)
@@ -118,7 +131,12 @@ namespace Application.Employees
                 EmploymentStatus = EmploymentStatus.Active,
                 BankName = command.BankName?.Trim(),
                 BankAccountNumber = command.BankAccountNumber?.Trim(),
-                PaymentMode = command.PaymentMode
+                PaymentMode = command.PaymentMode,
+                PanNumber = command.PanNumber?.Trim(),
+                ProvidentFundNumber = command.ProvidentFundNumber?.Trim(),
+                SsfNumber = command.SsfNumber?.Trim(),
+                CitNumber = command.CitNumber?.Trim(),
+                GratuityNumber = command.GratuityNumber?.Trim()
             };
 
             await _unitOfWork.Employees.AddAsync(employee, cancellationToken);
@@ -226,6 +244,11 @@ namespace Application.Employees
             employee.BankName = command.BankName?.Trim();
             employee.BankAccountNumber = command.BankAccountNumber?.Trim();
             employee.PaymentMode = command.PaymentMode;
+            employee.PanNumber = command.PanNumber?.Trim();
+            employee.ProvidentFundNumber = command.ProvidentFundNumber?.Trim();
+            employee.SsfNumber = command.SsfNumber?.Trim();
+            employee.CitNumber = command.CitNumber?.Trim();
+            employee.GratuityNumber = command.GratuityNumber?.Trim();
 
             _unitOfWork.Employees.Update(employee);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
@@ -459,6 +482,8 @@ namespace Application.Employees
             }
 
             var insuranceTypeCaps = await BuildInsuranceTypeCapsAsync(cancellationToken);
+            var compensationLabels = await LoadCompensationLabelMapAsync(cancellationToken);
+            var calculationConfigByCode = await LoadSalaryLineCalculationConfigAsync(cancellationToken);
 
             var taxCalculation = TaxCalculator.CalculateFromSalary(
                 currentSalary.Components.ToList(),
@@ -466,9 +491,12 @@ namespace Application.Employees
                 currentSalary.InsurancePremiums.ToList(),
                 insuranceTypeCaps,
                 fiscalYear.RetirementExemptionCapAmount,
-                taxSlabs);
+                taxSlabs,
+                compensationLabels,
+                calculationConfigByCode);
 
             var grossMonthly = Math.Round(taxCalculation.GrossAnnualIncome / 12m, 2);
+            var netMonthly = Math.Round(taxCalculation.NetAnnualIncome / 12m, 2);
 
             var taxCalculationDto = new EmployeeTaxCalculationDto
             {
@@ -478,7 +506,7 @@ namespace Application.Employees
                 FiscalYearCode = fiscalYear.Code,
                 GrossMonthly = grossMonthly,
                 TaxCalculation = taxCalculation,
-                NetMonthly = grossMonthly - taxCalculation.MonthlyTax
+                NetMonthly = netMonthly
             };
 
             var successResponse = CommonResponse<EmployeeTaxCalculationDto>.Success(taxCalculationDto);
@@ -503,6 +531,7 @@ namespace Application.Employees
             var fiscalYear = await _unitOfWork.FiscalYears.GetByIdAsync(taxCalculationDto.FiscalYearId, cancellationToken);
 
             var payrollLabels = await LoadCompensationLabelMapAsync(cancellationToken);
+            var calculationConfigByCode = await LoadSalaryLineCalculationConfigAsync(cancellationToken);
 
             var months = MonthlyBreakdownCalculator.Build(
                 currentSalary.Components.ToList(),
@@ -510,7 +539,8 @@ namespace Application.Employees
                 currentSalary.EffectiveFromDate,
                 fiscalYear,
                 taxCalculationDto.TaxCalculation.AnnualTax,
-                payrollLabels);
+                payrollLabels,
+                calculationConfigByCode);
 
             var monthlyBreakdownDto = new EmployeeMonthlyTaxBreakdownDto
             {
@@ -548,12 +578,15 @@ namespace Application.Employees
             var fiscalYear = await _unitOfWork.FiscalYears.GetByIdAsync(taxCalculationDto.FiscalYearId, cancellationToken);
 
             var compensationLabels = await LoadCompensationLabelMapAsync(cancellationToken);
-            var basicPeriodAmount = TaxCalculator.FindBasicPeriodAmount(currentSalary.Components.ToList());
+            var calculationConfigByCode = await LoadSalaryLineCalculationConfigAsync(cancellationToken);
+            var components = currentSalary.Components.ToList();
+            var basicPeriodAmount = TaxCalculator.FindBasicPeriodAmount(components);
 
             var incomeLines = new List<TaxPlanningIncomeLineDto>();
             foreach (var component in currentSalary.Components)
             {
-                var periodAmount = TaxCalculator.ResolveAmount(component.ValueType, component.Value, basicPeriodAmount);
+                var baseAmount = TaxCalculator.ResolvePercentageBaseAmount(component.ComponentCode, basicPeriodAmount, components, calculationConfigByCode);
+                var periodAmount = TaxCalculator.ResolveAmount(component.ValueType, component.Value, baseAmount);
                 var annualAmount = TaxCalculator.Annualize(periodAmount, component.FrequencyType);
                 var incomeLine = new TaxPlanningIncomeLineDto
                 {
@@ -566,24 +599,38 @@ namespace Application.Employees
                 incomeLines.Add(incomeLine);
             }
 
+            // Reuses TaxCalculation.InsuranceDeductionLines (already computed by
+            // CalculateFromSalary against the same premiums/caps) instead of re-deriving the
+            // eligible/capped amounts here a second time -- so this table can never disagree
+            // with the InsuranceDeduction total above it.
             var insuranceLines = new List<TaxPlanningInsuranceLineDto>();
-            foreach (var premium in currentSalary.InsurancePremiums)
+            foreach (var deductionLine in taxCalculationDto.TaxCalculation.InsuranceDeductionLines)
             {
                 var insuranceLine = new TaxPlanningInsuranceLineDto
                 {
-                    InsuranceTypeCode = premium.InsuranceTypeCode,
-                    InsuranceTypeLabel = ConfigLabelHelper.Resolve(compensationLabels, premium.InsuranceTypeCode),
-                    AnnualPremiumAmount = premium.AnnualPremiumAmount
+                    InsuranceTypeCode = deductionLine.Code,
+                    InsuranceTypeLabel = deductionLine.Label,
+                    AnnualPremiumAmount = deductionLine.ActualAmount,
+                    EligiblePercentage = deductionLine.EligiblePercentage,
+                    CapAmount = deductionLine.CapAmount,
+                    DeductedAmount = deductionLine.DeductedAmount,
+                    AdditionalAmountAvailable = deductionLine.AdditionalAmountAvailable
                 };
                 insuranceLines.Add(insuranceLine);
             }
 
+            var eligibleContributionAnnual = taxCalculationDto.TaxCalculation.RetirementContributionAnnual;
+            var oneThirdOfTaxableIncome = Math.Round(taxCalculationDto.TaxCalculation.GrossAnnualIncome / 3m, 2);
+            var maximumLimit = fiscalYear.RetirementExemptionCapAmount;
+            var additionalContributionAvailable = Math.Max(0m, Math.Min(oneThirdOfTaxableIncome, maximumLimit) - eligibleContributionAnnual);
+
             var retirementFundDto = new RetirementFundBreakdownDto
             {
-                EligibleContributionAnnual = taxCalculationDto.TaxCalculation.RetirementContributionAnnual,
-                OneThirdOfTaxableIncome = Math.Round(taxCalculationDto.TaxCalculation.GrossAnnualIncome / 3m, 2),
-                MaximumLimit = fiscalYear.RetirementExemptionCapAmount,
-                ExemptionApplied = taxCalculationDto.TaxCalculation.RetirementExemption
+                EligibleContributionAnnual = eligibleContributionAnnual,
+                OneThirdOfTaxableIncome = oneThirdOfTaxableIncome,
+                MaximumLimit = maximumLimit,
+                ExemptionApplied = taxCalculationDto.TaxCalculation.RetirementExemption,
+                AdditionalContributionAvailable = additionalContributionAvailable
             };
 
             var taxPlanningDto = new TaxPlanningDto
@@ -607,6 +654,798 @@ namespace Application.Employees
             return taxPlanningSuccessResponse;
         }
 
+        // 2026-07-22: "salary receipt history" -- a 12-fiscal-month grid of every income line
+        // plus the retirement-fund a/b/c/min breakdown, matching the reference HRMS's forecast
+        // table. A month is Actual (real, disbursed figures from that month's own snapshotted
+        // salary revision) once a real Approved/Paid PayrollRun slip exists for it; every other
+        // month is Forecast (projected from the employee's *current* compensation plan, same
+        // projection GetMonthlySalaryTaxCalculationAsync already uses). See
+        // Docs/salary_annual_forecast_implementation_guide.md.
+        public async Task<CommonResponse<SalaryAnnualForecastDto>> GetAnnualForecastAsync(Guid employeeId, Guid? fiscalYearId, CancellationToken cancellationToken = default)
+        {
+            var employee = await _unitOfWork.Employees.GetByIdAsync(employeeId, cancellationToken);
+            if (employee == null)
+            {
+                var notFoundResponse = CommonResponse<SalaryAnnualForecastDto>.Fail(ResponseCodes.NotFound, "Employee with id '" + employeeId + "' was not found.");
+                return notFoundResponse;
+            }
+
+            var fiscalYear = fiscalYearId.HasValue
+                ? await _unitOfWork.FiscalYears.GetByIdAsync(fiscalYearId.Value, cancellationToken)
+                : await _unitOfWork.FiscalYears.GetCurrentYearAsync(cancellationToken);
+            if (fiscalYear == null)
+            {
+                var noFiscalYearResponse = CommonResponse<SalaryAnnualForecastDto>.Fail(ResponseCodes.NotFound, fiscalYearId.HasValue ? "Fiscal year with id '" + fiscalYearId.Value + "' was not found." : "No fiscal year is marked as current.");
+                return noFiscalYearResponse;
+            }
+
+            var currentSalary = await _unitOfWork.Employees.GetCurrentSalaryAsync(employeeId, cancellationToken);
+            if (currentSalary == null)
+            {
+                var noSalaryResponse = CommonResponse<SalaryAnnualForecastDto>.Fail(ResponseCodes.NotFound, "This employee has no salary on record yet.");
+                return noSalaryResponse;
+            }
+
+            var insuranceTypeCaps = await BuildInsuranceTypeCapsAsync(cancellationToken);
+            var compensationLabels = await LoadCompensationLabelMapAsync(cancellationToken);
+            var calculationConfigByCode = await LoadSalaryLineCalculationConfigAsync(cancellationToken);
+
+            // The Forecast baseline: the current compensation plan projected across all 12
+            // months, same shape GetMonthlySalaryTaxCalculationAsync already builds. Every
+            // month starts out Forecast; months with a real slip are overwritten below.
+            var forecastTaxSlabs = await _unitOfWork.FiscalYears.GetTaxSlabsAsync(fiscalYear.Id, currentSalary.AssessmentType, cancellationToken);
+            List<MonthlyBreakdownRowDto> forecastMonths = null;
+            if (forecastTaxSlabs.Count > 0)
+            {
+                var forecastComponents = currentSalary.Components.ToList();
+                var forecastDeductions = currentSalary.Deductions.ToList();
+                var forecastTaxCalculation = TaxCalculator.CalculateFromSalary(
+                    forecastComponents,
+                    forecastDeductions,
+                    currentSalary.InsurancePremiums.ToList(),
+                    insuranceTypeCaps,
+                    fiscalYear.RetirementExemptionCapAmount,
+                    forecastTaxSlabs,
+                    compensationLabels,
+                    calculationConfigByCode);
+
+                forecastMonths = MonthlyBreakdownCalculator.Build(
+                    forecastComponents,
+                    forecastDeductions,
+                    currentSalary.EffectiveFromDate,
+                    fiscalYear,
+                    forecastTaxCalculation.AnnualTax,
+                    compensationLabels,
+                    calculationConfigByCode);
+            }
+
+            var actualSlips = await _unitOfWork.PayrollRuns.GetSlipsForYearAsync(employeeId, fiscalYear.Id, cancellationToken);
+            var actualSlipsByMonth = new Dictionary<int, SalarySlip>();
+            foreach (var actualSlip in actualSlips)
+            {
+                if (actualSlip.PayrollRun != null)
+                {
+                    actualSlipsByMonth[actualSlip.PayrollRun.MonthIndex] = actualSlip;
+                }
+            }
+
+            var forecastDto = new SalaryAnnualForecastDto
+            {
+                EmployeeId = employeeId,
+                FiscalYearId = fiscalYear.Id,
+                FiscalYearCode = fiscalYear.Code
+            };
+
+            var incomeLinesByCode = new Dictionary<string, SalaryForecastLineDto>();
+            var incomeLineOrder = new List<string>();
+            var annualIncomeForecastLine = new SalaryForecastLineDto { Code = "ANNUAL_INCOME_FORECAST", Label = "Annual Income Forecast" };
+            var ssfDeductionLine = new SalaryForecastLineDto { Code = "SSF_DEDUCTION_TOTAL", Label = "SSF Deduction" };
+            var eligibleLine = new SalaryForecastLineDto { Code = "RETIREMENT_A", Label = "a) Sum of Eligible Retirement Fund and Social Security Fund" };
+            var allowableLine = new SalaryForecastLineDto { Code = "RETIREMENT_B", Label = "b) Allowable Limit" };
+            var oneThirdLine = new SalaryForecastLineDto { Code = "RETIREMENT_C", Label = "c) 1/3rd of Taxable Income" };
+            var minLine = new SalaryForecastLineDto { Code = "RETIREMENT_MIN", Label = "Min of a, b or c" };
+
+            for (var monthIndex = 1; monthIndex <= 12; monthIndex++)
+            {
+                var monthName = MonthlyBreakdownCalculator.GetMonthName(monthIndex);
+                forecastDto.MonthNames.Add(monthName);
+
+                actualSlipsByMonth.TryGetValue(monthIndex, out var actualSlip);
+                var isActual = actualSlip != null;
+                forecastDto.IsActualByMonth.Add(isActual);
+
+                decimal monthGrossIncome;
+
+                if (isActual)
+                {
+                    monthGrossIncome = 0m;
+                    foreach (var slipLine in actualSlip.Lines)
+                    {
+                        if (slipLine.LineType != SalaryLineType.Earning)
+                        {
+                            continue;
+                        }
+
+                        AddOrUpdateMonthlyLine(incomeLinesByCode, incomeLineOrder, slipLine.ComponentCode ?? slipLine.Description, slipLine.Description, "Actual", monthIndex, slipLine.Amount);
+                        monthGrossIncome += slipLine.Amount;
+                    }
+
+                    // The retirement-fund a/b/c/min breakdown is only ever shown for a month
+                    // that's already real -- re-run the tax calculation against THAT month's own
+                    // snapshotted salary revision (not the current plan, which may have changed
+                    // since), so it matches exactly what was actually withheld that month.
+                    var snapshotSalary = await _unitOfWork.Employees.GetSalaryWithLineItemsAsync(actualSlip.EmployeeSalaryId, cancellationToken);
+                    if (snapshotSalary != null)
+                    {
+                        var snapshotTaxSlabs = await _unitOfWork.FiscalYears.GetTaxSlabsAsync(fiscalYear.Id, snapshotSalary.AssessmentType, cancellationToken);
+                        if (snapshotTaxSlabs.Count > 0)
+                        {
+                            var snapshotTaxCalculation = TaxCalculator.CalculateFromSalary(
+                                snapshotSalary.Components.ToList(),
+                                snapshotSalary.Deductions.ToList(),
+                                snapshotSalary.InsurancePremiums.ToList(),
+                                insuranceTypeCaps,
+                                fiscalYear.RetirementExemptionCapAmount,
+                                snapshotTaxSlabs,
+                                compensationLabels,
+                                calculationConfigByCode);
+
+                            var oneThird = Math.Round(snapshotTaxCalculation.GrossAnnualIncome / 3m, 2);
+                            eligibleLine.MonthlyAmounts.Add(snapshotTaxCalculation.RetirementContributionAnnual);
+                            allowableLine.MonthlyAmounts.Add(fiscalYear.RetirementExemptionCapAmount);
+                            oneThirdLine.MonthlyAmounts.Add(oneThird);
+                            minLine.MonthlyAmounts.Add(snapshotTaxCalculation.RetirementExemption);
+                        }
+                        else
+                        {
+                            eligibleLine.MonthlyAmounts.Add(null);
+                            allowableLine.MonthlyAmounts.Add(null);
+                            oneThirdLine.MonthlyAmounts.Add(null);
+                            minLine.MonthlyAmounts.Add(null);
+                        }
+                    }
+                    else
+                    {
+                        eligibleLine.MonthlyAmounts.Add(null);
+                        allowableLine.MonthlyAmounts.Add(null);
+                        oneThirdLine.MonthlyAmounts.Add(null);
+                        minLine.MonthlyAmounts.Add(null);
+                    }
+
+                    decimal ssfDeductionThisMonth = 0m;
+                    foreach (var slipLine in actualSlip.Lines)
+                    {
+                        if (slipLine.ComponentCode == SalaryDeductionCodes.SsfDeduction)
+                        {
+                            ssfDeductionThisMonth += slipLine.Amount;
+                        }
+                    }
+
+                    ssfDeductionLine.MonthlyAmounts.Add(ssfDeductionThisMonth);
+                }
+                else
+                {
+                    monthGrossIncome = 0m;
+                    if (forecastMonths != null)
+                    {
+                        var monthRow = forecastMonths[monthIndex - 1];
+                        foreach (var incomeLine in monthRow.IncomeLines)
+                        {
+                            AddOrUpdateMonthlyLine(incomeLinesByCode, incomeLineOrder, incomeLine.Code, incomeLine.Label, "Forecast", monthIndex, incomeLine.Amount);
+                        }
+
+                        monthGrossIncome = monthRow.MonthGrossIncome;
+
+                        decimal ssfDeductionForecast = 0m;
+                        foreach (var deductionLine in monthRow.DeductionLines)
+                        {
+                            if (deductionLine.Code == SalaryDeductionCodes.SsfDeduction)
+                            {
+                                ssfDeductionForecast += deductionLine.Amount;
+                            }
+                        }
+
+                        ssfDeductionLine.MonthlyAmounts.Add(ssfDeductionForecast);
+                    }
+                    else
+                    {
+                        ssfDeductionLine.MonthlyAmounts.Add(null);
+                    }
+
+                    // Not populated for a Forecast month -- see the DTO's own doc comment.
+                    eligibleLine.MonthlyAmounts.Add(null);
+                    allowableLine.MonthlyAmounts.Add(null);
+                    oneThirdLine.MonthlyAmounts.Add(null);
+                    minLine.MonthlyAmounts.Add(null);
+                }
+
+                annualIncomeForecastLine.MonthlyAmounts.Add(monthGrossIncome);
+            }
+
+            foreach (var code in incomeLineOrder)
+            {
+                var line = incomeLinesByCode[code];
+
+                // A code that stopped appearing partway through the year (e.g. a one-time bonus
+                // only paid in an earlier month) otherwise leaves its list short -- pad to
+                // exactly 12 entries so every row lines up under the same 12 month columns.
+                while (line.MonthlyAmounts.Count < 12)
+                {
+                    line.MonthlyAmounts.Add(null);
+                }
+
+                decimal annualTotal = 0m;
+                foreach (var amount in line.MonthlyAmounts)
+                {
+                    annualTotal += amount ?? 0m;
+                }
+
+                line.AnnualAmount = annualTotal;
+                forecastDto.IncomeLines.Add(line);
+            }
+
+            decimal annualIncomeTotal = 0m;
+            foreach (var amount in annualIncomeForecastLine.MonthlyAmounts)
+            {
+                annualIncomeTotal += amount ?? 0m;
+            }
+
+            annualIncomeForecastLine.AnnualAmount = annualIncomeTotal;
+            forecastDto.AnnualIncomeForecastLine = annualIncomeForecastLine;
+
+            decimal ssfDeductionAnnual = 0m;
+            foreach (var amount in ssfDeductionLine.MonthlyAmounts)
+            {
+                ssfDeductionAnnual += amount ?? 0m;
+            }
+
+            ssfDeductionLine.AnnualAmount = ssfDeductionAnnual;
+
+            forecastDto.RetirementFundLines.Add(ssfDeductionLine);
+            forecastDto.RetirementFundLines.Add(eligibleLine);
+            forecastDto.RetirementFundLines.Add(allowableLine);
+            forecastDto.RetirementFundLines.Add(oneThirdLine);
+            forecastDto.RetirementFundLines.Add(minLine);
+
+            var successResponse = CommonResponse<SalaryAnnualForecastDto>.Success(forecastDto);
+            return successResponse;
+        }
+
+        // 2026-07-23: flat spreadsheet-row shape for the "Tax Details" tab, matching a reference
+        // HRMS's table exactly (one row per Particulars line, one column per fiscal month,
+        // header/actual-vs-forecast flags instead of a nested months[] structure). Reuses the same
+        // Actual (real SalarySlip) vs Forecast (projected MonthlyBreakdownCalculator) split
+        // GetAnnualForecastAsync already established, but adds one more concept: a single
+        // "assessment month" (whichever fiscal month contains today, per Nepal time) whose own
+        // full tax computation drives the retirement-fund a/b/c/min, per-slab SST/TDS, and
+        // paid/remaining/this-month rows -- these are a "current status" snapshot, not something
+        // meaningful to project across all 12 months, so they're populated only in that one
+        // column (0 everywhere else), same convention the a/b/c/min rows already used.
+        public async Task<CommonResponse<TaxDetailsGridDto>> GetTaxDetailsGridAsync(Guid employeeId, Guid? fiscalYearId, CancellationToken cancellationToken = default)
+        {
+            var employee = await _unitOfWork.Employees.GetByIdAsync(employeeId, cancellationToken);
+            if (employee == null)
+            {
+                var notFoundResponse = CommonResponse<TaxDetailsGridDto>.Fail(ResponseCodes.NotFound, "Employee with id '" + employeeId + "' was not found.");
+                return notFoundResponse;
+            }
+
+            var fiscalYear = fiscalYearId.HasValue
+                ? await _unitOfWork.FiscalYears.GetByIdAsync(fiscalYearId.Value, cancellationToken)
+                : await _unitOfWork.FiscalYears.GetCurrentYearAsync(cancellationToken);
+            if (fiscalYear == null)
+            {
+                var noFiscalYearResponse = CommonResponse<TaxDetailsGridDto>.Fail(ResponseCodes.NotFound, fiscalYearId.HasValue ? "Fiscal year with id '" + fiscalYearId.Value + "' was not found." : "No fiscal year is marked as current.");
+                return noFiscalYearResponse;
+            }
+
+            var currentSalary = await _unitOfWork.Employees.GetCurrentSalaryAsync(employeeId, cancellationToken);
+            if (currentSalary == null)
+            {
+                var noSalaryResponse = CommonResponse<TaxDetailsGridDto>.Fail(ResponseCodes.NotFound, "This employee has no salary on record yet.");
+                return noSalaryResponse;
+            }
+
+            var insuranceTypeCaps = await BuildInsuranceTypeCapsAsync(cancellationToken);
+            var compensationLabels = await LoadCompensationLabelMapAsync(cancellationToken);
+            var calculationConfigByCode = await LoadSalaryLineCalculationConfigAsync(cancellationToken);
+
+            var forecastTaxSlabs = await _unitOfWork.FiscalYears.GetTaxSlabsAsync(fiscalYear.Id, currentSalary.AssessmentType, cancellationToken);
+            List<MonthlyBreakdownRowDto> forecastMonths = null;
+            if (forecastTaxSlabs.Count > 0)
+            {
+                var forecastComponents = currentSalary.Components.ToList();
+                var forecastDeductions = currentSalary.Deductions.ToList();
+                var forecastTaxCalculationForMonths = TaxCalculator.CalculateFromSalary(
+                    forecastComponents,
+                    forecastDeductions,
+                    currentSalary.InsurancePremiums.ToList(),
+                    insuranceTypeCaps,
+                    fiscalYear.RetirementExemptionCapAmount,
+                    forecastTaxSlabs,
+                    compensationLabels,
+                    calculationConfigByCode);
+
+                forecastMonths = MonthlyBreakdownCalculator.Build(
+                    forecastComponents,
+                    forecastDeductions,
+                    currentSalary.EffectiveFromDate,
+                    fiscalYear,
+                    forecastTaxCalculationForMonths.AnnualTax,
+                    compensationLabels,
+                    calculationConfigByCode);
+            }
+
+            var actualSlips = await _unitOfWork.PayrollRuns.GetSlipsForYearAsync(employeeId, fiscalYear.Id, cancellationToken);
+            var actualSlipsByMonth = new Dictionary<int, SalarySlip>();
+            foreach (var actualSlip in actualSlips)
+            {
+                if (actualSlip.PayrollRun != null)
+                {
+                    actualSlipsByMonth[actualSlip.PayrollRun.MonthIndex] = actualSlip;
+                }
+            }
+
+            var assessmentMonthIndex = ResolveAssessmentMonthIndex(fiscalYear, NepalDateHelper.GetNepalToday());
+
+            var incomeLinesByCode = new Dictionary<string, SalaryForecastLineDto>();
+            var incomeLineOrder = new List<string>();
+            var annualIncomeLine = new SalaryForecastLineDto { Code = "ANNUAL_INCOME_FORECAST", Label = "Annual Income Forecast" };
+            var ssfDeductionLine = new SalaryForecastLineDto { Code = "SSF_DEDUCTION_TOTAL", Label = "SSF Deduction" };
+
+            TaxCalculationResultDto assessmentTaxCalculation = null;
+            decimal sstPaidInPastMonths = 0m;
+            decimal tdsPaidInPastMonths = 0m;
+
+            for (var monthIndex = 1; monthIndex <= 12; monthIndex++)
+            {
+                actualSlipsByMonth.TryGetValue(monthIndex, out var actualSlip);
+                var isActual = actualSlip != null;
+
+                decimal monthGrossIncome = 0m;
+
+                if (isActual)
+                {
+                    foreach (var slipLine in actualSlip.Lines)
+                    {
+                        if (slipLine.LineType != SalaryLineType.Earning)
+                        {
+                            continue;
+                        }
+
+                        AddOrUpdateMonthlyLine(incomeLinesByCode, incomeLineOrder, slipLine.ComponentCode ?? slipLine.Description, slipLine.Description, null, monthIndex, slipLine.Amount);
+                        monthGrossIncome += slipLine.Amount;
+                    }
+
+                    decimal ssfDeductionThisMonth = 0m;
+                    foreach (var slipLine in actualSlip.Lines)
+                    {
+                        if (slipLine.ComponentCode == SalaryDeductionCodes.SsfDeduction)
+                        {
+                            ssfDeductionThisMonth += slipLine.Amount;
+                        }
+                    }
+
+                    ssfDeductionLine.MonthlyAmounts.Add(ssfDeductionThisMonth);
+
+                    if (monthIndex < assessmentMonthIndex)
+                    {
+                        var pastCalculation = await ComputeSnapshotTaxCalculationAsync(actualSlip, fiscalYear, insuranceTypeCaps, compensationLabels, calculationConfigByCode, cancellationToken);
+                        if (pastCalculation != null)
+                        {
+                            var pastSplit = SplitSstAndTds(pastCalculation.Breakdown);
+                            sstPaidInPastMonths += pastSplit.Sst;
+                            tdsPaidInPastMonths += pastSplit.Tds;
+                        }
+                    }
+                    else if (monthIndex == assessmentMonthIndex)
+                    {
+                        assessmentTaxCalculation = await ComputeSnapshotTaxCalculationAsync(actualSlip, fiscalYear, insuranceTypeCaps, compensationLabels, calculationConfigByCode, cancellationToken);
+                    }
+                }
+                else
+                {
+                    if (forecastMonths != null)
+                    {
+                        var monthRow = forecastMonths[monthIndex - 1];
+                        foreach (var incomeLine in monthRow.IncomeLines)
+                        {
+                            AddOrUpdateMonthlyLine(incomeLinesByCode, incomeLineOrder, incomeLine.Code, incomeLine.Label, null, monthIndex, incomeLine.Amount);
+                        }
+
+                        monthGrossIncome = monthRow.MonthGrossIncome;
+
+                        decimal ssfDeductionForecast = 0m;
+                        foreach (var deductionLine in monthRow.DeductionLines)
+                        {
+                            if (deductionLine.Code == SalaryDeductionCodes.SsfDeduction)
+                            {
+                                ssfDeductionForecast += deductionLine.Amount;
+                            }
+                        }
+
+                        ssfDeductionLine.MonthlyAmounts.Add(ssfDeductionForecast);
+                    }
+                    else
+                    {
+                        ssfDeductionLine.MonthlyAmounts.Add(null);
+                    }
+
+                    if (monthIndex == assessmentMonthIndex && forecastTaxSlabs.Count > 0)
+                    {
+                        assessmentTaxCalculation = TaxCalculator.CalculateFromSalary(
+                            currentSalary.Components.ToList(),
+                            currentSalary.Deductions.ToList(),
+                            currentSalary.InsurancePremiums.ToList(),
+                            insuranceTypeCaps,
+                            fiscalYear.RetirementExemptionCapAmount,
+                            forecastTaxSlabs,
+                            compensationLabels,
+                            calculationConfigByCode);
+                    }
+                }
+
+                annualIncomeLine.MonthlyAmounts.Add(monthGrossIncome);
+            }
+
+            foreach (var code in incomeLineOrder)
+            {
+                var line = incomeLinesByCode[code];
+                while (line.MonthlyAmounts.Count < 12)
+                {
+                    line.MonthlyAmounts.Add(null);
+                }
+
+                decimal annualTotal = 0m;
+                foreach (var amount in line.MonthlyAmounts)
+                {
+                    annualTotal += amount ?? 0m;
+                }
+
+                line.AnnualAmount = annualTotal;
+            }
+
+            decimal annualIncomeTotal = 0m;
+            foreach (var amount in annualIncomeLine.MonthlyAmounts)
+            {
+                annualIncomeTotal += amount ?? 0m;
+            }
+
+            annualIncomeLine.AnnualAmount = annualIncomeTotal;
+
+            decimal ssfDeductionAnnual = 0m;
+            foreach (var amount in ssfDeductionLine.MonthlyAmounts)
+            {
+                ssfDeductionAnnual += amount ?? 0m;
+            }
+
+            ssfDeductionLine.AnnualAmount = ssfDeductionAnnual;
+
+            var gridDto = new TaxDetailsGridDto
+            {
+                Name = BuildFullName(employee.FirstName, employee.MiddleName, employee.LastName),
+                Gender = employee.Gender.ToString(),
+                TaxPaidAs = currentSalary.AssessmentType.ToString(),
+                IsHandicapped = false
+            };
+
+            for (var monthIndex = 1; monthIndex <= 12; monthIndex++)
+            {
+                gridDto.SetMonthIsForecast(monthIndex, !actualSlipsByMonth.ContainsKey(monthIndex));
+            }
+
+            var rows = gridDto.List;
+            var rowNumber = 0;
+
+            rowNumber++;
+            rows.Add(BuildGridHeaderRow(rowNumber, "Incomes"));
+
+            foreach (var code in incomeLineOrder)
+            {
+                var line = incomeLinesByCode[code];
+                rowNumber++;
+                rows.Add(BuildGridLineRow(rowNumber, line, ResolveIncomeLineDescription(code, currentSalary), isHeader: false));
+            }
+
+            rowNumber++;
+            rows.Add(BuildGridLineRow(rowNumber, annualIncomeLine, null, isHeader: true));
+
+            rowNumber++;
+            rows.Add(BuildGridHeaderRow(rowNumber, "Retirement Fund"));
+
+            rowNumber++;
+            rows.Add(BuildGridLineRow(rowNumber, ssfDeductionLine, null, isHeader: false));
+
+            rowNumber++;
+            var eligibleRow = NewGridRow(rowNumber, "a) Sum of Eligible Retirement Fund and Social Security Fund", null, false);
+            rowNumber++;
+            var allowableRow = NewGridRow(rowNumber, "b) Allowable Limit", null, false);
+            rowNumber++;
+            var oneThirdRow = NewGridRow(rowNumber, "c) 1/3 of Taxable Income", null, false);
+            rowNumber++;
+            var minRow = NewGridRow(rowNumber, "Min of a, b or c", null, false);
+            rowNumber++;
+            var taxableRow = NewGridRow(rowNumber, "Annual Adjusted Taxable Amount", "Calculated on", true);
+
+            if (assessmentTaxCalculation != null)
+            {
+                eligibleRow.SetMonthAmount(assessmentMonthIndex, assessmentTaxCalculation.RetirementContributionAnnual);
+                allowableRow.SetMonthAmount(assessmentMonthIndex, fiscalYear.RetirementExemptionCapAmount);
+                var oneThirdAmount = Math.Round(assessmentTaxCalculation.GrossAnnualIncome / 3m, 2);
+                oneThirdRow.SetMonthAmount(assessmentMonthIndex, oneThirdAmount);
+                minRow.SetMonthAmount(assessmentMonthIndex, assessmentTaxCalculation.RetirementExemption);
+                taxableRow.SetMonthAmount(assessmentMonthIndex, assessmentTaxCalculation.AnnualTaxableIncome);
+            }
+
+            eligibleRow.Total = eligibleRow.GetMonthAmount(assessmentMonthIndex);
+            allowableRow.Total = allowableRow.GetMonthAmount(assessmentMonthIndex);
+            oneThirdRow.Total = oneThirdRow.GetMonthAmount(assessmentMonthIndex);
+            minRow.Total = minRow.GetMonthAmount(assessmentMonthIndex);
+            taxableRow.Total = taxableRow.GetMonthAmount(assessmentMonthIndex);
+
+            rows.Add(eligibleRow);
+            rows.Add(allowableRow);
+            rows.Add(oneThirdRow);
+            rows.Add(minRow);
+            rows.Add(taxableRow);
+
+            decimal totalSstForYear = 0m;
+            decimal totalTdsForYear = 0m;
+
+            if (assessmentTaxCalculation != null)
+            {
+                for (var slabIndex = 0; slabIndex < assessmentTaxCalculation.Breakdown.Count; slabIndex++)
+                {
+                    var slab = assessmentTaxCalculation.Breakdown[slabIndex];
+                    var isSst = slabIndex == 0;
+                    var displayRatePercent = isSst && slab.IsSsfExempted ? 0m : slab.TaxRate * 100m;
+                    var label = (isSst ? "SST " : "TDS ") + displayRatePercent.ToString("0.##") + "%";
+
+                    rowNumber++;
+                    var slabRow = NewGridRow(rowNumber, label, slab.TaxableAmountInSlab.ToString("N2"), false);
+                    slabRow.SetMonthAmount(assessmentMonthIndex, slab.TaxForSlab);
+                    slabRow.Total = slab.TaxForSlab;
+                    rows.Add(slabRow);
+
+                    if (isSst)
+                    {
+                        totalSstForYear += slab.TaxForSlab;
+                    }
+                    else
+                    {
+                        totalTdsForYear += slab.TaxForSlab;
+                    }
+                }
+            }
+
+            rowNumber++;
+            var totalSstRow = NewGridRow(rowNumber, "Total SST for the Year", null, true);
+            totalSstRow.SetMonthAmount(assessmentMonthIndex, totalSstForYear);
+            totalSstRow.Total = totalSstForYear;
+            rows.Add(totalSstRow);
+
+            rowNumber++;
+            var totalTdsRow = NewGridRow(rowNumber, "Total TDS for the Year", null, true);
+            totalTdsRow.SetMonthAmount(assessmentMonthIndex, totalTdsForYear);
+            totalTdsRow.Total = totalTdsForYear;
+            rows.Add(totalTdsRow);
+
+            rowNumber++;
+            var sstPaidRow = NewGridRow(rowNumber, "SST Paid in Past Month", null, false);
+            sstPaidRow.SetMonthAmount(assessmentMonthIndex, sstPaidInPastMonths);
+            sstPaidRow.Total = sstPaidInPastMonths;
+            rows.Add(sstPaidRow);
+
+            rowNumber++;
+            var tdsPaidRow = NewGridRow(rowNumber, "TDS Paid in Past Month", null, false);
+            tdsPaidRow.SetMonthAmount(assessmentMonthIndex, tdsPaidInPastMonths);
+            tdsPaidRow.Total = tdsPaidInPastMonths;
+            rows.Add(tdsPaidRow);
+
+            var remainingSst = Math.Max(0m, totalSstForYear - sstPaidInPastMonths);
+            var remainingTds = Math.Max(0m, totalTdsForYear - tdsPaidInPastMonths);
+
+            rowNumber++;
+            var remainingSstRow = NewGridRow(rowNumber, "Remaining SST in 12 month", null, false);
+            remainingSstRow.SetMonthAmount(assessmentMonthIndex, remainingSst);
+            remainingSstRow.Total = remainingSst;
+            rows.Add(remainingSstRow);
+
+            rowNumber++;
+            var remainingTdsRow = NewGridRow(rowNumber, "Remaining TDS in 12 month", null, false);
+            remainingTdsRow.SetMonthAmount(assessmentMonthIndex, remainingTds);
+            remainingTdsRow.Total = remainingTds;
+            rows.Add(remainingTdsRow);
+
+            // Months from the assessment month through fiscal-month 12, inclusive -- the
+            // remaining-liability amortization window ("this month" plus every month still ahead).
+            var monthsRemainingIncludingThisOne = 13 - assessmentMonthIndex;
+            var sstThisMonth = Math.Round(remainingSst / monthsRemainingIncludingThisOne, 2);
+            var tdsThisMonth = Math.Round(remainingTds / monthsRemainingIncludingThisOne, 2);
+
+            rowNumber++;
+            var sstThisMonthRow = NewGridRow(rowNumber, "SST this Month", null, false);
+            sstThisMonthRow.SetMonthAmount(assessmentMonthIndex, sstThisMonth);
+            sstThisMonthRow.Total = sstThisMonth;
+            rows.Add(sstThisMonthRow);
+
+            rowNumber++;
+            var tdsThisMonthRow = NewGridRow(rowNumber, "TDS this Month", null, false);
+            tdsThisMonthRow.SetMonthAmount(assessmentMonthIndex, tdsThisMonth);
+            tdsThisMonthRow.Total = tdsThisMonth;
+            rows.Add(tdsThisMonthRow);
+
+            var successResponse = CommonResponse<TaxDetailsGridDto>.Success(gridDto);
+            return successResponse;
+        }
+
+        // Same day-range split MonthlyBreakdownCalculator.Build uses internally, exposed here so
+        // GetTaxDetailsGridAsync can find which fiscal month contains "today" (Nepal time). A
+        // fiscal year that doesn't contain today at all (fully past or fully future) falls back to
+        // month 1 (nothing has happened yet) or month 12 (assess as of the final month) --
+        // whichever edge is closer.
+        private static int ResolveAssessmentMonthIndex(FiscalYear fiscalYear, DateTime today)
+        {
+            var totalDays = (fiscalYear.EndDate.Date - fiscalYear.StartDate.Date).Days + 1;
+            var periodStart = fiscalYear.StartDate.Date;
+
+            for (var monthIndex = 1; monthIndex <= 12; monthIndex++)
+            {
+                var periodEnd = monthIndex == 12
+                    ? fiscalYear.EndDate.Date
+                    : fiscalYear.StartDate.Date.AddDays((double)(Math.Round(totalDays * monthIndex / 12m) - 1));
+
+                if (today >= periodStart && today <= periodEnd)
+                {
+                    return monthIndex;
+                }
+
+                periodStart = periodEnd.AddDays(1);
+            }
+
+            return today < fiscalYear.StartDate.Date ? 1 : 12;
+        }
+
+        // Re-runs TaxCalculator against one actual month's own snapshotted salary revision (not
+        // the current plan, which may have changed since) -- used both for the assessment month's
+        // own breakdown and for summing what earlier actual months already withheld. Null when the
+        // snapshot salary or that assessment type's tax slabs no longer resolve.
+        private async Task<TaxCalculationResultDto> ComputeSnapshotTaxCalculationAsync(SalarySlip actualSlip, FiscalYear fiscalYear, IReadOnlyDictionary<string, InsuranceCapConfig> insuranceTypeCaps, IReadOnlyDictionary<string, string> compensationLabels, IReadOnlyDictionary<string, SalaryLineCalculationConfig> calculationConfigByCode, CancellationToken cancellationToken)
+        {
+            var snapshotSalary = await _unitOfWork.Employees.GetSalaryWithLineItemsAsync(actualSlip.EmployeeSalaryId, cancellationToken);
+            if (snapshotSalary == null)
+            {
+                return null;
+            }
+
+            var snapshotTaxSlabs = await _unitOfWork.FiscalYears.GetTaxSlabsAsync(fiscalYear.Id, snapshotSalary.AssessmentType, cancellationToken);
+            if (snapshotTaxSlabs.Count == 0)
+            {
+                return null;
+            }
+
+            var snapshotTaxCalculation = TaxCalculator.CalculateFromSalary(
+                snapshotSalary.Components.ToList(),
+                snapshotSalary.Deductions.ToList(),
+                snapshotSalary.InsurancePremiums.ToList(),
+                insuranceTypeCaps,
+                fiscalYear.RetirementExemptionCapAmount,
+                snapshotTaxSlabs,
+                compensationLabels,
+                calculationConfigByCode);
+
+            return snapshotTaxCalculation;
+        }
+
+        // The first slab (index 0) is always the "Social Security Tax" bracket by construction
+        // (TaxCalculator.Calculate); every other slab is "TDS" -- see the SSF Social Security Tax
+        // waiver note on TaxCalculator.Calculate.
+        private static (decimal Sst, decimal Tds) SplitSstAndTds(List<TaxSlabBreakdownDto> breakdown)
+        {
+            decimal sst = 0m;
+            decimal tds = 0m;
+
+            for (var slabIndex = 0; slabIndex < breakdown.Count; slabIndex++)
+            {
+                if (slabIndex == 0)
+                {
+                    sst += breakdown[slabIndex].TaxForSlab;
+                }
+                else
+                {
+                    tds += breakdown[slabIndex].TaxForSlab;
+                }
+            }
+
+            return (sst, tds);
+        }
+
+        // A component's own FrequencyType on the CURRENT compensation plan, translated to the
+        // reference UI's description text. Falls back to null (blank) for a code that no longer
+        // appears on the current plan (e.g. it only ever existed on a past, since-superseded
+        // revision) -- there's no "as of that month" frequency to describe in that case.
+        private static string ResolveIncomeLineDescription(string code, EmployeeSalary currentSalary)
+        {
+            foreach (var component in currentSalary.Components)
+            {
+                if (component.ComponentCode != code)
+                {
+                    continue;
+                }
+
+                if (component.FrequencyType == PayFrequencyType.Monthly)
+                {
+                    return "Fixed Income";
+                }
+
+                if (component.FrequencyType == PayFrequencyType.Annual)
+                {
+                    return "Annual Income";
+                }
+
+                return "One Time Income";
+            }
+
+            return null;
+        }
+
+        private static TaxDetailsGridRowDto NewGridRow(int rowNumber, string particulars, string description, bool isHeader)
+        {
+            var row = new TaxDetailsGridRowDto
+            {
+                RowNumber = rowNumber,
+                IsHeader = isHeader,
+                Particulars = particulars,
+                Description = description
+            };
+
+            return row;
+        }
+
+        private static TaxDetailsGridRowDto BuildGridHeaderRow(int rowNumber, string particulars)
+        {
+            return NewGridRow(rowNumber, particulars, null, true);
+        }
+
+        private static TaxDetailsGridRowDto BuildGridLineRow(int rowNumber, SalaryForecastLineDto line, string description, bool isHeader)
+        {
+            var row = NewGridRow(rowNumber, line.Label, description, isHeader);
+            row.Total = line.AnnualAmount;
+
+            for (var monthIndex = 1; monthIndex <= 12; monthIndex++)
+            {
+                row.SetMonthAmount(monthIndex, line.MonthlyAmounts[monthIndex - 1] ?? 0m);
+            }
+
+            return row;
+        }
+
+        // Shared by GetAnnualForecastAsync's Actual (real slip lines) and Forecast (projected
+        // MonthlyBreakdownCalculator rows) paths -- both resolve to the same
+        // Dictionary<code, SalaryForecastLineDto>/order-list pair so a code that appears in both
+        // an Actual and a Forecast month lands on the same row.
+        private static void AddOrUpdateMonthlyLine(Dictionary<string, SalaryForecastLineDto> linesByCode, List<string> order, string code, string label, string description, int monthIndex, decimal amount)
+        {
+            if (!linesByCode.TryGetValue(code, out var line))
+            {
+                line = new SalaryForecastLineDto { Code = code, Label = label, Description = description };
+                for (var i = 1; i < monthIndex; i++)
+                {
+                    line.MonthlyAmounts.Add(null);
+                }
+
+                linesByCode[code] = line;
+                order.Add(code);
+            }
+
+            while (line.MonthlyAmounts.Count < monthIndex - 1)
+            {
+                line.MonthlyAmounts.Add(null);
+            }
+
+            line.MonthlyAmounts.Add(amount);
+        }
+
         public async Task<CommonResponse<SalaryComponentDto>> AddSalaryComponentAsync(Guid employeeId, Guid salaryId, SalaryComponentInput command, CancellationToken cancellationToken = default)
         {
             var validationResult = _componentValidator.Validate(command);
@@ -625,11 +1464,32 @@ namespace Application.Employees
             }
 
             var componentCode = command.ComponentCode.Trim();
-            var codeExists = await _unitOfWork.Configs.CodeExistsAsync(ConfigTypeCodes.SalaryComponentType, componentCode, cancellationToken);
-            if (!codeExists)
+            var componentCatalogOption = await _unitOfWork.Configs.GetByTypeCodeAndCodeAsync(ConfigTypeCodes.SalaryComponentType, componentCode, cancellationToken);
+            if (componentCatalogOption == null)
             {
                 var invalidCodeResponse = CommonResponse<SalaryComponentDto>.Fail(ResponseCodes.ValidationError, "ComponentCode '" + componentCode + "' is not a known salary component option.");
                 return invalidCodeResponse;
+            }
+
+            var percentageLockError = SalaryLineCalculationHelper.ValidatePercentageLock(componentCatalogOption, command.ValueType, command.Value);
+            if (percentageLockError != null)
+            {
+                var percentageLockResponse = CommonResponse<SalaryComponentDto>.Fail(ResponseCodes.ValidationError, percentageLockError);
+                return percentageLockResponse;
+            }
+
+            var calculateTypeError = SalaryLineCalculationHelper.ValidateCalculateType(componentCatalogOption, SalaryLineCalculateTypes.Addition);
+            if (calculateTypeError != null)
+            {
+                var calculateTypeResponse = CommonResponse<SalaryComponentDto>.Fail(ResponseCodes.ValidationError, calculateTypeError);
+                return calculateTypeResponse;
+            }
+
+            var frequencyLockError = SalaryLineCalculationHelper.ValidateFrequencyLock(componentCatalogOption, command.FrequencyType);
+            if (frequencyLockError != null)
+            {
+                var frequencyLockResponse = CommonResponse<SalaryComponentDto>.Fail(ResponseCodes.ValidationError, frequencyLockError);
+                return frequencyLockResponse;
             }
 
             var component = new EmployeeSalaryComponent
@@ -686,11 +1546,32 @@ namespace Application.Employees
             }
 
             var deductionCode = command.DeductionCode.Trim();
-            var codeExists = await _unitOfWork.Configs.CodeExistsAsync(ConfigTypeCodes.DeductionType, deductionCode, cancellationToken);
-            if (!codeExists)
+            var deductionCatalogOption = await _unitOfWork.Configs.GetByTypeCodeAndCodeAsync(ConfigTypeCodes.DeductionType, deductionCode, cancellationToken);
+            if (deductionCatalogOption == null)
             {
                 var invalidCodeResponse = CommonResponse<SalaryDeductionDto>.Fail(ResponseCodes.ValidationError, "DeductionCode '" + deductionCode + "' is not a known deduction option.");
                 return invalidCodeResponse;
+            }
+
+            var percentageLockError = SalaryLineCalculationHelper.ValidatePercentageLock(deductionCatalogOption, command.ValueType, command.Value);
+            if (percentageLockError != null)
+            {
+                var percentageLockResponse = CommonResponse<SalaryDeductionDto>.Fail(ResponseCodes.ValidationError, percentageLockError);
+                return percentageLockResponse;
+            }
+
+            var calculateTypeError = SalaryLineCalculationHelper.ValidateCalculateType(deductionCatalogOption, SalaryLineCalculateTypes.Deduction);
+            if (calculateTypeError != null)
+            {
+                var calculateTypeResponse = CommonResponse<SalaryDeductionDto>.Fail(ResponseCodes.ValidationError, calculateTypeError);
+                return calculateTypeResponse;
+            }
+
+            var frequencyLockError = SalaryLineCalculationHelper.ValidateFrequencyLock(deductionCatalogOption, command.FrequencyType);
+            if (frequencyLockError != null)
+            {
+                var frequencyLockResponse = CommonResponse<SalaryDeductionDto>.Fail(ResponseCodes.ValidationError, frequencyLockError);
+                return frequencyLockResponse;
             }
 
             var deduction = new EmployeeSalaryDeduction
@@ -726,6 +1607,87 @@ namespace Application.Employees
 
             var successResponse = CommonResponse<bool>.Success(true, "Salary deduction removed successfully.");
             return successResponse;
+        }
+
+        // 2026-07-23: resolves Code against SalaryComponentType first, then DeductionType, and
+        // delegates to the matching single-table method above -- same validation (catalog
+        // existence, percentage lock, CalculateType, frequency lock) either way, just reached
+        // through one code-driven entry point instead of the caller having to know up front
+        // which table a code belongs to.
+        public async Task<CommonResponse<SalaryLineDto>> AddSalaryLineAsync(Guid employeeId, Guid salaryId, SalaryLineInput command, CancellationToken cancellationToken = default)
+        {
+            var validationResult = _lineValidator.Validate(command);
+            if (!validationResult.IsValid)
+            {
+                var errorMessage = BuildValidationErrorMessage(validationResult);
+                var validationFailureResponse = CommonResponse<SalaryLineDto>.Fail(ResponseCodes.ValidationError, errorMessage);
+                return validationFailureResponse;
+            }
+
+            var code = command.Code.Trim();
+
+            var componentCatalogOption = await _unitOfWork.Configs.GetByTypeCodeAndCodeAsync(ConfigTypeCodes.SalaryComponentType, code, cancellationToken);
+            if (componentCatalogOption != null)
+            {
+                var componentInput = new SalaryComponentInput
+                {
+                    ComponentCode = code,
+                    ValueType = command.ValueType,
+                    Value = command.Value,
+                    FrequencyType = command.FrequencyType,
+                    IsTaxable = command.IsTaxable,
+                    IsRetirementContribution = command.IsRetirementContribution
+                };
+
+                var componentResponse = await AddSalaryComponentAsync(employeeId, salaryId, componentInput, cancellationToken);
+                var componentLineResponse = componentResponse.ResponseCode == ResponseCodes.Success
+                    ? CommonResponse<SalaryLineDto>.Success(EmployeeMapper.ToLineDto(componentResponse.Data), componentResponse.ResponseMessage)
+                    : CommonResponse<SalaryLineDto>.Fail(componentResponse.ResponseCode, componentResponse.ResponseMessage);
+                return componentLineResponse;
+            }
+
+            var deductionCatalogOption = await _unitOfWork.Configs.GetByTypeCodeAndCodeAsync(ConfigTypeCodes.DeductionType, code, cancellationToken);
+            if (deductionCatalogOption != null)
+            {
+                var deductionInput = new SalaryDeductionInput
+                {
+                    DeductionCode = code,
+                    ValueType = command.ValueType,
+                    Value = command.Value,
+                    FrequencyType = command.FrequencyType,
+                    IsRetirementContribution = command.IsRetirementContribution
+                };
+
+                var deductionResponse = await AddSalaryDeductionAsync(employeeId, salaryId, deductionInput, cancellationToken);
+                var deductionLineResponse = deductionResponse.ResponseCode == ResponseCodes.Success
+                    ? CommonResponse<SalaryLineDto>.Success(EmployeeMapper.ToLineDto(deductionResponse.Data), deductionResponse.ResponseMessage)
+                    : CommonResponse<SalaryLineDto>.Fail(deductionResponse.ResponseCode, deductionResponse.ResponseMessage);
+                return deductionLineResponse;
+            }
+
+            var notFoundResponse = CommonResponse<SalaryLineDto>.Fail(ResponseCodes.ValidationError, "Code '" + code + "' is not a known salary component or deduction option.");
+            return notFoundResponse;
+        }
+
+        // Tries the component table first, then the deduction table -- a caller working off the
+        // unified SalaryLineDto shape has no other way to know which table a given line id lives
+        // in.
+        public async Task<CommonResponse<bool>> RemoveSalaryLineAsync(Guid employeeId, Guid salaryId, Guid lineId, CancellationToken cancellationToken = default)
+        {
+            var component = await _unitOfWork.Employees.GetSalaryComponentByIdAsync(lineId, cancellationToken);
+            if (component != null && component.EmployeeSalaryId == salaryId)
+            {
+                return await RemoveSalaryComponentAsync(employeeId, salaryId, lineId, cancellationToken);
+            }
+
+            var deduction = await _unitOfWork.Employees.GetSalaryDeductionByIdAsync(lineId, cancellationToken);
+            if (deduction != null && deduction.EmployeeSalaryId == salaryId)
+            {
+                return await RemoveSalaryDeductionAsync(employeeId, salaryId, lineId, cancellationToken);
+            }
+
+            var notFoundResponse = CommonResponse<bool>.Fail(ResponseCodes.NotFound, "Salary line was not found on this salary revision.");
+            return notFoundResponse;
         }
 
         public async Task<CommonResponse<InsurancePremiumDto>> AddInsurancePremiumAsync(Guid employeeId, Guid salaryId, InsurancePremiumInput command, CancellationToken cancellationToken = default)
@@ -1182,11 +2144,19 @@ namespace Application.Employees
             }
 
             var typeCode = command.AdjustmentTypeCode.Trim();
-            var typeExists = await _unitOfWork.Configs.CodeExistsAsync(ConfigTypeCodes.SalaryAdjustmentType, typeCode, cancellationToken);
-            if (!typeExists)
+            var adjustmentTypeCatalogOption = await _unitOfWork.Configs.GetByTypeCodeAndCodeAsync(ConfigTypeCodes.SalaryAdjustmentType, typeCode, cancellationToken);
+            if (adjustmentTypeCatalogOption == null)
             {
                 var invalidTypeResponse = CommonResponse<SalaryAdjustmentDto>.Fail(ResponseCodes.ValidationError, "AdjustmentTypeCode '" + typeCode + "' is not a known salary adjustment type option.");
                 return invalidTypeResponse;
+            }
+
+            var expectedCalculateType = command.Direction == AdjustmentDirection.Increase ? SalaryLineCalculateTypes.Addition : SalaryLineCalculateTypes.Deduction;
+            var calculateTypeError = SalaryLineCalculationHelper.ValidateCalculateType(adjustmentTypeCatalogOption, expectedCalculateType);
+            if (calculateTypeError != null)
+            {
+                var calculateTypeResponse = CommonResponse<SalaryAdjustmentDto>.Fail(ResponseCodes.ValidationError, calculateTypeError);
+                return calculateTypeResponse;
             }
 
             // An adjustment for a month whose run is already past Draft can never apply (S1) --
@@ -1244,11 +2214,19 @@ namespace Application.Employees
             }
 
             var typeCode = command.AdjustmentTypeCode.Trim();
-            var typeExists = await _unitOfWork.Configs.CodeExistsAsync(ConfigTypeCodes.SalaryAdjustmentType, typeCode, cancellationToken);
-            if (!typeExists)
+            var adjustmentTypeCatalogOption = await _unitOfWork.Configs.GetByTypeCodeAndCodeAsync(ConfigTypeCodes.SalaryAdjustmentType, typeCode, cancellationToken);
+            if (adjustmentTypeCatalogOption == null)
             {
                 var invalidTypeResponse = CommonResponse<BulkSalaryAdjustmentResultDto>.Fail(ResponseCodes.ValidationError, "AdjustmentTypeCode '" + typeCode + "' is not a known salary adjustment type option.");
                 return invalidTypeResponse;
+            }
+
+            var expectedCalculateType = command.Direction == AdjustmentDirection.Increase ? SalaryLineCalculateTypes.Addition : SalaryLineCalculateTypes.Deduction;
+            var calculateTypeError = SalaryLineCalculationHelper.ValidateCalculateType(adjustmentTypeCatalogOption, expectedCalculateType);
+            if (calculateTypeError != null)
+            {
+                var calculateTypeResponse = CommonResponse<BulkSalaryAdjustmentResultDto>.Fail(ResponseCodes.ValidationError, calculateTypeError);
+                return calculateTypeResponse;
             }
 
             var existingRun = await _unitOfWork.PayrollRuns.GetByPeriodAsync(command.FiscalYearId, command.MonthIndex, cancellationToken);
@@ -1393,11 +2371,19 @@ namespace Application.Employees
             }
 
             var typeCode = command.AdjustmentTypeCode.Trim();
-            var typeExists = await _unitOfWork.Configs.CodeExistsAsync(ConfigTypeCodes.SalaryAdjustmentType, typeCode, cancellationToken);
-            if (!typeExists)
+            var adjustmentTypeCatalogOption = await _unitOfWork.Configs.GetByTypeCodeAndCodeAsync(ConfigTypeCodes.SalaryAdjustmentType, typeCode, cancellationToken);
+            if (adjustmentTypeCatalogOption == null)
             {
                 var invalidTypeResponse = CommonResponse<SalaryAdjustmentDto>.Fail(ResponseCodes.ValidationError, "AdjustmentTypeCode '" + typeCode + "' is not a known salary adjustment type option.");
                 return invalidTypeResponse;
+            }
+
+            var expectedCalculateType = command.Direction == AdjustmentDirection.Increase ? SalaryLineCalculateTypes.Addition : SalaryLineCalculateTypes.Deduction;
+            var calculateTypeError = SalaryLineCalculationHelper.ValidateCalculateType(adjustmentTypeCatalogOption, expectedCalculateType);
+            if (calculateTypeError != null)
+            {
+                var calculateTypeResponse = CommonResponse<SalaryAdjustmentDto>.Fail(ResponseCodes.ValidationError, calculateTypeError);
+                return calculateTypeResponse;
             }
 
             adjustment.AdjustmentTypeCode = typeCode;
@@ -1433,6 +2419,238 @@ namespace Application.Employees
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
             var successResponse = CommonResponse<bool>.Success(true, "Salary adjustment cancelled.");
+            return successResponse;
+        }
+
+        // 2026-07-23: Qualifications and Documents moved here from TeacherService/ITeacherService
+        // wholesale -- neither concept was ever actually teaching-specific (any staff member can
+        // hold a degree or need an identity document on file), and there is deliberately no
+        // Teacher-side alias for these anymore (per instruction: don't segregate teacher vs.
+        // employee here, just use the Employee endpoints for every staff member).
+
+        public async Task<CommonResponse<EmployeeQualificationDto>> AddQualificationAsync(Guid employeeId, AddEmployeeQualificationCommand command, CancellationToken cancellationToken = default)
+        {
+            var validationResult = _addQualificationValidator.Validate(command);
+            if (!validationResult.IsValid)
+            {
+                var errorMessage = BuildValidationErrorMessage(validationResult);
+                var validationFailureResponse = CommonResponse<EmployeeQualificationDto>.Fail(ResponseCodes.ValidationError, errorMessage);
+                return validationFailureResponse;
+            }
+
+            var employee = await _unitOfWork.Employees.GetByIdAsync(employeeId, cancellationToken);
+            if (employee == null)
+            {
+                var notFoundResponse = CommonResponse<EmployeeQualificationDto>.Fail(ResponseCodes.NotFound, "Employee with id '" + employeeId + "' was not found.");
+                return notFoundResponse;
+            }
+
+            var qualificationCode = command.QualificationCode.Trim();
+            var qualificationCodeExists = await _unitOfWork.Configs.CodeExistsAsync(ConfigTypeCodes.EmployeeQualification, qualificationCode, cancellationToken);
+            if (!qualificationCodeExists)
+            {
+                var invalidCodeResponse = CommonResponse<EmployeeQualificationDto>.Fail(ResponseCodes.ValidationError, "QualificationCode '" + qualificationCode + "' is not a known qualification option.");
+                return invalidCodeResponse;
+            }
+
+            var qualification = new EmployeeQualification
+            {
+                EmployeeId = employeeId,
+                QualificationCode = qualificationCode,
+                CourseName = command.CourseName?.Trim(),
+                Institution = command.Institution?.Trim(),
+                CompletionYear = command.CompletionYear,
+                Score = command.Score?.Trim(),
+                Remarks = command.Remarks?.Trim()
+            };
+
+            await _unitOfWork.Employees.AddQualificationAsync(qualification, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            var qualificationDto = EmployeeMapper.ToQualificationDto(qualification);
+            var successResponse = CommonResponse<EmployeeQualificationDto>.Success(qualificationDto, "Qualification added successfully.");
+            return successResponse;
+        }
+
+        public async Task<CommonResponse<bool>> RemoveQualificationAsync(Guid employeeId, Guid qualificationId, CancellationToken cancellationToken = default)
+        {
+            var qualification = await _unitOfWork.Employees.GetQualificationByIdAsync(qualificationId, cancellationToken);
+            if (qualification == null || qualification.EmployeeId != employeeId)
+            {
+                var notFoundResponse = CommonResponse<bool>.Fail(ResponseCodes.NotFound, "Qualification was not found on this employee.");
+                return notFoundResponse;
+            }
+
+            _unitOfWork.Employees.RemoveQualification(qualification);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            var successResponse = CommonResponse<bool>.Success(true, "Qualification removed successfully.");
+            return successResponse;
+        }
+
+        public async Task<CommonResponse<List<EmployeeQualificationDto>>> GetQualificationsAsync(Guid employeeId, CancellationToken cancellationToken = default)
+        {
+            var employee = await _unitOfWork.Employees.GetByIdAsync(employeeId, cancellationToken);
+            if (employee == null)
+            {
+                var notFoundResponse = CommonResponse<List<EmployeeQualificationDto>>.Fail(ResponseCodes.NotFound, "Employee with id '" + employeeId + "' was not found.");
+                return notFoundResponse;
+            }
+
+            var qualifications = await _unitOfWork.Employees.GetQualificationsAsync(employeeId, cancellationToken);
+
+            var qualificationDtos = new List<EmployeeQualificationDto>();
+            foreach (var qualification in qualifications)
+            {
+                var qualificationDto = EmployeeMapper.ToQualificationDto(qualification);
+                qualificationDtos.Add(qualificationDto);
+            }
+
+            var successResponse = CommonResponse<List<EmployeeQualificationDto>>.Success(qualificationDtos);
+            return successResponse;
+        }
+
+        public async Task<CommonResponse<EmployeeDocumentDto>> UploadDocumentAsync(Guid employeeId, UploadEmployeeDocumentCommand command, Stream fileContent, string originalFileName, string contentType, long fileSizeBytes, CancellationToken cancellationToken = default)
+        {
+            var validationResult = _uploadDocumentValidator.Validate(command);
+            if (!validationResult.IsValid)
+            {
+                var errorMessage = BuildValidationErrorMessage(validationResult);
+                var validationFailureResponse = CommonResponse<EmployeeDocumentDto>.Fail(ResponseCodes.ValidationError, errorMessage);
+                return validationFailureResponse;
+            }
+
+            if (fileContent == null || fileSizeBytes <= 0)
+            {
+                var noFileResponse = CommonResponse<EmployeeDocumentDto>.Fail(ResponseCodes.ValidationError, "A document file is required.");
+                return noFileResponse;
+            }
+
+            if (!DocumentFileRules.IsAllowedExtension(originalFileName))
+            {
+                var extensionResponse = CommonResponse<EmployeeDocumentDto>.Fail(ResponseCodes.ValidationError, "Unsupported file type. Allowed: " + DocumentFileRules.AllowedExtensionsDisplay() + ".");
+                return extensionResponse;
+            }
+
+            if (fileSizeBytes > DocumentFileRules.MaxFileSizeBytes)
+            {
+                var sizeResponse = CommonResponse<EmployeeDocumentDto>.Fail(ResponseCodes.ValidationError, "File exceeds the maximum size of " + (DocumentFileRules.MaxFileSizeBytes / (1024 * 1024)) + " MB.");
+                return sizeResponse;
+            }
+
+            var employee = await _unitOfWork.Employees.GetByIdAsync(employeeId, cancellationToken);
+            if (employee == null)
+            {
+                var notFoundResponse = CommonResponse<EmployeeDocumentDto>.Fail(ResponseCodes.NotFound, "Employee with id '" + employeeId + "' was not found.");
+                return notFoundResponse;
+            }
+
+            var documentTypeCode = command.DocumentTypeCode.Trim();
+            var typeExists = await _unitOfWork.Configs.CodeExistsAsync(ConfigTypeCodes.DocumentType, documentTypeCode, cancellationToken);
+            if (!typeExists)
+            {
+                var typeInvalidResponse = CommonResponse<EmployeeDocumentDto>.Fail(ResponseCodes.ValidationError, "DocumentTypeCode '" + documentTypeCode + "' is not a known document type option.");
+                return typeInvalidResponse;
+            }
+
+            var storedPath = await _fileStorage.SaveAsync(fileContent, originalFileName, "employee-documents/" + employeeId, cancellationToken);
+
+            var document = new EmployeeDocument
+            {
+                EmployeeId = employeeId,
+                DocumentTypeCode = documentTypeCode,
+                DocumentName = command.DocumentName.Trim(),
+                FileName = originalFileName,
+                FilePath = storedPath,
+                ContentType = contentType,
+                FileSizeBytes = fileSizeBytes,
+                ValidUntil = command.ValidUntil,
+                Remarks = command.Remarks?.Trim()
+            };
+
+            await _unitOfWork.Employees.AddDocumentAsync(document, cancellationToken);
+            try
+            {
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+            }
+            catch
+            {
+                // The row didn't land, so the stored file must not linger as an orphan.
+                _fileStorage.Delete(storedPath);
+                throw;
+            }
+
+            var documentDto = EmployeeMapper.ToDocumentDto(document);
+            var successResponse = CommonResponse<EmployeeDocumentDto>.Success(documentDto, "Document uploaded successfully.");
+            return successResponse;
+        }
+
+        public async Task<CommonResponse<List<EmployeeDocumentDto>>> GetDocumentsAsync(Guid employeeId, CancellationToken cancellationToken = default)
+        {
+            var employee = await _unitOfWork.Employees.GetByIdAsync(employeeId, cancellationToken);
+            if (employee == null)
+            {
+                var notFoundResponse = CommonResponse<List<EmployeeDocumentDto>>.Fail(ResponseCodes.NotFound, "Employee with id '" + employeeId + "' was not found.");
+                return notFoundResponse;
+            }
+
+            var documents = await _unitOfWork.Employees.GetDocumentsAsync(employeeId, cancellationToken);
+
+            var documentDtos = new List<EmployeeDocumentDto>();
+            foreach (var document in documents)
+            {
+                var documentDto = EmployeeMapper.ToDocumentDto(document);
+                documentDtos.Add(documentDto);
+            }
+
+            var successResponse = CommonResponse<List<EmployeeDocumentDto>>.Success(documentDtos);
+            return successResponse;
+        }
+
+        public async Task<CommonResponse<EmployeeDocumentFileDto>> GetDocumentFileAsync(Guid employeeId, Guid documentId, CancellationToken cancellationToken = default)
+        {
+            var document = await _unitOfWork.Employees.GetDocumentByIdAsync(documentId, cancellationToken);
+            if (document == null || document.EmployeeId != employeeId)
+            {
+                var notFoundResponse = CommonResponse<EmployeeDocumentFileDto>.Fail(ResponseCodes.NotFound, "Document was not found on this employee.");
+                return notFoundResponse;
+            }
+
+            var contentStream = await _fileStorage.OpenReadAsync(document.FilePath, cancellationToken);
+            if (contentStream == null)
+            {
+                var fileMissingResponse = CommonResponse<EmployeeDocumentFileDto>.Fail(ResponseCodes.NotFound, "The stored file for this document is missing.");
+                return fileMissingResponse;
+            }
+
+            var fileDto = new EmployeeDocumentFileDto
+            {
+                Content = contentStream,
+                ContentType = string.IsNullOrWhiteSpace(document.ContentType) ? "application/octet-stream" : document.ContentType,
+                FileName = document.FileName
+            };
+
+            var successResponse = CommonResponse<EmployeeDocumentFileDto>.Success(fileDto);
+            return successResponse;
+        }
+
+        public async Task<CommonResponse<bool>> DeleteDocumentAsync(Guid employeeId, Guid documentId, CancellationToken cancellationToken = default)
+        {
+            var document = await _unitOfWork.Employees.GetDocumentByIdAsync(documentId, cancellationToken);
+            if (document == null || document.EmployeeId != employeeId)
+            {
+                var notFoundResponse = CommonResponse<bool>.Fail(ResponseCodes.NotFound, "Document was not found on this employee.");
+                return notFoundResponse;
+            }
+
+            _unitOfWork.Employees.RemoveDocument(document);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            // Only after the row is gone -- a failed save must not strand a row pointing at a
+            // deleted file. Best-effort by contract.
+            _fileStorage.Delete(document.FilePath);
+
+            var successResponse = CommonResponse<bool>.Success(true, "Document deleted successfully.");
             return successResponse;
         }
 
@@ -1502,6 +2720,20 @@ namespace Application.Employees
             return labelsByCode;
         }
 
+        // 2026-07-22, format updated 2026-07-23: merged SalaryComponentType/DeductionType
+        // calculation-mode map -- every code whose AdditionalValue1 parses as the composite
+        // "CALCULATE_TYPE|TYPE|FREQUENCY" rule gets an entry; a code that doesn't (blank/legacy)
+        // keeps today's free-form per-line ValueType/Value/FrequencyType behavior. SalaryAdjustmentType
+        // is not merged in here -- SalaryAdjustment has no percentage-base-resolution or
+        // FrequencyType field for this map to drive; its own CALCULATE_TYPE is validated directly
+        // against Direction where adjustments are created/updated instead.
+        private async Task<Dictionary<string, SalaryLineCalculationConfig>> LoadSalaryLineCalculationConfigAsync(CancellationToken cancellationToken)
+        {
+            var configByCode = SalaryLineCalculationHelper.BuildConfigMap(await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.SalaryComponentType, cancellationToken));
+            SalaryLineCalculationHelper.MergeConfigMap(configByCode, await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.DeductionType, cancellationToken));
+            return configByCode;
+        }
+
         private static string BuildFullName(string firstName, string middleName, string lastName)
         {
             var nameParts = new List<string>();
@@ -1569,20 +2801,10 @@ namespace Application.Employees
             return rowsHtml;
         }
 
-        private async Task<Dictionary<string, decimal>> BuildInsuranceTypeCapsAsync(CancellationToken cancellationToken)
+        private async Task<Dictionary<string, InsuranceCapConfig>> BuildInsuranceTypeCapsAsync(CancellationToken cancellationToken)
         {
             var insuranceTypes = await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.InsuranceType, cancellationToken);
-
-            var caps = new Dictionary<string, decimal>();
-            foreach (var insuranceType in insuranceTypes)
-            {
-                if (decimal.TryParse(insuranceType.AdditionalValue1, out var cap))
-                {
-                    caps[insuranceType.Code] = cap;
-                }
-            }
-
-            return caps;
+            return InsuranceCapHelper.BuildCapMap(insuranceTypes);
         }
 
         // Validates every submitted component/deduction/insurance-premium code up front so a bad
@@ -1591,19 +2813,55 @@ namespace Application.Employees
         {
             foreach (var component in components)
             {
-                var exists = await _unitOfWork.Configs.CodeExistsAsync(ConfigTypeCodes.SalaryComponentType, component.ComponentCode.Trim(), cancellationToken);
-                if (!exists)
+                var componentCatalogOption = await _unitOfWork.Configs.GetByTypeCodeAndCodeAsync(ConfigTypeCodes.SalaryComponentType, component.ComponentCode.Trim(), cancellationToken);
+                if (componentCatalogOption == null)
                 {
                     return "ComponentCode '" + component.ComponentCode + "' is not a known salary component option.";
+                }
+
+                var percentageLockError = SalaryLineCalculationHelper.ValidatePercentageLock(componentCatalogOption, component.ValueType, component.Value);
+                if (percentageLockError != null)
+                {
+                    return percentageLockError;
+                }
+
+                var componentCalculateTypeError = SalaryLineCalculationHelper.ValidateCalculateType(componentCatalogOption, SalaryLineCalculateTypes.Addition);
+                if (componentCalculateTypeError != null)
+                {
+                    return componentCalculateTypeError;
+                }
+
+                var componentFrequencyLockError = SalaryLineCalculationHelper.ValidateFrequencyLock(componentCatalogOption, component.FrequencyType);
+                if (componentFrequencyLockError != null)
+                {
+                    return componentFrequencyLockError;
                 }
             }
 
             foreach (var deduction in deductions)
             {
-                var exists = await _unitOfWork.Configs.CodeExistsAsync(ConfigTypeCodes.DeductionType, deduction.DeductionCode.Trim(), cancellationToken);
-                if (!exists)
+                var deductionCatalogOption = await _unitOfWork.Configs.GetByTypeCodeAndCodeAsync(ConfigTypeCodes.DeductionType, deduction.DeductionCode.Trim(), cancellationToken);
+                if (deductionCatalogOption == null)
                 {
                     return "DeductionCode '" + deduction.DeductionCode + "' is not a known deduction option.";
+                }
+
+                var deductionPercentageLockError = SalaryLineCalculationHelper.ValidatePercentageLock(deductionCatalogOption, deduction.ValueType, deduction.Value);
+                if (deductionPercentageLockError != null)
+                {
+                    return deductionPercentageLockError;
+                }
+
+                var deductionCalculateTypeError = SalaryLineCalculationHelper.ValidateCalculateType(deductionCatalogOption, SalaryLineCalculateTypes.Deduction);
+                if (deductionCalculateTypeError != null)
+                {
+                    return deductionCalculateTypeError;
+                }
+
+                var deductionFrequencyLockError = SalaryLineCalculationHelper.ValidateFrequencyLock(deductionCatalogOption, deduction.FrequencyType);
+                if (deductionFrequencyLockError != null)
+                {
+                    return deductionFrequencyLockError;
                 }
             }
 

@@ -1,7 +1,6 @@
 using Application.Common.Helpers;
 using Application.Common.Interfaces;
 using Application.Common.Models;
-using Application.Common.Validation;
 using Application.DocumentTemplates;
 using Application.Employees;
 using Application.Employees.Commands;
@@ -21,29 +20,20 @@ namespace Application.Teachers
     public class TeacherService : ITeacherService
     {
         private readonly IUnitOfWork _unitOfWork;
-        private readonly IFileStorageService _fileStorage;
         private readonly IEmployeeService _employeeService;
         private readonly CreateTeacherCommandValidator _createValidator;
         private readonly UpdateTeacherCommandValidator _updateValidator;
-        private readonly AddTeacherQualificationCommandValidator _addQualificationValidator;
-        private readonly UploadTeacherDocumentCommandValidator _uploadDocumentValidator;
 
         public TeacherService(
             IUnitOfWork unitOfWork,
-            IFileStorageService fileStorage,
             IEmployeeService employeeService,
             CreateTeacherCommandValidator createValidator,
-            UpdateTeacherCommandValidator updateValidator,
-            AddTeacherQualificationCommandValidator addQualificationValidator,
-            UploadTeacherDocumentCommandValidator uploadDocumentValidator)
+            UpdateTeacherCommandValidator updateValidator)
         {
             _unitOfWork = unitOfWork;
-            _fileStorage = fileStorage;
             _employeeService = employeeService;
             _createValidator = createValidator;
             _updateValidator = updateValidator;
-            _addQualificationValidator = addQualificationValidator;
-            _uploadDocumentValidator = uploadDocumentValidator;
         }
 
         public async Task<CommonResponse<TeacherDto>> CreateTeacherAsync(CreateTeacherCommand command, CancellationToken cancellationToken = default)
@@ -263,88 +253,6 @@ namespace Application.Teachers
             return successResponse;
         }
 
-        public async Task<CommonResponse<TeacherQualificationDto>> AddQualificationAsync(Guid teacherId, AddTeacherQualificationCommand command, CancellationToken cancellationToken = default)
-        {
-            var validationResult = _addQualificationValidator.Validate(command);
-            if (!validationResult.IsValid)
-            {
-                var errorMessage = BuildValidationErrorMessage(validationResult);
-                var validationFailureResponse = CommonResponse<TeacherQualificationDto>.Fail(ResponseCodes.ValidationError, errorMessage);
-                return validationFailureResponse;
-            }
-
-            var teacher = await _unitOfWork.Teachers.GetByIdAsync(teacherId, cancellationToken);
-            if (teacher == null)
-            {
-                var notFoundResponse = CommonResponse<TeacherQualificationDto>.Fail(ResponseCodes.NotFound, "Teacher with id '" + teacherId + "' was not found.");
-                return notFoundResponse;
-            }
-
-            var qualificationCode = command.QualificationCode.Trim();
-            var qualificationCodeExists = await _unitOfWork.Configs.CodeExistsAsync(ConfigTypeCodes.TeacherQualification, qualificationCode, cancellationToken);
-            if (!qualificationCodeExists)
-            {
-                var invalidCodeResponse = CommonResponse<TeacherQualificationDto>.Fail(ResponseCodes.ValidationError, "QualificationCode '" + qualificationCode + "' is not a known qualification option.");
-                return invalidCodeResponse;
-            }
-
-            var qualification = new TeacherQualification
-            {
-                TeacherId = teacherId,
-                QualificationCode = qualificationCode,
-                CourseName = command.CourseName?.Trim(),
-                Institution = command.Institution?.Trim(),
-                CompletionYear = command.CompletionYear,
-                Score = command.Score?.Trim(),
-                Remarks = command.Remarks?.Trim()
-            };
-
-            await _unitOfWork.Teachers.AddQualificationAsync(qualification, cancellationToken);
-            await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-            var qualificationDto = TeacherMapper.ToQualificationDto(qualification);
-            var successResponse = CommonResponse<TeacherQualificationDto>.Success(qualificationDto, "Qualification added successfully.");
-            return successResponse;
-        }
-
-        public async Task<CommonResponse<bool>> RemoveQualificationAsync(Guid teacherId, Guid qualificationId, CancellationToken cancellationToken = default)
-        {
-            var qualification = await _unitOfWork.Teachers.GetQualificationByIdAsync(qualificationId, cancellationToken);
-            if (qualification == null || qualification.TeacherId != teacherId)
-            {
-                var notFoundResponse = CommonResponse<bool>.Fail(ResponseCodes.NotFound, "Qualification was not found on this teacher.");
-                return notFoundResponse;
-            }
-
-            _unitOfWork.Teachers.RemoveQualification(qualification);
-            await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-            var successResponse = CommonResponse<bool>.Success(true, "Qualification removed successfully.");
-            return successResponse;
-        }
-
-        public async Task<CommonResponse<List<TeacherQualificationDto>>> GetQualificationsAsync(Guid teacherId, CancellationToken cancellationToken = default)
-        {
-            var teacher = await _unitOfWork.Teachers.GetByIdAsync(teacherId, cancellationToken);
-            if (teacher == null)
-            {
-                var notFoundResponse = CommonResponse<List<TeacherQualificationDto>>.Fail(ResponseCodes.NotFound, "Teacher with id '" + teacherId + "' was not found.");
-                return notFoundResponse;
-            }
-
-            var qualifications = await _unitOfWork.Teachers.GetQualificationsAsync(teacherId, cancellationToken);
-
-            var qualificationDtos = new List<TeacherQualificationDto>();
-            foreach (var qualification in qualifications)
-            {
-                var qualificationDto = TeacherMapper.ToQualificationDto(qualification);
-                qualificationDtos.Add(qualificationDto);
-            }
-
-            var successResponse = CommonResponse<List<TeacherQualificationDto>>.Success(qualificationDtos);
-            return successResponse;
-        }
-
         public async Task<CommonResponse<TeacherAssignmentDto>> AssignClassSubjectAsync(Guid teacherId, AssignTeacherCommand command, CancellationToken cancellationToken = default)
         {
             var teacher = await _unitOfWork.Teachers.GetByIdAsync(teacherId, cancellationToken);
@@ -478,150 +386,6 @@ namespace Application.Teachers
             return successResponse;
         }
 
-        public async Task<CommonResponse<TeacherDocumentDto>> UploadDocumentAsync(Guid teacherId, UploadTeacherDocumentCommand command, Stream fileContent, string originalFileName, string contentType, long fileSizeBytes, CancellationToken cancellationToken = default)
-        {
-            var validationResult = _uploadDocumentValidator.Validate(command);
-            if (!validationResult.IsValid)
-            {
-                var errorMessage = BuildValidationErrorMessage(validationResult);
-                var validationFailureResponse = CommonResponse<TeacherDocumentDto>.Fail(ResponseCodes.ValidationError, errorMessage);
-                return validationFailureResponse;
-            }
-
-            if (fileContent == null || fileSizeBytes <= 0)
-            {
-                var noFileResponse = CommonResponse<TeacherDocumentDto>.Fail(ResponseCodes.ValidationError, "A document file is required.");
-                return noFileResponse;
-            }
-
-            if (!DocumentFileRules.IsAllowedExtension(originalFileName))
-            {
-                var extensionResponse = CommonResponse<TeacherDocumentDto>.Fail(ResponseCodes.ValidationError, "Unsupported file type. Allowed: " + DocumentFileRules.AllowedExtensionsDisplay() + ".");
-                return extensionResponse;
-            }
-
-            if (fileSizeBytes > DocumentFileRules.MaxFileSizeBytes)
-            {
-                var sizeResponse = CommonResponse<TeacherDocumentDto>.Fail(ResponseCodes.ValidationError, "File exceeds the maximum size of " + (DocumentFileRules.MaxFileSizeBytes / (1024 * 1024)) + " MB.");
-                return sizeResponse;
-            }
-
-            var teacher = await _unitOfWork.Teachers.GetByIdAsync(teacherId, cancellationToken);
-            if (teacher == null)
-            {
-                var notFoundResponse = CommonResponse<TeacherDocumentDto>.Fail(ResponseCodes.NotFound, "Teacher with id '" + teacherId + "' was not found.");
-                return notFoundResponse;
-            }
-
-            var documentTypeCode = command.DocumentTypeCode.Trim();
-            var typeExists = await _unitOfWork.Configs.CodeExistsAsync(ConfigTypeCodes.DocumentType, documentTypeCode, cancellationToken);
-            if (!typeExists)
-            {
-                var typeInvalidResponse = CommonResponse<TeacherDocumentDto>.Fail(ResponseCodes.ValidationError, "DocumentTypeCode '" + documentTypeCode + "' is not a known document type option.");
-                return typeInvalidResponse;
-            }
-
-            var storedPath = await _fileStorage.SaveAsync(fileContent, originalFileName, "teacher-documents/" + teacherId, cancellationToken);
-
-            var document = new TeacherDocument
-            {
-                TeacherId = teacherId,
-                DocumentTypeCode = documentTypeCode,
-                DocumentName = command.DocumentName.Trim(),
-                FileName = originalFileName,
-                FilePath = storedPath,
-                ContentType = contentType,
-                FileSizeBytes = fileSizeBytes,
-                ValidUntil = command.ValidUntil,
-                Remarks = command.Remarks?.Trim()
-            };
-
-            await _unitOfWork.Teachers.AddDocumentAsync(document, cancellationToken);
-            try
-            {
-                await _unitOfWork.SaveChangesAsync(cancellationToken);
-            }
-            catch
-            {
-                // The row didn't land, so the stored file must not linger as an orphan.
-                _fileStorage.Delete(storedPath);
-                throw;
-            }
-
-            var documentDto = TeacherMapper.ToDocumentDto(document);
-            var successResponse = CommonResponse<TeacherDocumentDto>.Success(documentDto, "Document uploaded successfully.");
-            return successResponse;
-        }
-
-        public async Task<CommonResponse<List<TeacherDocumentDto>>> GetDocumentsAsync(Guid teacherId, CancellationToken cancellationToken = default)
-        {
-            var teacher = await _unitOfWork.Teachers.GetByIdAsync(teacherId, cancellationToken);
-            if (teacher == null)
-            {
-                var notFoundResponse = CommonResponse<List<TeacherDocumentDto>>.Fail(ResponseCodes.NotFound, "Teacher with id '" + teacherId + "' was not found.");
-                return notFoundResponse;
-            }
-
-            var documents = await _unitOfWork.Teachers.GetDocumentsAsync(teacherId, cancellationToken);
-
-            var documentDtos = new List<TeacherDocumentDto>();
-            foreach (var document in documents)
-            {
-                var documentDto = TeacherMapper.ToDocumentDto(document);
-                documentDtos.Add(documentDto);
-            }
-
-            var successResponse = CommonResponse<List<TeacherDocumentDto>>.Success(documentDtos);
-            return successResponse;
-        }
-
-        public async Task<CommonResponse<TeacherDocumentFileDto>> GetDocumentFileAsync(Guid teacherId, Guid documentId, CancellationToken cancellationToken = default)
-        {
-            var document = await _unitOfWork.Teachers.GetDocumentByIdAsync(documentId, cancellationToken);
-            if (document == null || document.TeacherId != teacherId)
-            {
-                var notFoundResponse = CommonResponse<TeacherDocumentFileDto>.Fail(ResponseCodes.NotFound, "Document was not found on this teacher.");
-                return notFoundResponse;
-            }
-
-            var contentStream = await _fileStorage.OpenReadAsync(document.FilePath, cancellationToken);
-            if (contentStream == null)
-            {
-                var fileMissingResponse = CommonResponse<TeacherDocumentFileDto>.Fail(ResponseCodes.NotFound, "The stored file for this document is missing.");
-                return fileMissingResponse;
-            }
-
-            var fileDto = new TeacherDocumentFileDto
-            {
-                Content = contentStream,
-                ContentType = string.IsNullOrWhiteSpace(document.ContentType) ? "application/octet-stream" : document.ContentType,
-                FileName = document.FileName
-            };
-
-            var successResponse = CommonResponse<TeacherDocumentFileDto>.Success(fileDto);
-            return successResponse;
-        }
-
-        public async Task<CommonResponse<bool>> DeleteDocumentAsync(Guid teacherId, Guid documentId, CancellationToken cancellationToken = default)
-        {
-            var document = await _unitOfWork.Teachers.GetDocumentByIdAsync(documentId, cancellationToken);
-            if (document == null || document.TeacherId != teacherId)
-            {
-                var notFoundResponse = CommonResponse<bool>.Fail(ResponseCodes.NotFound, "Document was not found on this teacher.");
-                return notFoundResponse;
-            }
-
-            _unitOfWork.Teachers.RemoveDocument(document);
-            await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-            // Only after the row is gone -- a failed save must not strand a row pointing at a
-            // deleted file. Best-effort by contract.
-            _fileStorage.Delete(document.FilePath);
-
-            var successResponse = CommonResponse<bool>.Success(true, "Document deleted successfully.");
-            return successResponse;
-        }
-
         // The following three are thin convenience aliases over IEmployeeService's salary
         // machinery -- a Teacher's Id IS its Employee's Id (shared-PK pattern), so these just
         // forward. Kept so existing /api/teachers/{id}/salaries consumers don't break.
@@ -649,6 +413,16 @@ namespace Application.Teachers
         public Task<CommonResponse<TaxPlanningDto>> GetTaxPlanningAsync(Guid teacherId, Guid? fiscalYearId, CancellationToken cancellationToken = default)
         {
             return _employeeService.GetTaxPlanningAsync(teacherId, fiscalYearId, cancellationToken);
+        }
+
+        public Task<CommonResponse<SalaryAnnualForecastDto>> GetAnnualForecastAsync(Guid teacherId, Guid? fiscalYearId, CancellationToken cancellationToken = default)
+        {
+            return _employeeService.GetAnnualForecastAsync(teacherId, fiscalYearId, cancellationToken);
+        }
+
+        public Task<CommonResponse<TaxDetailsGridDto>> GetTaxDetailsGridAsync(Guid teacherId, Guid? fiscalYearId, CancellationToken cancellationToken = default)
+        {
+            return _employeeService.GetTaxDetailsGridAsync(teacherId, fiscalYearId, cancellationToken);
         }
 
         public Task<CommonResponse<DocumentPreviewDto>> GetPayslipPreviewAsync(Guid teacherId, Guid? fiscalYearId, CancellationToken cancellationToken = default)

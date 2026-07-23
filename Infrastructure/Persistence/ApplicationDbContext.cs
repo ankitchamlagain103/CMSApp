@@ -51,7 +51,7 @@ namespace Infrastructure.Persistence
 
         public DbSet<Teacher> Teachers => Set<Teacher>();
 
-        public DbSet<TeacherQualification> TeacherQualifications => Set<TeacherQualification>();
+        public DbSet<EmployeeQualification> EmployeeQualifications => Set<EmployeeQualification>();
 
         public DbSet<TeacherAssignment> TeacherAssignments => Set<TeacherAssignment>();
 

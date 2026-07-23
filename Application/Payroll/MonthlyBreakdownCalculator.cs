@@ -8,8 +8,9 @@ namespace Application.Payroll
     // Resolves a salary's components/deductions into 12 fiscal-month rows -- shared by the Tax
     // Details monthly table and the Payslip list/detail, so the two views can never disagree on
     // what a given month's numbers are. Pure/static, same shape as TaxCalculator, and reuses its
-    // ResolveAmount/FindBasicPeriodAmount helpers so a percentage component resolves identically
-    // in both the annual and the monthly view.
+    // ResolveAmount/FindBasicPeriodAmount/ResolvePercentageBaseAmount helpers so a percentage
+    // component resolves identically (against the same base, Basic or a catalog-named
+    // alternative) in both the annual and the monthly view.
     public static class MonthlyBreakdownCalculator
     {
         private static readonly string[] MonthNames =
@@ -35,7 +36,8 @@ namespace Application.Payroll
             DateTime salaryEffectiveFromDate,
             FiscalYear fiscalYear,
             decimal annualTax,
-            IReadOnlyDictionary<string, string> labelsByCode = null)
+            IReadOnlyDictionary<string, string> labelsByCode = null,
+            IReadOnlyDictionary<string, SalaryLineCalculationConfig> calculationConfigByCode = null)
         {
             var basicPeriodAmount = TaxCalculator.FindBasicPeriodAmount(components);
             var monthTax = Math.Round(annualTax / 12m, 2);
@@ -61,7 +63,8 @@ namespace Application.Payroll
 
                 foreach (var component in components)
                 {
-                    var lineAmount = ResolveMonthAmount(component.ValueType, component.Value, component.FrequencyType, basicPeriodAmount, salaryEffectiveFromDate, periodStart, periodEnd);
+                    var componentBaseAmount = TaxCalculator.ResolvePercentageBaseAmount(component.ComponentCode, basicPeriodAmount, components, calculationConfigByCode);
+                    var lineAmount = ResolveMonthAmount(component.ValueType, component.Value, component.FrequencyType, componentBaseAmount, salaryEffectiveFromDate, periodStart, periodEnd);
                     if (lineAmount != 0m)
                     {
                         var componentLabel = ConfigLabelHelper.Resolve(labelsByCode, component.ComponentCode);
@@ -72,17 +75,22 @@ namespace Application.Payroll
                         // IsRetirementContribution on a COMPONENT) is money deposited with the
                         // fund, not cash paid out -- it belongs in gross (it's income, and
                         // taxable when flagged so) but must not inflate net pay, so it is
-                        // offset by an equal deduction line ("remitted to the fund").
+                        // offset by an equal deduction line ("remitted to the fund"). The
+                        // deduction line's label gets a distinguishing suffix (2026-07-22) -- an
+                        // identical "SSF Contribution" appearing as both an Earning and a
+                        // Deduction with no explanatory text read as a duplicate-looking UI bug,
+                        // even though the numbers were always correct.
                         if (component.IsRetirementContribution)
                         {
-                            row.DeductionLines.Add(new MonthlyLineItemDto { Code = component.ComponentCode, Label = componentLabel, Amount = lineAmount });
+                            row.DeductionLines.Add(new MonthlyLineItemDto { Code = component.ComponentCode, Label = componentLabel + " (Employer Share - Fund Remittance)", Amount = lineAmount });
                         }
                     }
                 }
 
                 foreach (var deduction in deductions)
                 {
-                    var lineAmount = ResolveMonthAmount(deduction.ValueType, deduction.Value, deduction.FrequencyType, basicPeriodAmount, salaryEffectiveFromDate, periodStart, periodEnd);
+                    var deductionBaseAmount = TaxCalculator.ResolvePercentageBaseAmount(deduction.DeductionCode, basicPeriodAmount, components, calculationConfigByCode);
+                    var lineAmount = ResolveMonthAmount(deduction.ValueType, deduction.Value, deduction.FrequencyType, deductionBaseAmount, salaryEffectiveFromDate, periodStart, periodEnd);
                     if (lineAmount != 0m)
                     {
                         row.DeductionLines.Add(new MonthlyLineItemDto { Code = deduction.DeductionCode, Label = ConfigLabelHelper.Resolve(labelsByCode, deduction.DeductionCode), Amount = lineAmount });
@@ -111,9 +119,9 @@ namespace Application.Payroll
         // encashment, ...) are placed only in the row containing the salary's EffectiveFromDate --
         // there's no "date this was actually paid" field to key off instead, so the revision's own
         // effective date is the closest available signal.
-        private static decimal ResolveMonthAmount(AwardValueType valueType, decimal value, PayFrequencyType frequencyType, decimal basicPeriodAmount, DateTime effectiveFromDate, DateTime periodStart, DateTime periodEnd)
+        private static decimal ResolveMonthAmount(AwardValueType valueType, decimal value, PayFrequencyType frequencyType, decimal baseAmount, DateTime effectiveFromDate, DateTime periodStart, DateTime periodEnd)
         {
-            var periodAmount = TaxCalculator.ResolveAmount(valueType, value, basicPeriodAmount);
+            var periodAmount = TaxCalculator.ResolveAmount(valueType, value, baseAmount);
 
             if (frequencyType == PayFrequencyType.Monthly)
             {

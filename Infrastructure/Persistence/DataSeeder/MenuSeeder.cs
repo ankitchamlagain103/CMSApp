@@ -150,16 +150,9 @@ namespace Infrastructure.Persistence.DataSeeder
             catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_DETAIL", "View Teacher Detail", "Teachers", "GetTeacherById", 32));
             catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_UPDATE", "Update Teacher", "Teachers", "UpdateTeacher", 33));
             catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_DELETE", "Delete Teacher", "Teachers", "DeleteTeacher", 34));
-            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_QUALIFICATION_ADD", "Add Teacher Qualification", "Teachers", "AddQualification", 35));
-            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_QUALIFICATION_REMOVE", "Remove Teacher Qualification", "Teachers", "RemoveQualification", 36));
-            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_QUALIFICATION_LIST", "View Teacher Qualifications", "Teachers", "GetQualifications", 37));
             catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_ASSIGNMENT_ADD", "Assign Teacher", "Teachers", "AssignClassSubject", 38));
             catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_ASSIGNMENT_REMOVE", "Remove Teacher Assignment", "Teachers", "RemoveAssignment", 39));
             catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_ASSIGNMENT_LIST", "View Teacher Assignments", "Teachers", "GetAssignments", 40));
-            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_DOCUMENT_UPLOAD", "Upload Teacher Document", "Teachers", "UploadDocument", 41));
-            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_DOCUMENT_LIST", "View Teacher Documents", "Teachers", "GetDocuments", 42));
-            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_DOCUMENT_DOWNLOAD", "Download Teacher Document", "Teachers", "DownloadDocument", 43));
-            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_DOCUMENT_DELETE", "Delete Teacher Document", "Teachers", "DeleteDocument", 44));
             catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_SALARY_ADD", "Add Teacher Salary", "Teachers", "AddSalary", 45));
             catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_SALARY_LIST", "View Teacher Salary History", "Teachers", "GetSalaryHistory", 46));
             catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_SALARY_TAX_CALCULATION", "View Teacher Tax Calculation", "Teachers", "GetSalaryTaxCalculation", 47));
@@ -175,6 +168,8 @@ namespace Infrastructure.Persistence.DataSeeder
             catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_LOAN_CANCEL", "Cancel Teacher Loan", "Teachers", "CancelLoan", 57));
             catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_SALARY_FORECAST", "View Teacher Salary Forecast", "Teachers", "GetSalaryForecast", 58));
             catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_TAX_PLANNING", "View Teacher Tax Planning", "Teachers", "GetTaxPlanning", 59));
+            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_SALARY_ANNUAL_FORECAST", "View Teacher Annual Salary Forecast", "Teachers", "GetAnnualForecast", 60));
+            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_TAX_DETAILS_GRID", "View Teacher Tax Details Grid", "Teachers", "GetTaxDetailsGrid", 61));
 
             catalog.Add(MainMenu("STUDENT_MANAGEMENT", "Student Management", "icons.TeamOutlined", 8, null));
             catalog.Add(SubMenu("STUDENT_MANAGEMENT", "STUDENT_LIST", "Students", "/apps/student/list", null, "Students", "GetStudents", 1));
@@ -306,6 +301,9 @@ namespace Infrastructure.Persistence.DataSeeder
             catalog.Add(Permission("PAYROLL_RUN_LIST", "SALARY_SLIP_LINE_UPDATE", "Update Salary Slip Line", "PayrollRuns", "UpdateSlipLine", 9));
             catalog.Add(Permission("PAYROLL_RUN_LIST", "SALARY_SLIP_LINE_REMOVE", "Remove Salary Slip Line", "PayrollRuns", "RemoveSlipLine", 10));
             catalog.Add(Permission("PAYROLL_RUN_LIST", "PAYROLL_RUN_REFRESH", "Refresh Payroll Run", "PayrollRuns", "RefreshRun", 11));
+            // 2026-07-22: individual (per-slip, not whole-run) approve + regenerate.
+            catalog.Add(Permission("PAYROLL_RUN_LIST", "SALARY_SLIP_APPROVE", "Approve Salary Slip", "PayrollRuns", "ApproveSlip", 12));
+            catalog.Add(Permission("PAYROLL_RUN_LIST", "SALARY_SLIP_REGENERATE", "Regenerate Salary Slip", "PayrollRuns", "RegenerateSlip", 13));
             catalog.Add(SubMenu("PAYROLL_MANAGEMENT", "SALARY_CALCULATOR", "Salary Calculator", "/apps/payroll/salary-calculator", null, "SalaryCalculator", "CalculateSalaryStructure", 2));
             catalog.Add(Permission("SALARY_CALCULATOR", "SALARY_CALCULATOR_ASSIGN", "Assign Calculated Salary To Employee", "SalaryCalculator", "AssignSalaryStructure", 1));
 
@@ -348,7 +346,6 @@ namespace Infrastructure.Persistence.DataSeeder
             catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_TEACHER_PROMOTE", "Add Teacher Profile", "Employees", "PromoteToTeacher", 5));
             catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_SALARY_ADD", "Add Employee Salary", "Employees", "AddSalary", 6));
             catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_SALARY_LIST", "View Employee Salary History", "Employees", "GetSalaryHistory", 7));
-            catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_SALARY_TAX_CALCULATION", "View Employee Tax Calculation", "Employees", "GetSalaryTaxCalculation", 8));
             catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_SALARY_COMPONENT_ADD", "Add Salary Component", "Employees", "AddSalaryComponent", 9));
             catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_SALARY_COMPONENT_REMOVE", "Remove Salary Component", "Employees", "RemoveSalaryComponent", 10));
             catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_SALARY_DEDUCTION_ADD", "Add Salary Deduction", "Employees", "AddSalaryDeduction", 11));
@@ -371,6 +368,20 @@ namespace Infrastructure.Persistence.DataSeeder
             catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_SALARY_ADJUSTMENT_BULK", "Create Bulk Salary Adjustments", "Employees", "CreateBulkSalaryAdjustments", 28));
             catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_SALARY_FORECAST", "View Employee Salary Forecast", "Employees", "GetSalaryForecast", 29));
             catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_TAX_PLANNING", "View Employee Tax Planning", "Employees", "GetTaxPlanning", 30));
+            catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_SALARY_ANNUAL_FORECAST", "View Employee Annual Salary Forecast", "Employees", "GetAnnualForecast", 31));
+            catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_TAX_DETAILS_GRID", "View Employee Tax Details Grid", "Employees", "GetTaxDetailsGrid", 34));
+            catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_SALARY_LINE_ADD", "Add Salary Line (Code-driven)", "Employees", "AddSalaryLine", 32));
+            catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_SALARY_LINE_REMOVE", "Remove Salary Line (Code-driven)", "Employees", "RemoveSalaryLine", 33));
+
+            // 2026-07-23: Qualifications and Documents, moved here from Teachers (retired below)
+            // -- generic to every employee now, not teaching-specific.
+            catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_QUALIFICATION_ADD", "Add Employee Qualification", "Employees", "AddQualification", 35));
+            catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_QUALIFICATION_REMOVE", "Remove Employee Qualification", "Employees", "RemoveQualification", 36));
+            catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_QUALIFICATION_LIST", "View Employee Qualifications", "Employees", "GetQualifications", 37));
+            catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_DOCUMENT_UPLOAD", "Upload Employee Document", "Employees", "UploadDocument", 38));
+            catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_DOCUMENT_LIST", "View Employee Documents", "Employees", "GetDocuments", 39));
+            catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_DOCUMENT_DOWNLOAD", "Download Employee Document", "Employees", "DownloadDocument", 40));
+            catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_DOCUMENT_DELETE", "Delete Employee Document", "Employees", "DeleteDocument", 41));
 
             return catalog;
         }
@@ -392,7 +403,27 @@ namespace Infrastructure.Persistence.DataSeeder
                 // -- it is now a tab on the student profile page, driven by the existing
                 // GET /api/feeinvoices/account-statement/{enrollmentId} endpoint, whose
                 // permission row (FEE_ACCOUNT_STATEMENT, under FEE_INVOICE_LIST) is unaffected.
-                "STATEMENT_OF_ACCOUNT_LIST"
+                "STATEMENT_OF_ACCOUNT_LIST",
+
+                // Retired 2026-07-23: GET /api/employees/{id}/salaries/tax-calculation removed
+                // (superseded by GET .../salaries/tax-planning, which already composes on the
+                // same underlying EmployeeService.GetCurrentSalaryTaxCalculationAsync -- that
+                // method itself is unchanged and still backs the Teachers alias, which was kept).
+                "EMPLOYEE_SALARY_TAX_CALCULATION",
+
+                // Retired 2026-07-23: Qualifications and Documents moved off Teacher onto
+                // Employee entirely (dbo.teacher_qualifications -> dbo.employee_qualifications,
+                // dbo.teacher_documents -> dbo.employee_documents) -- neither concept was ever
+                // teaching-specific. No Teacher-side alias was kept (unlike the tax-calculation
+                // retirement above) -- these six codes are gone, replaced by
+                // EMPLOYEE_QUALIFICATION_*/EMPLOYEE_DOCUMENT_* under Employees.
+                "TEACHER_QUALIFICATION_ADD",
+                "TEACHER_QUALIFICATION_REMOVE",
+                "TEACHER_QUALIFICATION_LIST",
+                "TEACHER_DOCUMENT_UPLOAD",
+                "TEACHER_DOCUMENT_LIST",
+                "TEACHER_DOCUMENT_DOWNLOAD",
+                "TEACHER_DOCUMENT_DELETE"
             };
 
             return retiredCodes;

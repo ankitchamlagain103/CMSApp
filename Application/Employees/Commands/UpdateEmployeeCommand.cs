@@ -19,5 +19,13 @@ namespace Application.Employees.Commands
         public string BankName { get; set; }
         public string BankAccountNumber { get; set; }
         public PaymentMode PaymentMode { get; set; }
+
+        // "Accounts and Codes" -- statutory/scheme identifiers, all optional (see the doc comment
+        // on Domain/Entities/Employee.PanNumber).
+        public string PanNumber { get; set; }
+        public string ProvidentFundNumber { get; set; }
+        public string SsfNumber { get; set; }
+        public string CitNumber { get; set; }
+        public string GratuityNumber { get; set; }
     }
 }

@@ -77,5 +77,24 @@ namespace Domain.Interfaces
         Task AddSalaryAdjustmentAsync(SalaryAdjustment adjustment, CancellationToken cancellationToken = default);
 
         void RemoveSalaryAdjustment(SalaryAdjustment adjustment);
+
+        // Qualifications and Documents (2026-07-23, moved here from ITeacherRepository -- neither
+        // concept is teaching-specific, every employee can hold a degree or need an identity
+        // document on file).
+        Task<IReadOnlyList<EmployeeQualification>> GetQualificationsAsync(Guid employeeId, CancellationToken cancellationToken = default);
+
+        Task<EmployeeQualification> GetQualificationByIdAsync(Guid qualificationId, CancellationToken cancellationToken = default);
+
+        Task AddQualificationAsync(EmployeeQualification qualification, CancellationToken cancellationToken = default);
+
+        void RemoveQualification(EmployeeQualification qualification);
+
+        Task<IReadOnlyList<EmployeeDocument>> GetDocumentsAsync(Guid employeeId, CancellationToken cancellationToken = default);
+
+        Task<EmployeeDocument> GetDocumentByIdAsync(Guid documentId, CancellationToken cancellationToken = default);
+
+        Task AddDocumentAsync(EmployeeDocument document, CancellationToken cancellationToken = default);
+
+        void RemoveDocument(EmployeeDocument document);
     }
 }

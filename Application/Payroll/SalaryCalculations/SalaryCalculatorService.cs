@@ -1,7 +1,9 @@
+using Application.Common.Helpers;
 using Application.Common.Interfaces;
 using Application.Common.Models;
 using Application.Employees;
 using Application.Employees.Commands;
+using Application.Payroll.Dtos;
 using Application.Payroll.SalaryCalculations.Commands;
 using Application.Payroll.SalaryCalculations.Dtos;
 using Application.Payroll.SalaryCalculations.Validators;
@@ -212,7 +214,7 @@ namespace Application.Payroll.SalaryCalculations
         // a bounded range is far below a paisa of error. The lower bound may go below the pinned
         // Basic -- BuildCalculation tolerates a transiently negative allowance during the
         // search; the caller rejects a final result whose Basic exceeds gross.
-        private static decimal SolveGrossForNet(CalculateSalaryStructureCommand command, decimal ssfEmployeeRatePercent, decimal ssfEmployerRatePercent, IReadOnlyDictionary<string, decimal> insuranceTypeCaps, FiscalYear fiscalYear, IReadOnlyList<TaxSlab> taxSlabs)
+        private static decimal SolveGrossForNet(CalculateSalaryStructureCommand command, decimal ssfEmployeeRatePercent, decimal ssfEmployerRatePercent, IReadOnlyDictionary<string, InsuranceCapConfig> insuranceTypeCaps, FiscalYear fiscalYear, IReadOnlyList<TaxSlab> taxSlabs)
         {
             var targetNetPayment = command.Amount;
             var lowerGross = targetNetPayment;
@@ -247,7 +249,7 @@ namespace Application.Payroll.SalaryCalculations
             return upperGross;
         }
 
-        private static SalaryStructureCalculationDto BuildCalculation(CalculateSalaryStructureCommand command, decimal grossPayment, decimal ssfEmployeeRatePercent, decimal ssfEmployerRatePercent, IReadOnlyDictionary<string, decimal> insuranceTypeCaps, FiscalYear fiscalYear, IReadOnlyList<TaxSlab> taxSlabs)
+        private static SalaryStructureCalculationDto BuildCalculation(CalculateSalaryStructureCommand command, decimal grossPayment, decimal ssfEmployeeRatePercent, decimal ssfEmployerRatePercent, IReadOnlyDictionary<string, InsuranceCapConfig> insuranceTypeCaps, FiscalYear fiscalYear, IReadOnlyList<TaxSlab> taxSlabs)
         {
             var basicPercentOfGross = command.BasicPercentOfGross ?? DefaultBasicPercentOfGross;
             var basicSalary = command.BasicSalaryAmount ?? grossPayment * (basicPercentOfGross / 100m);
@@ -445,20 +447,10 @@ namespace Application.Payroll.SalaryCalculations
 
         // Same Config-catalog read as EmployeeService/PayrollRunService: InsuranceType options
         // (catalog 1015) carry their Nepal tax-deduction cap in AdditionalValue1.
-        private async Task<Dictionary<string, decimal>> BuildInsuranceTypeCapsAsync(CancellationToken cancellationToken)
+        private async Task<Dictionary<string, InsuranceCapConfig>> BuildInsuranceTypeCapsAsync(CancellationToken cancellationToken)
         {
-            var insuranceTypeCaps = new Dictionary<string, decimal>();
-
             var insuranceTypeConfigs = await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.InsuranceType, cancellationToken);
-            foreach (var insuranceTypeConfig in insuranceTypeConfigs)
-            {
-                if (decimal.TryParse(insuranceTypeConfig.AdditionalValue1, out var capAmount))
-                {
-                    insuranceTypeCaps[insuranceTypeConfig.Code] = capAmount;
-                }
-            }
-
-            return insuranceTypeCaps;
+            return InsuranceCapHelper.BuildCapMap(insuranceTypeConfigs);
         }
 
         private static string BuildValidationErrorMessage(ValidationResult validationResult)

@@ -1,11 +1,11 @@
-using Application.Teachers.Commands;
+using Application.Employees.Commands;
 using FluentValidation;
 
-namespace Application.Teachers.Validators
+namespace Application.Employees.Validators
 {
-    public class AddTeacherQualificationCommandValidator : AbstractValidator<AddTeacherQualificationCommand>
+    public class AddEmployeeQualificationCommandValidator : AbstractValidator<AddEmployeeQualificationCommand>
     {
-        public AddTeacherQualificationCommandValidator()
+        public AddEmployeeQualificationCommandValidator()
         {
             RuleFor(command => command.QualificationCode)
                 .NotEmpty()

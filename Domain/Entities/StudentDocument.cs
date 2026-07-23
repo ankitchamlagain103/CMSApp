@@ -1,7 +1,7 @@
 namespace Domain.Entities
 {
     // An uploaded admission/record document for a student (birth certificate, transfer
-    // certificate, marksheet, ...). Mirrors TeacherDocument: DocumentTypeCode is a Config code
+    // certificate, marksheet, ...). Mirrors EmployeeDocument: DocumentTypeCode is a Config code
     // (ConfigTypeCodes.StudentDocumentType), FilePath is the IFileStorageService handle (never a
     // user-supplied path), ValidUntil is the expiry where one applies. Hard-deleted (the file is
     // removed from storage alongside the row).

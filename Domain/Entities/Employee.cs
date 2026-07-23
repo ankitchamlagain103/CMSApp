@@ -6,10 +6,12 @@ namespace Domain.Entities
     // librarian, IT officer, driver, security guard, office assistant, cleaner, office help, ...).
     // Teacher (a thin teaching-specific profile) hangs off this via a SHARED primary key --
     // Teacher.Id == Employee.Id -- rather than Employee referencing Teacher, so
-    // TeacherAssignment/TeacherDocument/TeacherQualification (which FK to Teacher.Id) needed zero
-    // changes when this split was introduced. EmployeeCategoryCode/JobPositionCode are Config
-    // codes (ConfigTypeCodes.EmployeeCategory/JobPosition), validated in the service layer, not
-    // database FKs -- same convention as every other Config-backed code column in this codebase.
+    // TeacherAssignment (which FKs to Teacher.Id) needed zero changes when this split was
+    // introduced. Qualifications and Documents (2026-07-23) belong here directly, not to Teacher
+    // -- neither concept is actually teaching-specific. EmployeeCategoryCode/JobPositionCode are
+    // Config codes (ConfigTypeCodes.EmployeeCategory/JobPosition), validated in the service layer,
+    // not database FKs -- same convention as every other Config-backed code column in this
+    // codebase.
     public class Employee : SoftDeleteAuditableEntity
     {
         public Guid Id { get; set; }
@@ -36,8 +38,22 @@ namespace Domain.Entities
         public string BankAccountNumber { get; set; }
         public PaymentMode PaymentMode { get; set; }
 
+        // "Accounts and Codes" (2026-07-23) -- the statutory/scheme identifiers a payroll/HR
+        // system needs on file per employee, distinct from the bank-payment fields above. All
+        // free-form strings (no format validated -- PAN/PF/SSF/CIT/Gratuity numbering schemes
+        // aren't standardized enough across employers to enforce a shape here) and all optional
+        // (not every employee is enrolled in every scheme, e.g. Gratuity typically only vests
+        // after a service-length threshold).
+        public string PanNumber { get; set; }
+        public string ProvidentFundNumber { get; set; }
+        public string SsfNumber { get; set; }
+        public string CitNumber { get; set; }
+        public string GratuityNumber { get; set; }
+
         public virtual Teacher Teacher { get; set; }
         public virtual ICollection<EmployeeSalary> Salaries { get; set; } = new List<EmployeeSalary>();
         public virtual ICollection<EmployeeLoan> Loans { get; set; } = new List<EmployeeLoan>();
+        public virtual ICollection<EmployeeQualification> Qualifications { get; set; } = new List<EmployeeQualification>();
+        public virtual ICollection<EmployeeDocument> Documents { get; set; } = new List<EmployeeDocument>();
     }
 }

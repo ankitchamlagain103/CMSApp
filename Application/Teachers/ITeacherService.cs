@@ -19,25 +19,11 @@ namespace Application.Teachers
 
         Task<CommonResponse<bool>> DeleteTeacherAsync(Guid id, CancellationToken cancellationToken = default);
 
-        Task<CommonResponse<TeacherQualificationDto>> AddQualificationAsync(Guid teacherId, AddTeacherQualificationCommand command, CancellationToken cancellationToken = default);
-
-        Task<CommonResponse<bool>> RemoveQualificationAsync(Guid teacherId, Guid qualificationId, CancellationToken cancellationToken = default);
-
-        Task<CommonResponse<List<TeacherQualificationDto>>> GetQualificationsAsync(Guid teacherId, CancellationToken cancellationToken = default);
-
         Task<CommonResponse<TeacherAssignmentDto>> AssignClassSubjectAsync(Guid teacherId, AssignTeacherCommand command, CancellationToken cancellationToken = default);
 
         Task<CommonResponse<bool>> RemoveAssignmentAsync(Guid teacherId, Guid assignmentId, CancellationToken cancellationToken = default);
 
         Task<CommonResponse<List<TeacherAssignmentDto>>> GetAssignmentsAsync(Guid teacherId, CancellationToken cancellationToken = default);
-
-        Task<CommonResponse<TeacherDocumentDto>> UploadDocumentAsync(Guid teacherId, UploadTeacherDocumentCommand command, Stream fileContent, string originalFileName, string contentType, long fileSizeBytes, CancellationToken cancellationToken = default);
-
-        Task<CommonResponse<List<TeacherDocumentDto>>> GetDocumentsAsync(Guid teacherId, CancellationToken cancellationToken = default);
-
-        Task<CommonResponse<TeacherDocumentFileDto>> GetDocumentFileAsync(Guid teacherId, Guid documentId, CancellationToken cancellationToken = default);
-
-        Task<CommonResponse<bool>> DeleteDocumentAsync(Guid teacherId, Guid documentId, CancellationToken cancellationToken = default);
 
         // Thin convenience aliases over IEmployeeService's salary machinery -- a Teacher's Id IS
         // its Employee's Id (shared-PK pattern), so these forward directly.
@@ -50,6 +36,10 @@ namespace Application.Teachers
         Task<CommonResponse<EmployeeMonthlyTaxBreakdownDto>> GetMonthlySalaryTaxCalculationAsync(Guid teacherId, Guid? fiscalYearId, CancellationToken cancellationToken = default);
 
         Task<CommonResponse<TaxPlanningDto>> GetTaxPlanningAsync(Guid teacherId, Guid? fiscalYearId, CancellationToken cancellationToken = default);
+
+        Task<CommonResponse<SalaryAnnualForecastDto>> GetAnnualForecastAsync(Guid teacherId, Guid? fiscalYearId, CancellationToken cancellationToken = default);
+
+        Task<CommonResponse<TaxDetailsGridDto>> GetTaxDetailsGridAsync(Guid teacherId, Guid? fiscalYearId, CancellationToken cancellationToken = default);
 
         Task<CommonResponse<DocumentPreviewDto>> GetPayslipPreviewAsync(Guid teacherId, Guid? fiscalYearId, CancellationToken cancellationToken = default);
 

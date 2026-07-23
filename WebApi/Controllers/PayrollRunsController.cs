@@ -151,6 +151,40 @@ namespace WebApi.Controllers
             return Ok(response);
         }
 
+        [HttpPost("{id:guid}/slips/{slipId:guid}/approve")]
+        public async Task<ActionResult<CommonResponse<SalarySlipDto>>> ApproveSlip(Guid id, Guid slipId, CancellationToken cancellationToken)
+        {
+            var response = await _payrollRunService.ApproveSlipAsync(id, slipId, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            if (response.ResponseCode != ResponseCodes.Success)
+            {
+                return BadRequest(response);
+            }
+
+            return Ok(response);
+        }
+
+        [HttpPost("{id:guid}/slips/{slipId:guid}/regenerate")]
+        public async Task<ActionResult<CommonResponse<SalarySlipDto>>> RegenerateSlip(Guid id, Guid slipId, CancellationToken cancellationToken)
+        {
+            var response = await _payrollRunService.RegenerateSlipAsync(id, slipId, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            if (response.ResponseCode != ResponseCodes.Success)
+            {
+                return BadRequest(response);
+            }
+
+            return Ok(response);
+        }
+
         [HttpPost("{id:guid}/slips/{slipId:guid}/lines")]
         public async Task<ActionResult<CommonResponse<SalarySlipDto>>> AddSlipLine(Guid id, Guid slipId, [FromBody] SalarySlipLineInput command, CancellationToken cancellationToken)
         {

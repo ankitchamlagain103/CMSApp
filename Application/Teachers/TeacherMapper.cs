@@ -36,23 +36,6 @@ namespace Application.Teachers
             return teacherDto;
         }
 
-        public static TeacherQualificationDto ToQualificationDto(TeacherQualification qualification)
-        {
-            var qualificationDto = new TeacherQualificationDto
-            {
-                Id = qualification.Id,
-                TeacherId = qualification.TeacherId,
-                QualificationCode = qualification.QualificationCode,
-                CourseName = qualification.CourseName,
-                Institution = qualification.Institution,
-                CompletionYear = qualification.CompletionYear,
-                Score = qualification.Score,
-                Remarks = qualification.Remarks
-            };
-
-            return qualificationDto;
-        }
-
         // Expects the assignment's ClassSubject -> AcademicClass -> AcademicYear chain (and
         // ClassSection, when set) to be loaded (GetAssignmentsAsync includes them).
         public static TeacherServiceHistoryDto ToServiceHistoryDto(TeacherAssignment assignment)
@@ -79,25 +62,6 @@ namespace Application.Teachers
             };
 
             return historyDto;
-        }
-
-        public static TeacherDocumentDto ToDocumentDto(TeacherDocument document)
-        {
-            var documentDto = new TeacherDocumentDto
-            {
-                Id = document.Id,
-                TeacherId = document.TeacherId,
-                DocumentTypeCode = document.DocumentTypeCode,
-                DocumentName = document.DocumentName,
-                FileName = document.FileName,
-                ContentType = document.ContentType,
-                FileSizeBytes = document.FileSizeBytes,
-                ValidUntil = document.ValidUntil,
-                Remarks = document.Remarks,
-                UploadedTs = document.CreatedTs
-            };
-
-            return documentDto;
         }
 
         // Expects the assignment's ClassSubject (and ClassSection, when set) navigations to be

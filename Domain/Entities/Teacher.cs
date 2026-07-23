@@ -6,9 +6,11 @@ namespace Domain.Entities
     // JobPosition Teacher/Principal/Vice Principal -- service-enforced in
     // EmployeeService.PromoteToTeacherAsync / TeacherService.CreateTeacherAsync). Identity fields
     // (name/email/phone/employee code/join date/status) all live on Employee now -- this table
-    // only carries what's teaching-specific. Qualifications/Assignments/Documents are
-    // deliberately UNCHANGED from before this split: their TeacherId FK still targets this
-    // table's Id, which now simply also happens to be an Employee id.
+    // only carries what's teaching-specific. Assignments are unchanged from before the
+    // Employee/Teacher split (TeacherId FK still targets this table's Id). Qualifications and
+    // Documents moved to Employee entirely on 2026-07-23 (EmployeeQualification/EmployeeDocument)
+    // -- they were never actually teaching-specific (any staff member can hold a degree or need a
+    // citizenship document on file), so Teacher no longer owns those collections at all.
     public class Teacher : AuditableEntity
     {
         public Guid Id { get; set; }
@@ -17,8 +19,6 @@ namespace Domain.Entities
         public string Specialization { get; set; }
 
         public virtual Employee Employee { get; set; }
-        public virtual ICollection<TeacherQualification> Qualifications { get; set; } = new List<TeacherQualification>();
         public virtual ICollection<TeacherAssignment> Assignments { get; set; } = new List<TeacherAssignment>();
-        public virtual ICollection<TeacherDocument> Documents { get; set; } = new List<TeacherDocument>();
     }
 }

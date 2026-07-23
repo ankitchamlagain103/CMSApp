@@ -1,9 +1,7 @@
-namespace Application.Teachers.Dtos
+namespace Application.Employees.Commands
 {
-    public class TeacherQualificationDto
+    public class AddEmployeeQualificationCommand
     {
-        public Guid Id { get; set; }
-        public Guid TeacherId { get; set; }
         public string QualificationCode { get; set; }
         public string CourseName { get; set; }
         public string Institution { get; set; }

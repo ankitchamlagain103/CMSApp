@@ -4,21 +4,21 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 namespace Infrastructure.Persistence.EntityConfigurations
 {
-    public class TeacherDocumentConfiguration : AuditableEntityConfiguration<TeacherDocument>
+    public class EmployeeDocumentConfiguration : AuditableEntityConfiguration<EmployeeDocument>
     {
-        public override void Configure(EntityTypeBuilder<TeacherDocument> builder)
+        public override void Configure(EntityTypeBuilder<EmployeeDocument> builder)
         {
             base.Configure(builder);
 
-            builder.ToTable("teacher_documents", "dbo");
+            builder.ToTable("employee_documents", "dbo");
 
             builder.HasKey(d => d.Id);
 
             builder.Property(d => d.Id)
                     .HasColumnName("id");
 
-            builder.Property(d => d.TeacherId)
-                    .HasColumnName("teacher_id")
+            builder.Property(d => d.EmployeeId)
+                    .HasColumnName("employee_id")
                     .IsRequired();
 
             // Config code (TypeCode 1006), not a database FK -- see AcademicClassConfiguration.
@@ -58,13 +58,13 @@ namespace Infrastructure.Persistence.EntityConfigurations
                     .HasColumnName("remarks")
                     .HasMaxLength(500);
 
-            builder.HasOne(d => d.Teacher)
-                    .WithMany(t => t.Documents)
-                    .HasForeignKey(d => d.TeacherId)
+            builder.HasOne(d => d.Employee)
+                    .WithMany(e => e.Documents)
+                    .HasForeignKey(d => d.EmployeeId)
                     .OnDelete(DeleteBehavior.Restrict);
 
-            builder.HasIndex(d => d.TeacherId)
-                    .HasDatabaseName("ix_teacher_documents_teacher_id");
+            builder.HasIndex(d => d.EmployeeId)
+                    .HasDatabaseName("ix_employee_documents_employee_id");
         }
     }
 }

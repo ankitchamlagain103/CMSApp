@@ -41,7 +41,9 @@ namespace Infrastructure.Persistence.Repositories
 
             if (!string.IsNullOrWhiteSpace(filter.QualificationCode))
             {
-                teachersQuery = teachersQuery.Where(teacher => teacher.Qualifications.Any(qualification => qualification.QualificationCode == filter.QualificationCode));
+                // Qualifications moved to Employee (2026-07-23) -- join across the shared-PK nav,
+                // same as every other identity-field filter above.
+                teachersQuery = teachersQuery.Where(teacher => teacher.Employee.Qualifications.Any(qualification => qualification.QualificationCode == filter.QualificationCode));
             }
 
             if (filter.FromDate.HasValue || filter.ToDate.HasValue)
@@ -118,34 +120,6 @@ namespace Infrastructure.Persistence.Repositories
             return hasAssignments;
         }
 
-        public async Task<IReadOnlyList<TeacherQualification>> GetQualificationsAsync(Guid teacherId, CancellationToken cancellationToken = default)
-        {
-            var qualifications = await DbContext.Set<TeacherQualification>()
-                .Where(qualification => qualification.TeacherId == teacherId)
-                .OrderByDescending(qualification => qualification.CompletionYear)
-                .ToListAsync(cancellationToken);
-
-            return qualifications;
-        }
-
-        public async Task<TeacherQualification> GetQualificationByIdAsync(Guid qualificationId, CancellationToken cancellationToken = default)
-        {
-            var qualification = await DbContext.Set<TeacherQualification>()
-                .FirstOrDefaultAsync(q => q.Id == qualificationId, cancellationToken);
-
-            return qualification;
-        }
-
-        public async Task AddQualificationAsync(TeacherQualification qualification, CancellationToken cancellationToken = default)
-        {
-            await DbContext.Set<TeacherQualification>().AddAsync(qualification, cancellationToken);
-        }
-
-        public void RemoveQualification(TeacherQualification qualification)
-        {
-            DbContext.Set<TeacherQualification>().Remove(qualification);
-        }
-
         public async Task<IReadOnlyList<TeacherAssignment>> GetAssignmentsAsync(Guid teacherId, CancellationToken cancellationToken = default)
         {
             // The year chain is included so the teacher detail can build service history from
@@ -215,35 +189,6 @@ namespace Infrastructure.Persistence.Repositories
         public void RemoveAssignment(TeacherAssignment assignment)
         {
             DbContext.Set<TeacherAssignment>().Remove(assignment);
-        }
-
-        public async Task<IReadOnlyList<TeacherDocument>> GetDocumentsAsync(Guid teacherId, CancellationToken cancellationToken = default)
-        {
-            var documents = await DbContext.Set<TeacherDocument>()
-                .Where(document => document.TeacherId == teacherId)
-                .OrderBy(document => document.DocumentTypeCode)
-                .ThenBy(document => document.DocumentName)
-                .ToListAsync(cancellationToken);
-
-            return documents;
-        }
-
-        public async Task<TeacherDocument> GetDocumentByIdAsync(Guid documentId, CancellationToken cancellationToken = default)
-        {
-            var document = await DbContext.Set<TeacherDocument>()
-                .FirstOrDefaultAsync(d => d.Id == documentId, cancellationToken);
-
-            return document;
-        }
-
-        public async Task AddDocumentAsync(TeacherDocument document, CancellationToken cancellationToken = default)
-        {
-            await DbContext.Set<TeacherDocument>().AddAsync(document, cancellationToken);
-        }
-
-        public void RemoveDocument(TeacherDocument document)
-        {
-            DbContext.Set<TeacherDocument>().Remove(document);
         }
     }
 }

@@ -18,5 +18,16 @@ namespace Application.Employees.Dtos
 
         // min(a, b, c) -- same value as TaxCalculationResultDto.RetirementExemption.
         public decimal ExemptionApplied { get; set; }
+
+        // How much MORE the employee could contribute and still have every rupee of it count
+        // toward the exemption -- i.e. how much headroom is left under min(b, c) beyond what's
+        // already contributed (a). Capped by BOTH b and c, not just c: contributing beyond
+        // min(b, c) buys no further tax benefit even if c (the fiscal year's cap) is still far
+        // away, since b (1/3 of taxable income) binds first. Zero once (a) already meets or
+        // exceeds min(b, c). This is the "you can contribute an additional NPR X to save more tax"
+        // figure -- exposed here so the frontend binds it instead of recomputing it (a prior
+        // frontend build used (c - a) alone, ignoring the (b) cap, which overstates the useful
+        // additional contribution whenever b < c).
+        public decimal AdditionalContributionAvailable { get; set; }
     }
 }

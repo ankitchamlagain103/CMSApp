@@ -2,6 +2,7 @@ using Application.Common.Helpers;
 using Application.Common.Interfaces;
 using Application.Common.Models;
 using Application.Payroll;
+using Application.Payroll.Dtos;
 using Application.PayrollRuns.Commands;
 using Application.PayrollRuns.Dtos;
 using Application.PayrollRuns.Queries;
@@ -106,6 +107,7 @@ namespace Application.PayrollRuns
 
             var insuranceTypeCaps = await BuildInsuranceTypeCapsAsync(cancellationToken);
             var payrollLabels = await LoadPayrollLabelMapAsync(cancellationToken);
+            var calculationConfigByCode = await LoadSalaryLineCalculationConfigAsync(cancellationToken);
             var taxSlabsByAssessmentType = new Dictionary<TaxAssessmentType, IReadOnlyList<TaxSlab>>();
 
             var slipNoPrefix = SlipNoPrefix + fiscalYear.Code;
@@ -167,9 +169,11 @@ namespace Application.PayrollRuns
                     salary.InsurancePremiums.ToList(),
                     insuranceTypeCaps,
                     fiscalYear.RetirementExemptionCapAmount,
-                    taxSlabs);
+                    taxSlabs,
+                    null,
+                    calculationConfigByCode);
 
-                var months = MonthlyBreakdownCalculator.Build(components, deductions, salary.EffectiveFromDate, fiscalYear, taxCalculation.AnnualTax, payrollLabels);
+                var months = MonthlyBreakdownCalculator.Build(components, deductions, salary.EffectiveFromDate, fiscalYear, taxCalculation.AnnualTax, payrollLabels, calculationConfigByCode);
                 var monthRow = months[command.MonthIndex - 1];
 
                 loansByEmployee.TryGetValue(employee.Id, out var employeeLoans);
@@ -297,6 +301,7 @@ namespace Application.PayrollRuns
 
             var insuranceTypeCaps = await BuildInsuranceTypeCapsAsync(cancellationToken);
             var payrollLabels = await LoadPayrollLabelMapAsync(cancellationToken);
+            var calculationConfigByCode = await LoadSalaryLineCalculationConfigAsync(cancellationToken);
             var taxSlabsByAssessmentType = new Dictionary<TaxAssessmentType, IReadOnlyList<TaxSlab>>();
 
             var slipNoPrefix = SlipNoPrefix + fiscalYear.Code;
@@ -378,9 +383,11 @@ namespace Application.PayrollRuns
                     salary.InsurancePremiums.ToList(),
                     insuranceTypeCaps,
                     fiscalYear.RetirementExemptionCapAmount,
-                    taxSlabs);
+                    taxSlabs,
+                    null,
+                    calculationConfigByCode);
 
-                var months = MonthlyBreakdownCalculator.Build(components, deductions, salary.EffectiveFromDate, fiscalYear, taxCalculation.AnnualTax, payrollLabels);
+                var months = MonthlyBreakdownCalculator.Build(components, deductions, salary.EffectiveFromDate, fiscalYear, taxCalculation.AnnualTax, payrollLabels, calculationConfigByCode);
                 var monthRow = months[run.MonthIndex - 1];
 
                 loansByEmployee.TryGetValue(employee.Id, out var employeeLoans);
@@ -662,6 +669,143 @@ namespace Application.PayrollRuns
             return successResponse;
         }
 
+        // 2026-07-22: approve one slip independently of the whole run -- the finer-grained
+        // counterpart to ApproveRunAsync's bulk lock. Deliberately does NOT touch the run's own
+        // status or any other slip; the bulk "Approve Run" action remains the way to lock
+        // everything at once. Locks the slip's lines the same way approving the run does (every
+        // Add/Update/Remove Slip Line call already rejects a non-Draft slip).
+        public async Task<CommonResponse<SalarySlipDto>> ApproveSlipAsync(Guid runId, Guid slipId, CancellationToken cancellationToken = default)
+        {
+            var slip = await _unitOfWork.PayrollRuns.GetSlipByIdAsync(slipId, cancellationToken);
+            if (slip == null || slip.PayrollRunId != runId)
+            {
+                var notFoundResponse = CommonResponse<SalarySlipDto>.Fail(ResponseCodes.NotFound, "Salary slip was not found on this payroll run.");
+                return notFoundResponse;
+            }
+
+            if (slip.Status != SalarySlipStatus.Draft)
+            {
+                var wrongStateResponse = CommonResponse<SalarySlipDto>.Fail(ResponseCodes.Conflict, "Only a Draft slip can be approved; this one is '" + slip.Status + "'.");
+                return wrongStateResponse;
+            }
+
+            slip.Status = SalarySlipStatus.Approved;
+
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            var slipDto = PayrollRunMapper.ToSlipDto(slip, includeLines: true);
+            var successResponse = CommonResponse<SalarySlipDto>.Success(slipDto, "Salary slip approved.");
+            return successResponse;
+        }
+
+        // 2026-07-22: the deliberate, admin-triggered counterpart to CancelSlipAsync -- fully
+        // rebuilds ONE slip from the current compensation plan/tax configuration (same pipeline
+        // CreateRunAsync/RefreshRunAsync use), un-cancelling it in the process. Works on a
+        // Cancelled slip (the primary case: "actually, un-cancel and rebuild this one") or an
+        // already-Draft slip (equivalent to refreshing just this one employee). Deliberately does
+        // NOT run for Approved/Paid slips, and deliberately does NOT happen automatically as part
+        // of a whole-run Refresh -- RefreshRunAsync intentionally leaves an individually-cancelled
+        // slip cancelled (it may represent a real leaver), so reviving it is a separate, explicit
+        // per-slip action an admin opts into here, not a side effect of refreshing everyone else.
+        public async Task<CommonResponse<SalarySlipDto>> RegenerateSlipAsync(Guid runId, Guid slipId, CancellationToken cancellationToken = default)
+        {
+            var run = await _unitOfWork.PayrollRuns.GetByIdAsync(runId, cancellationToken);
+            var slip = await _unitOfWork.PayrollRuns.GetSlipByIdAsync(slipId, cancellationToken);
+            if (run == null || slip == null || slip.PayrollRunId != runId)
+            {
+                var notFoundResponse = CommonResponse<SalarySlipDto>.Fail(ResponseCodes.NotFound, "Salary slip was not found on this payroll run.");
+                return notFoundResponse;
+            }
+
+            if (slip.Status != SalarySlipStatus.Cancelled && slip.Status != SalarySlipStatus.Draft)
+            {
+                var wrongStateResponse = CommonResponse<SalarySlipDto>.Fail(ResponseCodes.Conflict, "Only a Cancelled or Draft slip can be regenerated; this one is '" + slip.Status + "'.");
+                return wrongStateResponse;
+            }
+
+            var fiscalYear = await _unitOfWork.FiscalYears.GetByIdAsync(run.FiscalYearId, cancellationToken);
+            if (fiscalYear == null)
+            {
+                var noFiscalYearResponse = CommonResponse<SalarySlipDto>.Fail(ResponseCodes.NotFound, "Fiscal year for this run was not found.");
+                return noFiscalYearResponse;
+            }
+
+            // Deliberately the SAME eligible-employee source CreateRunAsync/RefreshRunAsync use --
+            // if the employee is no longer payroll-eligible (e.g. the leaver this slip was
+            // cancelled for), they won't be found here, and regeneration correctly refuses rather
+            // than silently reviving pay for someone who shouldn't be paid.
+            var employees = await _unitOfWork.Employees.GetPayrollEligibleEmployeesAsync(cancellationToken);
+            Employee employee = null;
+            foreach (var candidate in employees)
+            {
+                if (candidate.Id == slip.EmployeeId)
+                {
+                    employee = candidate;
+                }
+            }
+
+            if (employee == null)
+            {
+                var notEligibleResponse = CommonResponse<SalarySlipDto>.Fail(ResponseCodes.ValidationError, "This employee is not currently payroll-eligible -- can't regenerate their slip.");
+                return notEligibleResponse;
+            }
+
+            var salary = ResolveSalaryRevisionForMonth(employee, fiscalYear, run.MonthIndex);
+            if (salary == null)
+            {
+                var noSalaryResponse = CommonResponse<SalarySlipDto>.Fail(ResponseCodes.ValidationError, "No compensation-plan revision is effective for this month -- can't regenerate.");
+                return noSalaryResponse;
+            }
+
+            var taxSlabs = await _unitOfWork.FiscalYears.GetTaxSlabsAsync(fiscalYear.Id, salary.AssessmentType, cancellationToken);
+            if (taxSlabs.Count == 0)
+            {
+                var noSlabsResponse = CommonResponse<SalarySlipDto>.Fail(ResponseCodes.ValidationError, "Fiscal year '" + fiscalYear.Code + "' has no tax slabs configured for assessment type '" + salary.AssessmentType + "'.");
+                return noSlabsResponse;
+            }
+
+            var insuranceTypeCaps = await BuildInsuranceTypeCapsAsync(cancellationToken);
+            var payrollLabels = await LoadPayrollLabelMapAsync(cancellationToken);
+            var calculationConfigByCode = await LoadSalaryLineCalculationConfigAsync(cancellationToken);
+
+            var components = salary.Components.ToList();
+            var deductions = salary.Deductions.ToList();
+
+            var taxCalculation = TaxCalculator.CalculateFromSalary(
+                components,
+                deductions,
+                salary.InsurancePremiums.ToList(),
+                insuranceTypeCaps,
+                fiscalYear.RetirementExemptionCapAmount,
+                taxSlabs,
+                null,
+                calculationConfigByCode);
+
+            var months = MonthlyBreakdownCalculator.Build(components, deductions, salary.EffectiveFromDate, fiscalYear, taxCalculation.AnnualTax, payrollLabels, calculationConfigByCode);
+            var monthRow = months[run.MonthIndex - 1];
+
+            var approvedLoans = await _unitOfWork.Employees.GetApprovedLoansByEmployeeIdsAsync(new List<Guid> { employee.Id }, cancellationToken);
+
+            var periodPendingAdjustments = await _unitOfWork.Employees.GetPendingSalaryAdjustmentsForPeriodAsync(fiscalYear.Id, run.MonthIndex, cancellationToken);
+            var employeeAdjustments = new List<SalaryAdjustment>();
+            foreach (var adjustment in periodPendingAdjustments)
+            {
+                if (adjustment.EmployeeId == employee.Id)
+                {
+                    employeeAdjustments.Add(adjustment);
+                }
+            }
+
+            slip.Status = SalarySlipStatus.Draft;
+            RebuildSlip(slip, salary, monthRow, components, approvedLoans, employeeAdjustments, payrollLabels);
+
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            var slipDto = PayrollRunMapper.ToSlipDto(slip, includeLines: true);
+            var successResponse = CommonResponse<SalarySlipDto>.Success(slipDto, "Salary slip regenerated from the current configuration.");
+            return successResponse;
+        }
+
         public async Task<CommonResponse<SalarySlipDto>> AddSlipLineAsync(Guid runId, Guid slipId, SalarySlipLineInput command, CancellationToken cancellationToken = default)
         {
             var validationResult = _lineInputValidator.Validate(command);
@@ -672,8 +816,9 @@ namespace Application.PayrollRuns
                 return validationFailureResponse;
             }
 
+            var run = await _unitOfWork.PayrollRuns.GetByIdAsync(runId, cancellationToken);
             var slip = await _unitOfWork.PayrollRuns.GetSlipByIdAsync(slipId, cancellationToken);
-            if (slip == null || slip.PayrollRunId != runId)
+            if (run == null || slip == null || slip.PayrollRunId != runId)
             {
                 var notFoundResponse = CommonResponse<SalarySlipDto>.Fail(ResponseCodes.NotFound, "Salary slip was not found on this payroll run.");
                 return notFoundResponse;
@@ -685,12 +830,43 @@ namespace Application.PayrollRuns
                 return lockedResponse;
             }
 
+            var componentCode = command.ComponentCode?.Trim();
+            var salary = await _unitOfWork.Employees.GetSalaryWithLineItemsAsync(slip.EmployeeSalaryId, cancellationToken);
+            var syncedToStructure = false;
+
+            // 2026-07-22: a manual Earning/Deduction line with a real catalog code becomes a
+            // permanent part of the employee's compensation plan too, not just this one slip --
+            // adds to an existing component/deduction's Value, or inserts a new one (Fixed,
+            // frequency per ApplyDeltaToSalaryStructureAsync's ResolveFrequency call) if the code
+            // isn't already on this revision. Blocking: reject the whole add if the code is
+            // unknown, mis-catalogued (see SalaryLineCalculationHelper.ValidateCalculateType), or
+            // locked to a catalog percentage (see SalaryLineCalculationHelper.ValidatePercentageLock).
+            if (salary != null && !string.IsNullOrWhiteSpace(componentCode) && (command.LineType == SalaryLineType.Earning || command.LineType == SalaryLineType.Deduction))
+            {
+                var structureSyncError = await ApplyDeltaToSalaryStructureAsync(salary, command.LineType, componentCode, command.Amount, allowInsert: true, cancellationToken);
+                if (structureSyncError != null)
+                {
+                    var structureSyncFailureResponse = CommonResponse<SalarySlipDto>.Fail(ResponseCodes.ValidationError, structureSyncError);
+                    return structureSyncFailureResponse;
+                }
+
+                syncedToStructure = true;
+            }
+
+            // Once a line's amount is backed by the real structure, it must NOT also survive as
+            // a Manual line across a future refresh -- RebuildSlip removes every non-Manual line
+            // and regenerates Salary Structure lines fresh from the (now-updated) components/
+            // deductions, so "Manual" here would double the amount the moment this same slip is
+            // rebuilt (verified: this employee's own EffectiveFromDate falls in this exact fiscal
+            // month, so a synced line's OneTime placement lands right back on this same slip).
+            // Marking it SalaryStructure instead means the next refresh correctly replaces it
+            // with the one true regenerated line instead of keeping both.
             var line = new SalarySlipLine
             {
                 SalarySlipId = slipId,
                 LineType = command.LineType,
-                Source = SalaryLineSource.Manual,
-                ComponentCode = command.ComponentCode?.Trim(),
+                Source = syncedToStructure ? SalaryLineSource.SalaryStructure : SalaryLineSource.Manual,
+                ComponentCode = componentCode,
                 Description = command.Description.Trim(),
                 Amount = command.Amount,
                 SalarySlip = slip
@@ -699,6 +875,7 @@ namespace Application.PayrollRuns
             slip.Lines.Add(line);
             await _unitOfWork.PayrollRuns.AddSlipLineAsync(line, cancellationToken);
 
+            await RecalculateSlipTaxAsync(slip, salary, run.FiscalYearId, cancellationToken);
             RecomputeSlipTotals(slip);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
@@ -717,8 +894,9 @@ namespace Application.PayrollRuns
                 return validationFailureResponse;
             }
 
+            var run = await _unitOfWork.PayrollRuns.GetByIdAsync(runId, cancellationToken);
             var slip = await _unitOfWork.PayrollRuns.GetSlipByIdAsync(slipId, cancellationToken);
-            if (slip == null || slip.PayrollRunId != runId)
+            if (run == null || slip == null || slip.PayrollRunId != runId)
             {
                 var notFoundResponse = CommonResponse<SalarySlipDto>.Fail(ResponseCodes.NotFound, "Salary slip was not found on this payroll run.");
                 return notFoundResponse;
@@ -745,9 +923,22 @@ namespace Application.PayrollRuns
                 return lineNotFoundResponse;
             }
 
+            var salary = await _unitOfWork.Employees.GetSalaryWithLineItemsAsync(slip.EmployeeSalaryId, cancellationToken);
+
+            // 2026-07-22: best-effort mirror of the amount change onto whatever structure
+            // component/deduction this manual line originally added to/created (matched by
+            // code, since a slip line has no direct FK to the structure row it touched) --
+            // never blocks the update itself; a mismatch just leaves the structure untouched.
+            if (salary != null && line.Source == SalaryLineSource.Manual && !string.IsNullOrWhiteSpace(line.ComponentCode) && (line.LineType == SalaryLineType.Earning || line.LineType == SalaryLineType.Deduction))
+            {
+                var delta = command.Amount - line.Amount;
+                await ApplyDeltaToSalaryStructureAsync(salary, line.LineType, line.ComponentCode, delta, allowInsert: false, cancellationToken);
+            }
+
             line.Description = command.Description.Trim();
             line.Amount = command.Amount;
 
+            await RecalculateSlipTaxAsync(slip, salary, run.FiscalYearId, cancellationToken);
             RecomputeSlipTotals(slip);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
@@ -758,8 +949,9 @@ namespace Application.PayrollRuns
 
         public async Task<CommonResponse<SalarySlipDto>> RemoveSlipLineAsync(Guid runId, Guid slipId, Guid lineId, CancellationToken cancellationToken = default)
         {
+            var run = await _unitOfWork.PayrollRuns.GetByIdAsync(runId, cancellationToken);
             var slip = await _unitOfWork.PayrollRuns.GetSlipByIdAsync(slipId, cancellationToken);
-            if (slip == null || slip.PayrollRunId != runId)
+            if (run == null || slip == null || slip.PayrollRunId != runId)
             {
                 var notFoundResponse = CommonResponse<SalarySlipDto>.Fail(ResponseCodes.NotFound, "Salary slip was not found on this payroll run.");
                 return notFoundResponse;
@@ -798,9 +990,19 @@ namespace Application.PayrollRuns
                 }
             }
 
+            var salary = await _unitOfWork.Employees.GetSalaryWithLineItemsAsync(slip.EmployeeSalaryId, cancellationToken);
+
+            // 2026-07-22: best-effort reversal of whatever this manual line originally added to
+            // the structure (matched by code) -- never blocks the removal itself.
+            if (salary != null && line.Source == SalaryLineSource.Manual && !string.IsNullOrWhiteSpace(line.ComponentCode) && (line.LineType == SalaryLineType.Earning || line.LineType == SalaryLineType.Deduction))
+            {
+                await ApplyDeltaToSalaryStructureAsync(salary, line.LineType, line.ComponentCode, -line.Amount, allowInsert: false, cancellationToken);
+            }
+
             slip.Lines.Remove(line);
             _unitOfWork.PayrollRuns.RemoveSlipLine(line);
 
+            await RecalculateSlipTaxAsync(slip, salary, run.FiscalYearId, cancellationToken);
             RecomputeSlipTotals(slip);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
@@ -886,7 +1088,13 @@ namespace Application.PayrollRuns
         // Shared by BuildSlip (initial generation) and RebuildSlip (refresh): adds the
         // structure/tax/loan-EMI/adjustment lines to a slip whose PayDays/UnpaidLeaveDays are at
         // their reset values, then recomputes the stored totals. Any Manual lines already on the
-        // slip are left alone and simply flow into the recomputed totals.
+        // slip are left alone and simply flow into the recomputed totals -- UNLESS a surviving
+        // line shares its ComponentCode with a regenerated Salary Structure line (2026-07-22):
+        // that happens when a manual adjustment (a Dashain bonus, overtime, ...) was synced into
+        // the structure -- possibly a legacy line from before a Manual-vs-SalaryStructure
+        // labeling fix, or any other same-code collision -- and re-adding a second row for the
+        // same code would double it on this one slip. In that case the surviving line is updated
+        // in place (new amount/label/Source) instead of a duplicate being added.
         private static void PopulateSlipLines(
             SalarySlip slip,
             Application.Payroll.Dtos.MonthlyBreakdownRowDto monthRow,
@@ -897,6 +1105,15 @@ namespace Application.PayrollRuns
         {
             foreach (var incomeLine in monthRow.IncomeLines)
             {
+                var existingLine = FindLineByCode(slip.Lines, SalaryLineType.Earning, incomeLine.Code);
+                if (existingLine != null)
+                {
+                    existingLine.Source = SalaryLineSource.SalaryStructure;
+                    existingLine.Description = incomeLine.Label;
+                    existingLine.Amount = incomeLine.Amount;
+                    continue;
+                }
+
                 var earningLine = new SalarySlipLine
                 {
                     SalarySlipId = slip.Id,
@@ -912,6 +1129,15 @@ namespace Application.PayrollRuns
 
             foreach (var deductionLine in monthRow.DeductionLines)
             {
+                var existingLine = FindLineByCode(slip.Lines, SalaryLineType.Deduction, deductionLine.Code);
+                if (existingLine != null)
+                {
+                    existingLine.Source = SalaryLineSource.SalaryStructure;
+                    existingLine.Description = deductionLine.Label;
+                    existingLine.Amount = deductionLine.Amount;
+                    continue;
+                }
+
                 var structureDeductionLine = new SalarySlipLine
                 {
                     SalarySlipId = slip.Id,
@@ -1011,6 +1237,27 @@ namespace Application.PayrollRuns
             RecomputeSlipTotals(slip);
         }
 
+        // Used by PopulateSlipLines to detect a same-code collision between a surviving line
+        // (almost always a Manual one that got synced into the structure) and a freshly
+        // regenerated Salary Structure line, so the two merge into one row instead of doubling.
+        private static SalarySlipLine FindLineByCode(IEnumerable<SalarySlipLine> lines, SalaryLineType lineType, string code)
+        {
+            if (string.IsNullOrWhiteSpace(code))
+            {
+                return null;
+            }
+
+            foreach (var line in lines)
+            {
+                if (line.LineType == lineType && line.ComponentCode == code)
+                {
+                    return line;
+                }
+            }
+
+            return null;
+        }
+
         // "Effective for the month" = the latest revision whose EffectiveFromDate is on/before
         // the fiscal month's period end (P2) -- a refinement over "always the latest revision".
         private static EmployeeSalary ResolveSalaryRevisionForMonth(Employee employee, FiscalYear fiscalYear, int monthIndex)
@@ -1076,22 +1323,217 @@ namespace Application.PayrollRuns
             slip.NetPay = grossEarnings - totalDeductions;
         }
 
-        // Same Config-catalog read as EmployeeService's tax-calculation path (InsuranceType
-        // options carry their Nepal tax-deduction cap in AdditionalValue1).
-        private async Task<Dictionary<string, decimal>> BuildInsuranceTypeCapsAsync(CancellationToken cancellationToken)
+        // 2026-07-22: re-derives this slip's TDS line from the (possibly just-changed) salary
+        // structure -- editing a Draft slip's manual lines used to leave the Tax line frozen at
+        // its generation-time value, so NetPay silently ignored the added/removed income. Reuses
+        // the exact same TaxCalculator pipeline generation/refresh already use, so this can never
+        // disagree with them. No-ops (leaves the Tax line as-is) if the salary, fiscal year, or
+        // tax slabs can't be resolved -- a slip line edit should never itself start failing
+        // because of an unrelated missing config.
+        private async Task RecalculateSlipTaxAsync(SalarySlip slip, EmployeeSalary salary, Guid fiscalYearId, CancellationToken cancellationToken)
         {
-            var insuranceTypeCaps = new Dictionary<string, decimal>();
-
-            var insuranceTypeConfigs = await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.InsuranceType, cancellationToken);
-            foreach (var insuranceTypeConfig in insuranceTypeConfigs)
+            if (salary == null)
             {
-                if (decimal.TryParse(insuranceTypeConfig.AdditionalValue1, out var capAmount))
+                return;
+            }
+
+            var fiscalYear = await _unitOfWork.FiscalYears.GetByIdAsync(fiscalYearId, cancellationToken);
+            if (fiscalYear == null)
+            {
+                return;
+            }
+
+            var taxSlabs = await _unitOfWork.FiscalYears.GetTaxSlabsAsync(fiscalYearId, salary.AssessmentType, cancellationToken);
+            if (taxSlabs.Count == 0)
+            {
+                return;
+            }
+
+            var insuranceTypeCaps = await BuildInsuranceTypeCapsAsync(cancellationToken);
+            var calculationConfigByCode = await LoadSalaryLineCalculationConfigAsync(cancellationToken);
+
+            var taxCalculation = TaxCalculator.CalculateFromSalary(
+                salary.Components.ToList(),
+                salary.Deductions.ToList(),
+                salary.InsurancePremiums.ToList(),
+                insuranceTypeCaps,
+                fiscalYear.RetirementExemptionCapAmount,
+                taxSlabs,
+                null,
+                calculationConfigByCode);
+
+            SalarySlipLine taxLine = null;
+            foreach (var existingLine in slip.Lines)
+            {
+                if (existingLine.LineType == SalaryLineType.Tax)
                 {
-                    insuranceTypeCaps[insuranceTypeConfig.Code] = capAmount;
+                    taxLine = existingLine;
                 }
             }
 
-            return insuranceTypeCaps;
+            if (taxLine != null)
+            {
+                taxLine.Amount = taxCalculation.MonthlyTax;
+            }
+            else if (taxCalculation.MonthlyTax > 0m)
+            {
+                var newTaxLine = new SalarySlipLine
+                {
+                    SalarySlipId = slip.Id,
+                    LineType = SalaryLineType.Tax,
+                    Source = SalaryLineSource.TaxCalculator,
+                    ComponentCode = "TDS",
+                    Description = "TDS (income tax)",
+                    Amount = taxCalculation.MonthlyTax,
+                    SalarySlip = slip
+                };
+                slip.Lines.Add(newTaxLine);
+                await _unitOfWork.PayrollRuns.AddSlipLineAsync(newTaxLine, cancellationToken);
+            }
+        }
+
+        // 2026-07-22: upserts a manual Earning/Deduction slip line's amount (or its delta, on
+        // update/remove) into the employee's actual compensation plan, by ComponentCode/
+        // DeductionCode -- adds to an existing Fixed-amount line, or (allowInsert only) inserts a
+        // new Fixed/OneTime one. Returns an error message (Add should reject on it) or null
+        // (Update/Remove call this best-effort and ignore the result). A percentage-locked
+        // catalog code (see SalaryLineCalculationHelper) can never take a manual cash amount.
+        private async Task<string> ApplyDeltaToSalaryStructureAsync(EmployeeSalary salary, SalaryLineType lineType, string code, decimal delta, bool allowInsert, CancellationToken cancellationToken)
+        {
+            if (delta == 0m)
+            {
+                return null;
+            }
+
+            if (lineType == SalaryLineType.Earning)
+            {
+                EmployeeSalaryComponent existingComponent = null;
+                foreach (var component in salary.Components)
+                {
+                    if (component.ComponentCode == code)
+                    {
+                        existingComponent = component;
+                    }
+                }
+
+                if (existingComponent != null)
+                {
+                    if (existingComponent.ValueType != AwardValueType.FixedAmount)
+                    {
+                        return allowInsert ? "'" + code + "' is Percentage-valued on this salary revision -- a manual cash amount can only merge into a Fixed-amount component." : null;
+                    }
+
+                    existingComponent.Value = Math.Max(0m, existingComponent.Value + delta);
+                    return null;
+                }
+
+                if (!allowInsert)
+                {
+                    return null;
+                }
+
+                var catalogOption = await _unitOfWork.Configs.GetByTypeCodeAndCodeAsync(ConfigTypeCodes.SalaryComponentType, code, cancellationToken);
+                if (catalogOption == null)
+                {
+                    return "ComponentCode '" + code + "' is not a known salary component option.";
+                }
+
+                var calculateTypeError = SalaryLineCalculationHelper.ValidateCalculateType(catalogOption, SalaryLineCalculateTypes.Addition);
+                if (calculateTypeError != null)
+                {
+                    return calculateTypeError;
+                }
+
+                var percentageLockError = SalaryLineCalculationHelper.ValidatePercentageLock(catalogOption, AwardValueType.FixedAmount, delta);
+                if (percentageLockError != null)
+                {
+                    return "'" + code + "' is locked to a catalog percentage and can't take a manual cash amount -- adjust it through the salary revision tools instead.";
+                }
+
+                // 2026-07-23: the inserted line's frequency now follows the catalog's own locked
+                // FREQUENCY segment when the code carries one (e.g. a recurring allowance merges
+                // in as Monthly, not a one-off) -- falls back to OneTime for a code with no rule
+                // at all, which is today's exact prior behavior.
+                var newComponent = new EmployeeSalaryComponent
+                {
+                    EmployeeSalaryId = salary.Id,
+                    ComponentCode = code,
+                    ValueType = AwardValueType.FixedAmount,
+                    Value = delta,
+                    FrequencyType = SalaryLineCalculationHelper.ResolveFrequency(catalogOption) ?? PayFrequencyType.OneTime,
+                    IsTaxable = true,
+                    IsRetirementContribution = false,
+                    EmployeeSalary = salary
+                };
+                salary.Components.Add(newComponent);
+                await _unitOfWork.Employees.AddSalaryComponentAsync(newComponent, cancellationToken);
+                return null;
+            }
+
+            EmployeeSalaryDeduction existingDeduction = null;
+            foreach (var deduction in salary.Deductions)
+            {
+                if (deduction.DeductionCode == code)
+                {
+                    existingDeduction = deduction;
+                }
+            }
+
+            if (existingDeduction != null)
+            {
+                if (existingDeduction.ValueType != AwardValueType.FixedAmount)
+                {
+                    return allowInsert ? "'" + code + "' is Percentage-valued on this salary revision -- a manual cash amount can only merge into a Fixed-amount deduction." : null;
+                }
+
+                existingDeduction.Value = Math.Max(0m, existingDeduction.Value + delta);
+                return null;
+            }
+
+            if (!allowInsert)
+            {
+                return null;
+            }
+
+            var deductionCatalogOption = await _unitOfWork.Configs.GetByTypeCodeAndCodeAsync(ConfigTypeCodes.DeductionType, code, cancellationToken);
+            if (deductionCatalogOption == null)
+            {
+                return "DeductionCode '" + code + "' is not a known deduction option.";
+            }
+
+            var deductionCalculateTypeError = SalaryLineCalculationHelper.ValidateCalculateType(deductionCatalogOption, SalaryLineCalculateTypes.Deduction);
+            if (deductionCalculateTypeError != null)
+            {
+                return deductionCalculateTypeError;
+            }
+
+            var deductionPercentageLockError = SalaryLineCalculationHelper.ValidatePercentageLock(deductionCatalogOption, AwardValueType.FixedAmount, delta);
+            if (deductionPercentageLockError != null)
+            {
+                return "'" + code + "' is locked to a catalog percentage and can't take a manual cash amount -- adjust it through the salary revision tools instead.";
+            }
+
+            var newDeduction = new EmployeeSalaryDeduction
+            {
+                EmployeeSalaryId = salary.Id,
+                DeductionCode = code,
+                ValueType = AwardValueType.FixedAmount,
+                Value = delta,
+                FrequencyType = SalaryLineCalculationHelper.ResolveFrequency(deductionCatalogOption) ?? PayFrequencyType.OneTime,
+                IsRetirementContribution = false,
+                EmployeeSalary = salary
+            };
+            salary.Deductions.Add(newDeduction);
+            await _unitOfWork.Employees.AddSalaryDeductionAsync(newDeduction, cancellationToken);
+            return null;
+        }
+
+        // Same Config-catalog read as EmployeeService's tax-calculation path (InsuranceType
+        // options carry their Nepal tax-deduction cap in AdditionalValue1).
+        private async Task<Dictionary<string, InsuranceCapConfig>> BuildInsuranceTypeCapsAsync(CancellationToken cancellationToken)
+        {
+            var insuranceTypeConfigs = await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.InsuranceType, cancellationToken);
+            return InsuranceCapHelper.BuildCapMap(insuranceTypeConfigs);
         }
 
         // Merged label map for every catalog a slip line's code can come from -- salary
@@ -1103,6 +1545,16 @@ namespace Application.PayrollRuns
             ConfigLabelHelper.MergeLabelMap(labelsByCode, await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.DeductionType, cancellationToken));
             ConfigLabelHelper.MergeLabelMap(labelsByCode, await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.SalaryAdjustmentType, cancellationToken));
             return labelsByCode;
+        }
+
+        // Same Config-catalog read as EmployeeService's tax-calculation path (2026-07-22, format
+        // updated 2026-07-23): every code whose AdditionalValue1 parses as the composite
+        // "CALCULATE_TYPE|TYPE|FREQUENCY" rule gets an entry.
+        private async Task<Dictionary<string, SalaryLineCalculationConfig>> LoadSalaryLineCalculationConfigAsync(CancellationToken cancellationToken)
+        {
+            var configByCode = SalaryLineCalculationHelper.BuildConfigMap(await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.SalaryComponentType, cancellationToken));
+            SalaryLineCalculationHelper.MergeConfigMap(configByCode, await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.DeductionType, cancellationToken));
+            return configByCode;
         }
 
         private static string BuildFullName(string firstName, string middleName, string lastName)

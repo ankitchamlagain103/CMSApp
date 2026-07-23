@@ -520,9 +520,9 @@ namespace Infrastructure.Persistence.DataSeeder
                 };
                 employeeEntity.Teacher = teacherEntity;
 
-                var qualification = new TeacherQualification
+                var qualification = new EmployeeQualification
                 {
-                    Teacher = teacherEntity,
+                    Employee = employeeEntity,
                     QualificationCode = qualificationCodes[teacherIndex % qualificationCodes.Length],
                     CourseName = qualificationCourses[teacherIndex % qualificationCourses.Length],
                     Institution = institutions[teacherIndex % institutions.Length],
@@ -530,7 +530,7 @@ namespace Infrastructure.Persistence.DataSeeder
                 };
 
                 dbContext.Employees.Add(employeeEntity);
-                dbContext.TeacherQualifications.Add(qualification);
+                dbContext.EmployeeQualifications.Add(qualification);
                 seededTeachers.Add(teacherEntity);
             }
 

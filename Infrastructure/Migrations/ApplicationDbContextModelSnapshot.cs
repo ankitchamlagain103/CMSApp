@@ -835,6 +835,11 @@ namespace Infrastructure.Migrations
                         .HasColumnType("character varying(150)")
                         .HasColumnName("bank_name");
 
+                    b.Property<string>("CitNumber")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("cit_number");
+
                     b.Property<string>("CreatedBy")
                         .IsRequired()
                         .HasMaxLength(50)
@@ -889,6 +894,11 @@ namespace Infrastructure.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("gender");
 
+                    b.Property<string>("GratuityNumber")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("gratuity_number");
+
                     b.Property<bool>("IsDeleted")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
@@ -916,6 +926,11 @@ namespace Infrastructure.Migrations
                         .HasColumnType("character varying(100)")
                         .HasColumnName("middle_name");
 
+                    b.Property<string>("PanNumber")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("pan_number");
+
                     b.Property<int>("PaymentMode")
                         .HasColumnType("integer")
                         .HasColumnName("payment_mode");
@@ -924,6 +939,16 @@ namespace Infrastructure.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)")
                         .HasColumnName("phone");
+
+                    b.Property<string>("ProvidentFundNumber")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("provident_fund_number");
+
+                    b.Property<string>("SsfNumber")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("ssf_number");
 
                     b.Property<string>("UpdatedBy")
                         .HasMaxLength(50)
@@ -952,6 +977,86 @@ namespace Infrastructure.Migrations
                         .HasFilter("user_id IS NOT NULL");
 
                     b.ToTable("employees", "dbo");
+                });
+
+            modelBuilder.Entity("Domain.Entities.EmployeeDocument", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ContentType")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("content_type");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("CreatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_ts");
+
+                    b.Property<string>("DocumentName")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("document_name");
+
+                    b.Property<string>("DocumentTypeCode")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("document_type_code");
+
+                    b.Property<Guid>("EmployeeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("employee_id");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)")
+                        .HasColumnName("file_name");
+
+                    b.Property<string>("FilePath")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("file_path");
+
+                    b.Property<long>("FileSizeBytes")
+                        .HasColumnType("bigint")
+                        .HasColumnName("file_size_bytes");
+
+                    b.Property<string>("Remarks")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("remarks");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateTimeOffset?>("UpdatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_ts");
+
+                    b.Property<DateTime?>("ValidUntil")
+                        .HasColumnType("date")
+                        .HasColumnName("valid_until");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EmployeeId")
+                        .HasDatabaseName("ix_employee_documents_employee_id");
+
+                    b.ToTable("employee_documents", "dbo");
                 });
 
             modelBuilder.Entity("Domain.Entities.EmployeeInsurancePremium", b =>
@@ -1087,6 +1192,74 @@ namespace Infrastructure.Migrations
                     b.HasIndex("IsDeleted");
 
                     b.ToTable("employee_loans", "dbo");
+                });
+
+            modelBuilder.Entity("Domain.Entities.EmployeeQualification", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int?>("CompletionYear")
+                        .HasColumnType("integer")
+                        .HasColumnName("completion_year");
+
+                    b.Property<string>("CourseName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("course_name");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("CreatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_ts");
+
+                    b.Property<Guid>("EmployeeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("employee_id");
+
+                    b.Property<string>("Institution")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)")
+                        .HasColumnName("institution");
+
+                    b.Property<string>("QualificationCode")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("qualification_code");
+
+                    b.Property<string>("Remarks")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("remarks");
+
+                    b.Property<string>("Score")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("score");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateTimeOffset?>("UpdatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_ts");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EmployeeId")
+                        .HasDatabaseName("ix_employee_qualifications_employee_id");
+
+                    b.ToTable("employee_qualifications", "dbo");
                 });
 
             modelBuilder.Entity("Domain.Entities.EmployeeSalary", b =>
@@ -3851,154 +4024,6 @@ namespace Infrastructure.Migrations
                     b.ToTable("teacher_assignments", "dbo");
                 });
 
-            modelBuilder.Entity("Domain.Entities.TeacherDocument", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<string>("ContentType")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("content_type");
-
-                    b.Property<string>("CreatedBy")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)")
-                        .HasColumnName("created_by");
-
-                    b.Property<DateTimeOffset>("CreatedTs")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_ts");
-
-                    b.Property<string>("DocumentName")
-                        .IsRequired()
-                        .HasMaxLength(150)
-                        .HasColumnType("character varying(150)")
-                        .HasColumnName("document_name");
-
-                    b.Property<string>("DocumentTypeCode")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("document_type_code");
-
-                    b.Property<string>("FileName")
-                        .IsRequired()
-                        .HasMaxLength(255)
-                        .HasColumnType("character varying(255)")
-                        .HasColumnName("file_name");
-
-                    b.Property<string>("FilePath")
-                        .IsRequired()
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)")
-                        .HasColumnName("file_path");
-
-                    b.Property<long>("FileSizeBytes")
-                        .HasColumnType("bigint")
-                        .HasColumnName("file_size_bytes");
-
-                    b.Property<string>("Remarks")
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)")
-                        .HasColumnName("remarks");
-
-                    b.Property<Guid>("TeacherId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("teacher_id");
-
-                    b.Property<string>("UpdatedBy")
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)")
-                        .HasColumnName("updated_by");
-
-                    b.Property<DateTimeOffset?>("UpdatedTs")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_ts");
-
-                    b.Property<DateTime?>("ValidUntil")
-                        .HasColumnType("date")
-                        .HasColumnName("valid_until");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TeacherId")
-                        .HasDatabaseName("ix_teacher_documents_teacher_id");
-
-                    b.ToTable("teacher_documents", "dbo");
-                });
-
-            modelBuilder.Entity("Domain.Entities.TeacherQualification", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<int?>("CompletionYear")
-                        .HasColumnType("integer")
-                        .HasColumnName("completion_year");
-
-                    b.Property<string>("CourseName")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
-                        .HasColumnName("course_name");
-
-                    b.Property<string>("CreatedBy")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)")
-                        .HasColumnName("created_by");
-
-                    b.Property<DateTimeOffset>("CreatedTs")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_ts");
-
-                    b.Property<string>("Institution")
-                        .HasMaxLength(255)
-                        .HasColumnType("character varying(255)")
-                        .HasColumnName("institution");
-
-                    b.Property<string>("QualificationCode")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("qualification_code");
-
-                    b.Property<string>("Remarks")
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)")
-                        .HasColumnName("remarks");
-
-                    b.Property<string>("Score")
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)")
-                        .HasColumnName("score");
-
-                    b.Property<Guid>("TeacherId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("teacher_id");
-
-                    b.Property<string>("UpdatedBy")
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)")
-                        .HasColumnName("updated_by");
-
-                    b.Property<DateTimeOffset?>("UpdatedTs")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_ts");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TeacherId")
-                        .HasDatabaseName("ix_teacher_qualifications_teacher_id");
-
-                    b.ToTable("teacher_qualifications", "dbo");
-                });
-
             modelBuilder.Entity("Infrastructure.Identity.ApplicationRole", b =>
                 {
                     b.Property<Guid>("Id")
@@ -4567,6 +4592,17 @@ namespace Infrastructure.Migrations
                     b.Navigation("ConfigType");
                 });
 
+            modelBuilder.Entity("Domain.Entities.EmployeeDocument", b =>
+                {
+                    b.HasOne("Domain.Entities.Employee", "Employee")
+                        .WithMany("Documents")
+                        .HasForeignKey("EmployeeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Employee");
+                });
+
             modelBuilder.Entity("Domain.Entities.EmployeeInsurancePremium", b =>
                 {
                     b.HasOne("Domain.Entities.EmployeeSalary", "EmployeeSalary")
@@ -4582,6 +4618,17 @@ namespace Infrastructure.Migrations
                 {
                     b.HasOne("Domain.Entities.Employee", "Employee")
                         .WithMany("Loans")
+                        .HasForeignKey("EmployeeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Employee");
+                });
+
+            modelBuilder.Entity("Domain.Entities.EmployeeQualification", b =>
+                {
+                    b.HasOne("Domain.Entities.Employee", "Employee")
+                        .WithMany("Qualifications")
                         .HasForeignKey("EmployeeId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
@@ -4982,28 +5029,6 @@ namespace Infrastructure.Migrations
                     b.Navigation("Teacher");
                 });
 
-            modelBuilder.Entity("Domain.Entities.TeacherDocument", b =>
-                {
-                    b.HasOne("Domain.Entities.Teacher", "Teacher")
-                        .WithMany("Documents")
-                        .HasForeignKey("TeacherId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("Teacher");
-                });
-
-            modelBuilder.Entity("Domain.Entities.TeacherQualification", b =>
-                {
-                    b.HasOne("Domain.Entities.Teacher", "Teacher")
-                        .WithMany("Qualifications")
-                        .HasForeignKey("TeacherId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("Teacher");
-                });
-
             modelBuilder.Entity("Infrastructure.Identity.ApplicationRoleClaim", b =>
                 {
                     b.HasOne("Domain.Entities.Menu", "Menu")
@@ -5116,7 +5141,11 @@ namespace Infrastructure.Migrations
 
             modelBuilder.Entity("Domain.Entities.Employee", b =>
                 {
+                    b.Navigation("Documents");
+
                     b.Navigation("Loans");
+
+                    b.Navigation("Qualifications");
 
                     b.Navigation("Salaries");
 
@@ -5202,10 +5231,6 @@ namespace Infrastructure.Migrations
             modelBuilder.Entity("Domain.Entities.Teacher", b =>
                 {
                     b.Navigation("Assignments");
-
-                    b.Navigation("Documents");
-
-                    b.Navigation("Qualifications");
                 });
 
             modelBuilder.Entity("Infrastructure.Identity.ApplicationRole", b =>
