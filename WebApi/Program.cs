@@ -41,6 +41,8 @@ try
     await CalendarSeeder.SeedAsync(app.Services);
     // Fiscal years + tax slabs (a placeholder FY-SAMPLE plus the real FY 2084/85) -- verify/replace before relying on for real payroll.
     await PayrollSeeder.SeedAsync(app.Services);
+    // Baseline Annual/Sick/Casual leave types -- illustrative, verify against actual policy before real use.
+    await LeaveTypeSeeder.SeedAsync(app.Services);
     // Development/demo data (school structure, teachers, students) -- remove for production.
     await SampleDataSeeder.SeedAsync(app.Services);
 }

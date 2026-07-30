@@ -7,6 +7,7 @@ using Application.Employees.Commands;
 using Application.Employees.Dtos;
 using Application.Employees.Queries;
 using Application.Employees.Validators;
+using Application.Notifications;
 using Application.Payroll;
 using Application.Payroll.Dtos;
 using Domain.Common.Filters;
@@ -21,6 +22,9 @@ namespace Application.Employees
     {
         private readonly IUnitOfWork _unitOfWork;
         private readonly IFileStorageService _fileStorage;
+        private readonly INotificationService _notificationService;
+        private readonly ICurrentUserService _currentUserService;
+        private readonly IIdentityService _identityService;
         private readonly CreateEmployeeCommandValidator _createValidator;
         private readonly UpdateEmployeeCommandValidator _updateValidator;
         private readonly PromoteToTeacherCommandValidator _promoteValidator;
@@ -35,10 +39,16 @@ namespace Application.Employees
         private readonly CreateBulkSalaryAdjustmentCommandValidator _createBulkSalaryAdjustmentValidator;
         private readonly AddEmployeeQualificationCommandValidator _addQualificationValidator;
         private readonly UploadEmployeeDocumentCommandValidator _uploadDocumentValidator;
+        private readonly AllocateLeaveBalanceCommandValidator _allocateLeaveBalanceValidator;
+        private readonly CreateLeaveRequestCommandValidator _createLeaveRequestValidator;
+        private readonly RegisterEmployeeUserAccountCommandValidator _registerUserAccountValidator;
 
         public EmployeeService(
             IUnitOfWork unitOfWork,
             IFileStorageService fileStorage,
+            INotificationService notificationService,
+            ICurrentUserService currentUserService,
+            IIdentityService identityService,
             CreateEmployeeCommandValidator createValidator,
             UpdateEmployeeCommandValidator updateValidator,
             PromoteToTeacherCommandValidator promoteValidator,
@@ -52,10 +62,16 @@ namespace Application.Employees
             UpdateSalaryAdjustmentCommandValidator updateSalaryAdjustmentValidator,
             CreateBulkSalaryAdjustmentCommandValidator createBulkSalaryAdjustmentValidator,
             AddEmployeeQualificationCommandValidator addQualificationValidator,
-            UploadEmployeeDocumentCommandValidator uploadDocumentValidator)
+            UploadEmployeeDocumentCommandValidator uploadDocumentValidator,
+            AllocateLeaveBalanceCommandValidator allocateLeaveBalanceValidator,
+            CreateLeaveRequestCommandValidator createLeaveRequestValidator,
+            RegisterEmployeeUserAccountCommandValidator registerUserAccountValidator)
         {
             _unitOfWork = unitOfWork;
             _fileStorage = fileStorage;
+            _notificationService = notificationService;
+            _currentUserService = currentUserService;
+            _identityService = identityService;
             _createValidator = createValidator;
             _updateValidator = updateValidator;
             _promoteValidator = promoteValidator;
@@ -70,6 +86,9 @@ namespace Application.Employees
             _createBulkSalaryAdjustmentValidator = createBulkSalaryAdjustmentValidator;
             _addQualificationValidator = addQualificationValidator;
             _uploadDocumentValidator = uploadDocumentValidator;
+            _allocateLeaveBalanceValidator = allocateLeaveBalanceValidator;
+            _createLeaveRequestValidator = createLeaveRequestValidator;
+            _registerUserAccountValidator = registerUserAccountValidator;
         }
 
         public async Task<CommonResponse<EmployeeDto>> CreateEmployeeAsync(CreateEmployeeCommand command, CancellationToken cancellationToken = default)
@@ -115,6 +134,20 @@ namespace Application.Employees
                 }
             }
 
+            var orgFieldsError = await ValidateOrgFieldsAsync(command.BranchCode, command.LevelCode, command.ManagerId, null, cancellationToken);
+            if (orgFieldsError != null)
+            {
+                var orgFieldsResponse = CommonResponse<EmployeeDto>.Fail(ResponseCodes.ValidationError, orgFieldsError);
+                return orgFieldsResponse;
+            }
+
+            var addressResult = await ResolveAddressAsync(command.ProvinceCode, command.DistrictCode, command.LocalLevelCode, cancellationToken);
+            if (addressResult.ErrorMessage != null)
+            {
+                var addressResponse = CommonResponse<EmployeeDto>.Fail(ResponseCodes.ValidationError, addressResult.ErrorMessage);
+                return addressResponse;
+            }
+
             var employee = new Employee
             {
                 EmployeeCode = trimmedEmployeeCode,
@@ -136,15 +169,114 @@ namespace Application.Employees
                 ProvidentFundNumber = command.ProvidentFundNumber?.Trim(),
                 SsfNumber = command.SsfNumber?.Trim(),
                 CitNumber = command.CitNumber?.Trim(),
-                GratuityNumber = command.GratuityNumber?.Trim()
+                GratuityNumber = command.GratuityNumber?.Trim(),
+                BranchCode = string.IsNullOrWhiteSpace(command.BranchCode) ? null : command.BranchCode.Trim(),
+                LevelCode = string.IsNullOrWhiteSpace(command.LevelCode) ? null : command.LevelCode.Trim(),
+                ManagerId = command.ManagerId,
+                ProvinceCode = addressResult.ProvinceCode,
+                DistrictCode = addressResult.DistrictCode,
+                LocalLevelCode = addressResult.LocalLevelCode,
+                WardNo = command.WardNo
             };
+
+            var successMessage = "Employee created successfully.";
+            if (command.RegisterUserAccount)
+            {
+                var provisionResult = await ProvisionAccountOrErrorAsync(employee.Email, employee.Phone, employee.FirstName, employee.LastName, employee.Gender, command.RoleIds, cancellationToken);
+                if (provisionResult.ErrorResponseCode != null)
+                {
+                    var provisionFailureResponse = CommonResponse<EmployeeDto>.Fail(provisionResult.ErrorResponseCode, provisionResult.ErrorMessage);
+                    return provisionFailureResponse;
+                }
+
+                employee.UserId = provisionResult.UserId;
+                successMessage = "Employee created successfully. A portal account was created -- an activation email has been sent to " + employee.Email + ".";
+            }
 
             await _unitOfWork.Employees.AddAsync(employee, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
             var employeeDto = EmployeeMapper.ToDto(employee);
-            var successResponse = CommonResponse<EmployeeDto>.Success(employeeDto, "Employee created successfully.");
+            var successResponse = CommonResponse<EmployeeDto>.Success(employeeDto, successMessage);
             return successResponse;
+        }
+
+        // Portal account provisioning retrofit (2026-07-27) -- for an employee that didn't get a
+        // login at creation time.
+        public async Task<CommonResponse<EmployeeDto>> RegisterUserAccountAsync(Guid employeeId, RegisterEmployeeUserAccountCommand command, CancellationToken cancellationToken = default)
+        {
+            var validationResult = _registerUserAccountValidator.Validate(command);
+            if (!validationResult.IsValid)
+            {
+                var errorMessage = BuildValidationErrorMessage(validationResult);
+                var validationFailureResponse = CommonResponse<EmployeeDto>.Fail(ResponseCodes.ValidationError, errorMessage);
+                return validationFailureResponse;
+            }
+
+            var employee = await _unitOfWork.Employees.GetByIdAsync(employeeId, cancellationToken);
+            if (employee == null)
+            {
+                var notFoundResponse = CommonResponse<EmployeeDto>.Fail(ResponseCodes.NotFound, "Employee with id '" + employeeId + "' was not found.");
+                return notFoundResponse;
+            }
+
+            if (employee.UserId.HasValue)
+            {
+                var conflictResponse = CommonResponse<EmployeeDto>.Fail(ResponseCodes.Conflict, "This employee already has a portal account.");
+                return conflictResponse;
+            }
+
+            if (string.IsNullOrWhiteSpace(employee.Email))
+            {
+                var noEmailResponse = CommonResponse<EmployeeDto>.Fail(ResponseCodes.ValidationError, "This employee has no email on record -- add one via PUT /api/employees/{id} first.");
+                return noEmailResponse;
+            }
+
+            var provisionResult = await ProvisionAccountOrErrorAsync(employee.Email, employee.Phone, employee.FirstName, employee.LastName, employee.Gender, command.RoleIds, cancellationToken);
+            if (provisionResult.ErrorResponseCode != null)
+            {
+                var provisionFailureResponse = CommonResponse<EmployeeDto>.Fail(provisionResult.ErrorResponseCode, provisionResult.ErrorMessage);
+                return provisionFailureResponse;
+            }
+
+            employee.UserId = provisionResult.UserId;
+            _unitOfWork.Employees.Update(employee);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            var employeeDto = EmployeeMapper.ToDto(employee);
+            var successResponse = CommonResponse<EmployeeDto>.Success(employeeDto, "Portal account created -- an activation email has been sent to " + employee.Email + ".");
+            return successResponse;
+        }
+
+        // Shared by CreateEmployeeAsync and RegisterUserAccountAsync -- checks the email isn't
+        // already registered to another ApplicationUser (Conflict), then delegates to
+        // IIdentityService.ProvisionPortalAccountAsync (ValidationError on any other failure).
+        private async Task<(Guid? UserId, string ErrorResponseCode, string ErrorMessage)> ProvisionAccountOrErrorAsync(string email, string phone, string firstName, string lastName, Gender gender, List<Guid> roleIds, CancellationToken cancellationToken)
+        {
+            var emailExists = await _identityService.EmailExistsAsync(email, cancellationToken);
+            if (emailExists)
+            {
+                return (null, ResponseCodes.Conflict, "Email '" + email + "' is already registered to a portal account.");
+            }
+
+            var provisionRequest = new ProvisionPortalAccountRequest
+            {
+                Email = email,
+                PhoneNumber = phone,
+                FirstName = firstName,
+                LastName = lastName,
+                Gender = gender,
+                RoleIds = roleIds ?? new List<Guid>()
+            };
+
+            var provisionResult = await _identityService.ProvisionPortalAccountAsync(provisionRequest, cancellationToken);
+            if (!provisionResult.Succeeded)
+            {
+                var combinedMessage = string.Join(" ", provisionResult.Errors);
+                return (null, ResponseCodes.ValidationError, combinedMessage);
+            }
+
+            return (Guid.Parse(provisionResult.UserId), null, null);
         }
 
         public async Task<CommonResponse<EmployeeDto>> GetEmployeeByIdAsync(Guid id, CancellationToken cancellationToken = default)
@@ -249,6 +381,28 @@ namespace Application.Employees
             employee.SsfNumber = command.SsfNumber?.Trim();
             employee.CitNumber = command.CitNumber?.Trim();
             employee.GratuityNumber = command.GratuityNumber?.Trim();
+
+            var orgFieldsError = await ValidateOrgFieldsAsync(command.BranchCode, command.LevelCode, command.ManagerId, id, cancellationToken);
+            if (orgFieldsError != null)
+            {
+                var orgFieldsResponse = CommonResponse<EmployeeDto>.Fail(ResponseCodes.ValidationError, orgFieldsError);
+                return orgFieldsResponse;
+            }
+
+            var addressResult = await ResolveAddressAsync(command.ProvinceCode, command.DistrictCode, command.LocalLevelCode, cancellationToken);
+            if (addressResult.ErrorMessage != null)
+            {
+                var addressResponse = CommonResponse<EmployeeDto>.Fail(ResponseCodes.ValidationError, addressResult.ErrorMessage);
+                return addressResponse;
+            }
+
+            employee.BranchCode = string.IsNullOrWhiteSpace(command.BranchCode) ? null : command.BranchCode.Trim();
+            employee.LevelCode = string.IsNullOrWhiteSpace(command.LevelCode) ? null : command.LevelCode.Trim();
+            employee.ManagerId = command.ManagerId;
+            employee.ProvinceCode = addressResult.ProvinceCode;
+            employee.DistrictCode = addressResult.DistrictCode;
+            employee.LocalLevelCode = addressResult.LocalLevelCode;
+            employee.WardNo = command.WardNo;
 
             _unitOfWork.Employees.Update(employee);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
@@ -2654,6 +2808,829 @@ namespace Application.Employees
             return successResponse;
         }
 
+        // 2026-07-23: profile photo -- single file, same storage/orphan-cleanup pattern as
+        // documents, restricted to image extensions only (a PDF profile photo makes no sense,
+        // unlike an identity document).
+
+        public async Task<CommonResponse<bool>> UploadPhotoAsync(Guid employeeId, Stream fileContent, string originalFileName, string contentType, long fileSizeBytes, CancellationToken cancellationToken = default)
+        {
+            if (fileContent == null || fileSizeBytes <= 0)
+            {
+                var noFileResponse = CommonResponse<bool>.Fail(ResponseCodes.ValidationError, "A photo file is required.");
+                return noFileResponse;
+            }
+
+            if (!IsAllowedPhotoExtension(originalFileName))
+            {
+                var extensionResponse = CommonResponse<bool>.Fail(ResponseCodes.ValidationError, "Unsupported file type. Allowed: .jpg, .jpeg, .png.");
+                return extensionResponse;
+            }
+
+            if (fileSizeBytes > DocumentFileRules.MaxFileSizeBytes)
+            {
+                var sizeResponse = CommonResponse<bool>.Fail(ResponseCodes.ValidationError, "File exceeds the maximum size of " + (DocumentFileRules.MaxFileSizeBytes / (1024 * 1024)) + " MB.");
+                return sizeResponse;
+            }
+
+            var employee = await _unitOfWork.Employees.GetByIdAsync(employeeId, cancellationToken);
+            if (employee == null)
+            {
+                var notFoundResponse = CommonResponse<bool>.Fail(ResponseCodes.NotFound, "Employee with id '" + employeeId + "' was not found.");
+                return notFoundResponse;
+            }
+
+            var previousPhotoPath = employee.PhotoPath;
+            var storedPath = await _fileStorage.SaveAsync(fileContent, originalFileName, "employee-photos/" + employeeId, cancellationToken);
+            employee.PhotoPath = storedPath;
+
+            try
+            {
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+            }
+            catch
+            {
+                _fileStorage.Delete(storedPath);
+                throw;
+            }
+
+            // Best-effort: only removed once the new photo is safely saved.
+            if (!string.IsNullOrWhiteSpace(previousPhotoPath))
+            {
+                _fileStorage.Delete(previousPhotoPath);
+            }
+
+            var successResponse = CommonResponse<bool>.Success(true, "Photo uploaded successfully.");
+            return successResponse;
+        }
+
+        public async Task<CommonResponse<EmployeeDocumentFileDto>> GetPhotoFileAsync(Guid employeeId, CancellationToken cancellationToken = default)
+        {
+            var employee = await _unitOfWork.Employees.GetByIdAsync(employeeId, cancellationToken);
+            if (employee == null || string.IsNullOrWhiteSpace(employee.PhotoPath))
+            {
+                var notFoundResponse = CommonResponse<EmployeeDocumentFileDto>.Fail(ResponseCodes.NotFound, "No photo has been uploaded for this employee.");
+                return notFoundResponse;
+            }
+
+            var contentStream = await _fileStorage.OpenReadAsync(employee.PhotoPath, cancellationToken);
+            if (contentStream == null)
+            {
+                var fileMissingResponse = CommonResponse<EmployeeDocumentFileDto>.Fail(ResponseCodes.NotFound, "The stored photo file is missing.");
+                return fileMissingResponse;
+            }
+
+            var fileDto = new EmployeeDocumentFileDto
+            {
+                Content = contentStream,
+                ContentType = ResolveImageContentType(employee.PhotoPath),
+                FileName = Path.GetFileName(employee.PhotoPath)
+            };
+
+            var successResponse = CommonResponse<EmployeeDocumentFileDto>.Success(fileDto);
+            return successResponse;
+        }
+
+        public async Task<CommonResponse<bool>> DeletePhotoAsync(Guid employeeId, CancellationToken cancellationToken = default)
+        {
+            var employee = await _unitOfWork.Employees.GetByIdAsync(employeeId, cancellationToken);
+            if (employee == null)
+            {
+                var notFoundResponse = CommonResponse<bool>.Fail(ResponseCodes.NotFound, "Employee with id '" + employeeId + "' was not found.");
+                return notFoundResponse;
+            }
+
+            if (string.IsNullOrWhiteSpace(employee.PhotoPath))
+            {
+                var noPhotoResponse = CommonResponse<bool>.Fail(ResponseCodes.NotFound, "No photo has been uploaded for this employee.");
+                return noPhotoResponse;
+            }
+
+            var photoPath = employee.PhotoPath;
+            employee.PhotoPath = null;
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            _fileStorage.Delete(photoPath);
+
+            var successResponse = CommonResponse<bool>.Success(true, "Photo deleted successfully.");
+            return successResponse;
+        }
+
+        // 2026-07-23: leave balances.
+
+        public async Task<CommonResponse<EmployeeLeaveBalanceDto>> AllocateLeaveBalanceAsync(Guid employeeId, AllocateLeaveBalanceCommand command, CancellationToken cancellationToken = default)
+        {
+            var validationResult = _allocateLeaveBalanceValidator.Validate(command);
+            if (!validationResult.IsValid)
+            {
+                var errorMessage = BuildValidationErrorMessage(validationResult);
+                var validationFailureResponse = CommonResponse<EmployeeLeaveBalanceDto>.Fail(ResponseCodes.ValidationError, errorMessage);
+                return validationFailureResponse;
+            }
+
+            var employee = await _unitOfWork.Employees.GetByIdAsync(employeeId, cancellationToken);
+            if (employee == null)
+            {
+                var notFoundResponse = CommonResponse<EmployeeLeaveBalanceDto>.Fail(ResponseCodes.NotFound, "Employee with id '" + employeeId + "' was not found.");
+                return notFoundResponse;
+            }
+
+            var leaveType = await _unitOfWork.LeaveTypes.GetByIdAsync(command.LeaveTypeId, cancellationToken);
+            if (leaveType == null)
+            {
+                var leaveTypeNotFoundResponse = CommonResponse<EmployeeLeaveBalanceDto>.Fail(ResponseCodes.NotFound, "Leave type with id '" + command.LeaveTypeId + "' was not found.");
+                return leaveTypeNotFoundResponse;
+            }
+
+            var fiscalYear = command.FiscalYearId.HasValue
+                ? await _unitOfWork.FiscalYears.GetByIdAsync(command.FiscalYearId.Value, cancellationToken)
+                : await _unitOfWork.FiscalYears.GetCurrentYearAsync(cancellationToken);
+            if (fiscalYear == null)
+            {
+                var noFiscalYearResponse = CommonResponse<EmployeeLeaveBalanceDto>.Fail(ResponseCodes.NotFound, command.FiscalYearId.HasValue ? "Fiscal year with id '" + command.FiscalYearId.Value + "' was not found." : "No fiscal year is marked as current.");
+                return noFiscalYearResponse;
+            }
+
+            var balance = await _unitOfWork.Employees.GetLeaveBalanceAsync(employeeId, command.LeaveTypeId, fiscalYear.Id, cancellationToken);
+            if (balance == null)
+            {
+                balance = new EmployeeLeaveBalance
+                {
+                    EmployeeId = employeeId,
+                    LeaveTypeId = command.LeaveTypeId,
+                    FiscalYearId = fiscalYear.Id,
+                    Allocated = command.Allocated,
+                    Used = 0m,
+                    Pending = 0m,
+                    Balance = command.Allocated,
+                    Employee = employee,
+                    LeaveType = leaveType,
+                    FiscalYear = fiscalYear
+                };
+
+                await _unitOfWork.Employees.AddLeaveBalanceAsync(balance, cancellationToken);
+            }
+            else
+            {
+                balance.Allocated = command.Allocated;
+                balance.Balance = balance.Allocated - balance.Used - balance.Pending;
+                balance.LeaveType = leaveType;
+                balance.FiscalYear = fiscalYear;
+            }
+
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            var balanceDto = EmployeeMapper.ToLeaveBalanceDto(balance);
+            var successResponse = CommonResponse<EmployeeLeaveBalanceDto>.Success(balanceDto, "Leave balance allocated successfully.");
+            return successResponse;
+        }
+
+        public async Task<CommonResponse<List<EmployeeLeaveBalanceDto>>> GetLeaveBalancesAsync(Guid employeeId, Guid? fiscalYearId, CancellationToken cancellationToken = default)
+        {
+            var employee = await _unitOfWork.Employees.GetByIdAsync(employeeId, cancellationToken);
+            if (employee == null)
+            {
+                var notFoundResponse = CommonResponse<List<EmployeeLeaveBalanceDto>>.Fail(ResponseCodes.NotFound, "Employee with id '" + employeeId + "' was not found.");
+                return notFoundResponse;
+            }
+
+            var fiscalYear = fiscalYearId.HasValue
+                ? await _unitOfWork.FiscalYears.GetByIdAsync(fiscalYearId.Value, cancellationToken)
+                : await _unitOfWork.FiscalYears.GetCurrentYearAsync(cancellationToken);
+            if (fiscalYear == null)
+            {
+                var noFiscalYearResponse = CommonResponse<List<EmployeeLeaveBalanceDto>>.Fail(ResponseCodes.NotFound, fiscalYearId.HasValue ? "Fiscal year with id '" + fiscalYearId.Value + "' was not found." : "No fiscal year is marked as current.");
+                return noFiscalYearResponse;
+            }
+
+            var balances = await _unitOfWork.Employees.GetLeaveBalancesByEmployeeIdAsync(employeeId, fiscalYear.Id, cancellationToken);
+
+            var balanceDtos = new List<EmployeeLeaveBalanceDto>();
+            foreach (var balance in balances)
+            {
+                var balanceDto = EmployeeMapper.ToLeaveBalanceDto(balance);
+                balanceDtos.Add(balanceDto);
+            }
+
+            var successResponse = CommonResponse<List<EmployeeLeaveBalanceDto>>.Success(balanceDtos);
+            return successResponse;
+        }
+
+        // 2026-07-23: leave requests. ManagerStatus/HrStatus each independently Pending ->
+        // Approved/Rejected (one-shot); HrStatus is authoritative for whether the balance is
+        // actually consumed and is never gated on ManagerStatus (see LeaveRequest's own doc
+        // comment for the full rationale -- HR can approve even if the manager rejected, or
+        // before the manager has acted at all).
+
+        public async Task<CommonResponse<LeaveRequestDto>> CreateLeaveRequestAsync(Guid employeeId, CreateLeaveRequestCommand command, Stream attachmentContent, string attachmentFileName, string attachmentContentType, long attachmentFileSizeBytes, CancellationToken cancellationToken = default)
+        {
+            var validationResult = _createLeaveRequestValidator.Validate(command);
+            if (!validationResult.IsValid)
+            {
+                var errorMessage = BuildValidationErrorMessage(validationResult);
+                var validationFailureResponse = CommonResponse<LeaveRequestDto>.Fail(ResponseCodes.ValidationError, errorMessage);
+                return validationFailureResponse;
+            }
+
+            var employee = await _unitOfWork.Employees.GetByIdAsync(employeeId, cancellationToken);
+            if (employee == null)
+            {
+                var notFoundResponse = CommonResponse<LeaveRequestDto>.Fail(ResponseCodes.NotFound, "Employee with id '" + employeeId + "' was not found.");
+                return notFoundResponse;
+            }
+
+            var leaveType = await _unitOfWork.LeaveTypes.GetByIdAsync(command.LeaveTypeId, cancellationToken);
+            if (leaveType == null)
+            {
+                var leaveTypeNotFoundResponse = CommonResponse<LeaveRequestDto>.Fail(ResponseCodes.NotFound, "Leave type with id '" + command.LeaveTypeId + "' was not found.");
+                return leaveTypeNotFoundResponse;
+            }
+
+            Employee substituteEmployee = null;
+            if (command.SubstituteEmployeeId.HasValue)
+            {
+                if (command.SubstituteEmployeeId.Value == employeeId)
+                {
+                    var selfSubstituteResponse = CommonResponse<LeaveRequestDto>.Fail(ResponseCodes.ValidationError, "An employee cannot be their own substitute.");
+                    return selfSubstituteResponse;
+                }
+
+                substituteEmployee = await _unitOfWork.Employees.GetByIdAsync(command.SubstituteEmployeeId.Value, cancellationToken);
+                if (substituteEmployee == null)
+                {
+                    var substituteNotFoundResponse = CommonResponse<LeaveRequestDto>.Fail(ResponseCodes.NotFound, "Substitute employee with id '" + command.SubstituteEmployeeId.Value + "' was not found.");
+                    return substituteNotFoundResponse;
+                }
+            }
+
+            var hasOverlap = await _unitOfWork.LeaveRequests.HasOverlappingRequestAsync(employeeId, command.FromDate.Date, command.ToDate.Date, null, cancellationToken);
+            if (hasOverlap)
+            {
+                var overlapResponse = CommonResponse<LeaveRequestDto>.Fail(ResponseCodes.Conflict, "An overlapping leave request already exists for this employee in that date range.");
+                return overlapResponse;
+            }
+
+            var days = (decimal)(command.ToDate.Date - command.FromDate.Date).Days + 1m;
+
+            var policyError = await ValidateLeavePolicyAsync(employeeId, leaveType, command.FromDate.Date, command.ToDate.Date, days, command.IsEmergency, cancellationToken);
+            if (policyError != null)
+            {
+                var policyResponse = CommonResponse<LeaveRequestDto>.Fail(ResponseCodes.ValidationError, policyError);
+                return policyResponse;
+            }
+
+            var hasAttachment = attachmentContent != null && attachmentFileSizeBytes > 0;
+            string attachmentPath = null;
+            if (hasAttachment)
+            {
+                if (!DocumentFileRules.IsAllowedExtension(attachmentFileName))
+                {
+                    var extensionResponse = CommonResponse<LeaveRequestDto>.Fail(ResponseCodes.ValidationError, "Unsupported file type. Allowed: " + DocumentFileRules.AllowedExtensionsDisplay() + ".");
+                    return extensionResponse;
+                }
+
+                if (attachmentFileSizeBytes > DocumentFileRules.MaxFileSizeBytes)
+                {
+                    var sizeResponse = CommonResponse<LeaveRequestDto>.Fail(ResponseCodes.ValidationError, "File exceeds the maximum size of " + (DocumentFileRules.MaxFileSizeBytes / (1024 * 1024)) + " MB.");
+                    return sizeResponse;
+                }
+
+                attachmentPath = await _fileStorage.SaveAsync(attachmentContent, attachmentFileName, "leave-attachments/" + employeeId, cancellationToken);
+            }
+
+            var leaveRequest = new LeaveRequest
+            {
+                EmployeeId = employeeId,
+                LeaveTypeId = command.LeaveTypeId,
+                FromDate = command.FromDate.Date,
+                ToDate = command.ToDate.Date,
+                Days = days,
+                Reason = command.Reason?.Trim(),
+                SubstituteEmployeeId = command.SubstituteEmployeeId,
+                IsEmergency = command.IsEmergency,
+                ManagerStatus = LeaveApprovalStatus.Pending,
+                HrStatus = LeaveApprovalStatus.Pending,
+                AttachmentPath = attachmentPath,
+                AttachmentFileName = attachmentPath != null ? attachmentFileName : null,
+                AttachmentContentType = attachmentPath != null ? attachmentContentType : null,
+                Employee = employee,
+                LeaveType = leaveType,
+                SubstituteEmployee = substituteEmployee
+            };
+
+            try
+            {
+                await _unitOfWork.LeaveRequests.AddAsync(leaveRequest, cancellationToken);
+                await ApplyPendingDeltaAsync(employeeId, command.LeaveTypeId, days, cancellationToken);
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+            }
+            catch
+            {
+                if (attachmentPath != null)
+                {
+                    _fileStorage.Delete(attachmentPath);
+                }
+
+                throw;
+            }
+
+            var requesterName = BuildFullName(employee.FirstName, employee.MiddleName, employee.LastName);
+            await _notificationService.CreateNotificationAsync(employeeId, "Leave request submitted", "Your " + leaveType.Name + " leave request (" + days + " day(s), " + leaveRequest.FromDate.ToString("yyyy-MM-dd") + " to " + leaveRequest.ToDate.ToString("yyyy-MM-dd") + ") was submitted and is pending approval.", NotificationType.LeaveRequestSubmitted, cancellationToken);
+            if (employee.ManagerId.HasValue)
+            {
+                await _notificationService.CreateNotificationAsync(employee.ManagerId.Value, "Leave request awaiting approval", requesterName + " requested " + leaveType.Name + " leave (" + days + " day(s)).", NotificationType.LeaveRequestSubmitted, cancellationToken);
+            }
+
+            var requestDto = EmployeeMapper.ToLeaveRequestDto(leaveRequest);
+            var successResponse = CommonResponse<LeaveRequestDto>.Success(requestDto, "Leave request submitted successfully.");
+            return successResponse;
+        }
+
+        public async Task<CommonResponse<List<LeaveRequestDto>>> GetLeaveRequestsAsync(Guid employeeId, LeaveApprovalStatus? managerStatus, LeaveApprovalStatus? hrStatus, bool? isPending, CancellationToken cancellationToken = default)
+        {
+            var employee = await _unitOfWork.Employees.GetByIdAsync(employeeId, cancellationToken);
+            if (employee == null)
+            {
+                var notFoundResponse = CommonResponse<List<LeaveRequestDto>>.Fail(ResponseCodes.NotFound, "Employee with id '" + employeeId + "' was not found.");
+                return notFoundResponse;
+            }
+
+            var filter = new LeaveRequestFilter
+            {
+                EmployeeId = employeeId,
+                ManagerStatus = managerStatus,
+                HrStatus = hrStatus,
+                IsPending = isPending
+            };
+
+            var pagedRequests = await _unitOfWork.LeaveRequests.GetPagedByFilterAsync(filter, 1, int.MaxValue, cancellationToken);
+
+            var requestDtos = new List<LeaveRequestDto>();
+            foreach (var leaveRequest in pagedRequests.Items)
+            {
+                var requestDto = EmployeeMapper.ToLeaveRequestDto(leaveRequest);
+                requestDtos.Add(requestDto);
+            }
+
+            var successResponse = CommonResponse<List<LeaveRequestDto>>.Success(requestDtos);
+            return successResponse;
+        }
+
+        public async Task<CommonResponse<LeaveRequestDto>> GetLeaveRequestByIdAsync(Guid employeeId, Guid requestId, CancellationToken cancellationToken = default)
+        {
+            var leaveRequest = await _unitOfWork.LeaveRequests.GetByIdWithDetailsAsync(requestId, cancellationToken);
+            if (leaveRequest == null || leaveRequest.EmployeeId != employeeId)
+            {
+                var notFoundResponse = CommonResponse<LeaveRequestDto>.Fail(ResponseCodes.NotFound, "Leave request was not found on this employee.");
+                return notFoundResponse;
+            }
+
+            var requestDto = EmployeeMapper.ToLeaveRequestDto(leaveRequest);
+            var successResponse = CommonResponse<LeaveRequestDto>.Success(requestDto);
+            return successResponse;
+        }
+
+        public async Task<CommonResponse<LeaveRequestDto>> ApproveManagerDecisionAsync(Guid employeeId, Guid requestId, LeaveDecisionCommand command, CancellationToken cancellationToken = default)
+        {
+            return await RecordManagerDecisionAsync(employeeId, requestId, LeaveApprovalStatus.Approved, command, cancellationToken);
+        }
+
+        public async Task<CommonResponse<LeaveRequestDto>> RejectManagerDecisionAsync(Guid employeeId, Guid requestId, LeaveDecisionCommand command, CancellationToken cancellationToken = default)
+        {
+            return await RecordManagerDecisionAsync(employeeId, requestId, LeaveApprovalStatus.Rejected, command, cancellationToken);
+        }
+
+        private async Task<CommonResponse<LeaveRequestDto>> RecordManagerDecisionAsync(Guid employeeId, Guid requestId, LeaveApprovalStatus decision, LeaveDecisionCommand command, CancellationToken cancellationToken)
+        {
+            var leaveRequest = await _unitOfWork.LeaveRequests.GetByIdWithDetailsAsync(requestId, cancellationToken);
+            if (leaveRequest == null || leaveRequest.EmployeeId != employeeId)
+            {
+                var notFoundResponse = CommonResponse<LeaveRequestDto>.Fail(ResponseCodes.NotFound, "Leave request was not found on this employee.");
+                return notFoundResponse;
+            }
+
+            if (leaveRequest.ManagerStatus != LeaveApprovalStatus.Pending)
+            {
+                var conflictResponse = CommonResponse<LeaveRequestDto>.Fail(ResponseCodes.Conflict, "The manager has already decided on this leave request ('" + leaveRequest.ManagerStatus + "').");
+                return conflictResponse;
+            }
+
+            leaveRequest.ManagerStatus = decision;
+            leaveRequest.ManagerRemarks = command?.Remarks?.Trim();
+            leaveRequest.ManagerDecisionTs = DateTimeOffset.UtcNow;
+            leaveRequest.ManagerDecisionBy = _currentUserService.UserName;
+
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            var notificationType = decision == LeaveApprovalStatus.Approved ? NotificationType.LeaveManagerApproved : NotificationType.LeaveManagerRejected;
+            var notificationTitle = decision == LeaveApprovalStatus.Approved ? "Leave request approved by manager" : "Leave request rejected by manager";
+            await _notificationService.CreateNotificationAsync(employeeId, notificationTitle, "Your " + leaveRequest.LeaveType?.Name + " leave request was " + decision.ToString().ToLowerInvariant() + " by your manager" + (string.IsNullOrWhiteSpace(leaveRequest.ManagerRemarks) ? "." : (": " + leaveRequest.ManagerRemarks)), notificationType, cancellationToken);
+
+            var requestDto = EmployeeMapper.ToLeaveRequestDto(leaveRequest);
+            var successResponse = CommonResponse<LeaveRequestDto>.Success(requestDto, "Manager decision recorded successfully.");
+            return successResponse;
+        }
+
+        public async Task<CommonResponse<LeaveRequestDto>> ApproveHrDecisionAsync(Guid employeeId, Guid requestId, LeaveDecisionCommand command, CancellationToken cancellationToken = default)
+        {
+            return await RecordHrDecisionAsync(employeeId, requestId, LeaveApprovalStatus.Approved, command, cancellationToken);
+        }
+
+        public async Task<CommonResponse<LeaveRequestDto>> RejectHrDecisionAsync(Guid employeeId, Guid requestId, LeaveDecisionCommand command, CancellationToken cancellationToken = default)
+        {
+            return await RecordHrDecisionAsync(employeeId, requestId, LeaveApprovalStatus.Rejected, command, cancellationToken);
+        }
+
+        // HrStatus is deliberately NOT gated on ManagerStatus == Approved -- HR can act
+        // regardless of what the manager did or hasn't done yet (the explicit "emergency
+        // override" requirement). Only HrStatus's own Pending -> terminal transition is
+        // one-shot-guarded.
+        private async Task<CommonResponse<LeaveRequestDto>> RecordHrDecisionAsync(Guid employeeId, Guid requestId, LeaveApprovalStatus decision, LeaveDecisionCommand command, CancellationToken cancellationToken)
+        {
+            var leaveRequest = await _unitOfWork.LeaveRequests.GetByIdWithDetailsAsync(requestId, cancellationToken);
+            if (leaveRequest == null || leaveRequest.EmployeeId != employeeId)
+            {
+                var notFoundResponse = CommonResponse<LeaveRequestDto>.Fail(ResponseCodes.NotFound, "Leave request was not found on this employee.");
+                return notFoundResponse;
+            }
+
+            if (leaveRequest.HrStatus != LeaveApprovalStatus.Pending)
+            {
+                var conflictResponse = CommonResponse<LeaveRequestDto>.Fail(ResponseCodes.Conflict, "HR has already decided on this leave request ('" + leaveRequest.HrStatus + "').");
+                return conflictResponse;
+            }
+
+            leaveRequest.HrStatus = decision;
+            leaveRequest.HrRemarks = command?.Remarks?.Trim();
+            leaveRequest.HrDecisionTs = DateTimeOffset.UtcNow;
+            leaveRequest.HrDecisionBy = _currentUserService.UserName;
+
+            if (decision == LeaveApprovalStatus.Approved)
+            {
+                await ApplyApprovalBalanceAsync(leaveRequest.EmployeeId, leaveRequest.LeaveTypeId, leaveRequest.Days, cancellationToken);
+            }
+            else
+            {
+                await ReleasePendingBalanceAsync(leaveRequest.EmployeeId, leaveRequest.LeaveTypeId, leaveRequest.Days, cancellationToken);
+            }
+
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            var notificationType = decision == LeaveApprovalStatus.Approved ? NotificationType.LeaveHrApproved : NotificationType.LeaveHrRejected;
+            var notificationTitle = decision == LeaveApprovalStatus.Approved ? "Leave request approved by HR" : "Leave request rejected by HR";
+            await _notificationService.CreateNotificationAsync(employeeId, notificationTitle, "Your " + leaveRequest.LeaveType?.Name + " leave request was " + decision.ToString().ToLowerInvariant() + " by HR" + (string.IsNullOrWhiteSpace(leaveRequest.HrRemarks) ? "." : (": " + leaveRequest.HrRemarks)), notificationType, cancellationToken);
+
+            var requestDto = EmployeeMapper.ToLeaveRequestDto(leaveRequest);
+            var successResponse = CommonResponse<LeaveRequestDto>.Success(requestDto, "HR decision recorded successfully.");
+            return successResponse;
+        }
+
+        public async Task<CommonResponse<bool>> CancelLeaveRequestAsync(Guid employeeId, Guid requestId, CancellationToken cancellationToken = default)
+        {
+            var leaveRequest = await _unitOfWork.LeaveRequests.GetByIdAsync(requestId, cancellationToken);
+            if (leaveRequest == null || leaveRequest.EmployeeId != employeeId)
+            {
+                var notFoundResponse = CommonResponse<bool>.Fail(ResponseCodes.NotFound, "Leave request was not found on this employee.");
+                return notFoundResponse;
+            }
+
+            if (leaveRequest.HrStatus != LeaveApprovalStatus.Pending || leaveRequest.ManagerStatus != LeaveApprovalStatus.Pending)
+            {
+                var conflictResponse = CommonResponse<bool>.Fail(ResponseCodes.Conflict, "Only a fully-pending leave request can be cancelled -- once either reviewer has decided, ask HR to reject it instead.");
+                return conflictResponse;
+            }
+
+            await ReleasePendingBalanceAsync(employeeId, leaveRequest.LeaveTypeId, leaveRequest.Days, cancellationToken);
+
+            _unitOfWork.LeaveRequests.Remove(leaveRequest);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            var successResponse = CommonResponse<bool>.Success(true, "Leave request cancelled successfully.");
+            return successResponse;
+        }
+
+        public async Task<CommonResponse<LeaveSubstituteDto>> AddLeaveSubstituteAsync(Guid employeeId, Guid requestId, AddLeaveSubstituteCommand command, CancellationToken cancellationToken = default)
+        {
+            var leaveRequest = await _unitOfWork.LeaveRequests.GetByIdAsync(requestId, cancellationToken);
+            if (leaveRequest == null || leaveRequest.EmployeeId != employeeId)
+            {
+                var notFoundResponse = CommonResponse<LeaveSubstituteDto>.Fail(ResponseCodes.NotFound, "Leave request was not found on this employee.");
+                return notFoundResponse;
+            }
+
+            var substituteEmployee = await _unitOfWork.Employees.GetByIdAsync(command.EmployeeId, cancellationToken);
+            if (substituteEmployee == null)
+            {
+                var notFoundEmployeeResponse = CommonResponse<LeaveSubstituteDto>.Fail(ResponseCodes.NotFound, "Employee with id '" + command.EmployeeId + "' was not found.");
+                return notFoundEmployeeResponse;
+            }
+
+            var substitute = new LeaveSubstitute
+            {
+                LeaveRequestId = requestId,
+                EmployeeId = command.EmployeeId,
+                Responsibility = command.Responsibility?.Trim(),
+                LeaveRequest = leaveRequest,
+                Employee = substituteEmployee
+            };
+
+            await _unitOfWork.LeaveRequests.AddSubstituteAsync(substitute, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            var substituteDto = EmployeeMapper.ToLeaveSubstituteDto(substitute);
+            var successResponse = CommonResponse<LeaveSubstituteDto>.Success(substituteDto, "Substitute added successfully.");
+            return successResponse;
+        }
+
+        public async Task<CommonResponse<bool>> RemoveLeaveSubstituteAsync(Guid employeeId, Guid requestId, Guid substituteId, CancellationToken cancellationToken = default)
+        {
+            var leaveRequest = await _unitOfWork.LeaveRequests.GetByIdAsync(requestId, cancellationToken);
+            if (leaveRequest == null || leaveRequest.EmployeeId != employeeId)
+            {
+                var notFoundResponse = CommonResponse<bool>.Fail(ResponseCodes.NotFound, "Leave request was not found on this employee.");
+                return notFoundResponse;
+            }
+
+            var substitutes = await _unitOfWork.LeaveRequests.GetSubstitutesAsync(requestId, cancellationToken);
+            LeaveSubstitute substituteToRemove = null;
+            foreach (var substitute in substitutes)
+            {
+                if (substitute.Id == substituteId)
+                {
+                    substituteToRemove = substitute;
+                }
+            }
+
+            if (substituteToRemove == null)
+            {
+                var notFoundSubstituteResponse = CommonResponse<bool>.Fail(ResponseCodes.NotFound, "Substitute was not found on this leave request.");
+                return notFoundSubstituteResponse;
+            }
+
+            _unitOfWork.LeaveRequests.RemoveSubstitute(substituteToRemove);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            var successResponse = CommonResponse<bool>.Success(true, "Substitute removed successfully.");
+            return successResponse;
+        }
+
+        // Leave policy configuration (2026-07-24) -- LeaveType.MaxConsecutiveDays/MaxDaysPerWeek/
+        // MaxDaysPerMonth are all optional, so an unconfigured type is a no-op here exactly as
+        // before this feature existed. A request flagged IsEmergency unconditionally bypasses all
+        // three caps for any leave type -- whether a supporting document backs the request is
+        // left to the requester/HR conversation, not something this method checks.
+        private async Task<string> ValidateLeavePolicyAsync(Guid employeeId, LeaveType leaveType, DateTime fromDate, DateTime toDate, decimal days, bool isEmergency, CancellationToken cancellationToken)
+        {
+            if (isEmergency)
+            {
+                return null;
+            }
+
+            if (leaveType.MaxConsecutiveDays.HasValue && days > leaveType.MaxConsecutiveDays.Value)
+            {
+                return leaveType.Name + " cannot exceed " + leaveType.MaxConsecutiveDays.Value + " consecutive day(s) in a single request. Submit as an emergency application if this is unavoidable.";
+            }
+
+            if (leaveType.MaxDaysPerWeek.HasValue)
+            {
+                var weekStart = fromDate.AddDays(-(int)fromDate.DayOfWeek);
+                var weekEnd = weekStart.AddDays(6);
+                var weekTotal = await ComputeLeaveDaysInRangeAsync(employeeId, leaveType.Id, weekStart, weekEnd, fromDate, toDate, cancellationToken);
+                if (weekTotal > leaveType.MaxDaysPerWeek.Value)
+                {
+                    return leaveType.Name + " cannot exceed " + leaveType.MaxDaysPerWeek.Value + " day(s) per week. Submit as an emergency application if this is unavoidable.";
+                }
+            }
+
+            if (leaveType.MaxDaysPerMonth.HasValue)
+            {
+                var monthStart = new DateTime(fromDate.Year, fromDate.Month, 1);
+                var monthEnd = monthStart.AddMonths(1).AddDays(-1);
+                var monthTotal = await ComputeLeaveDaysInRangeAsync(employeeId, leaveType.Id, monthStart, monthEnd, fromDate, toDate, cancellationToken);
+                if (monthTotal > leaveType.MaxDaysPerMonth.Value)
+                {
+                    return leaveType.Name + " cannot exceed " + leaveType.MaxDaysPerMonth.Value + " day(s) per month. Submit as an emergency application if this is unavoidable.";
+                }
+            }
+
+            return null;
+        }
+
+        // Sums this leave type's already-Pending/Approved days that fall inside [rangeStart,
+        // rangeEnd] (clipped per request, not the request's full Days -- a request spanning a
+        // week/month boundary must only count the portion inside the window), plus the new
+        // request's own portion inside the same window (the new request isn't persisted yet, so
+        // GetActiveRequestsInRangeAsync can't see it).
+        private async Task<decimal> ComputeLeaveDaysInRangeAsync(Guid employeeId, Guid leaveTypeId, DateTime rangeStart, DateTime rangeEnd, DateTime newRequestFromDate, DateTime newRequestToDate, CancellationToken cancellationToken)
+        {
+            var existingRequests = await _unitOfWork.LeaveRequests.GetActiveRequestsInRangeAsync(employeeId, leaveTypeId, rangeStart, rangeEnd, null, cancellationToken);
+
+            var totalDays = ComputeOverlapDays(newRequestFromDate, newRequestToDate, rangeStart, rangeEnd);
+            foreach (var existingRequest in existingRequests)
+            {
+                totalDays += ComputeOverlapDays(existingRequest.FromDate, existingRequest.ToDate, rangeStart, rangeEnd);
+            }
+
+            return totalDays;
+        }
+
+        private static decimal ComputeOverlapDays(DateTime rangeAStart, DateTime rangeAEnd, DateTime rangeBStart, DateTime rangeBEnd)
+        {
+            var overlapStart = rangeAStart > rangeBStart ? rangeAStart : rangeBStart;
+            var overlapEnd = rangeAEnd < rangeBEnd ? rangeAEnd : rangeBEnd;
+
+            if (overlapStart > overlapEnd)
+            {
+                return 0m;
+            }
+
+            return (decimal)(overlapEnd - overlapStart).Days + 1m;
+        }
+
+        // Best-effort balance bookkeeping, always against the CURRENT fiscal year (a deliberate
+        // simplification -- resolving the fiscal year a specific FromDate falls into would need a
+        // date-range lookup this codebase doesn't have yet; every other leave-balance touchpoint
+        // in this feature already assumes "current year" too). A missing balance row (leave type
+        // never allocated for this employee) is not an error -- the request still proceeds, it
+        // just has nothing to track against.
+        private async Task ApplyPendingDeltaAsync(Guid employeeId, Guid leaveTypeId, decimal days, CancellationToken cancellationToken)
+        {
+            var fiscalYear = await _unitOfWork.FiscalYears.GetCurrentYearAsync(cancellationToken);
+            if (fiscalYear == null)
+            {
+                return;
+            }
+
+            var balance = await _unitOfWork.Employees.GetLeaveBalanceAsync(employeeId, leaveTypeId, fiscalYear.Id, cancellationToken);
+            if (balance == null)
+            {
+                return;
+            }
+
+            balance.Pending += days;
+            balance.Balance = balance.Allocated - balance.Used - balance.Pending;
+        }
+
+        private async Task ApplyApprovalBalanceAsync(Guid employeeId, Guid leaveTypeId, decimal days, CancellationToken cancellationToken)
+        {
+            var fiscalYear = await _unitOfWork.FiscalYears.GetCurrentYearAsync(cancellationToken);
+            if (fiscalYear == null)
+            {
+                return;
+            }
+
+            var balance = await _unitOfWork.Employees.GetLeaveBalanceAsync(employeeId, leaveTypeId, fiscalYear.Id, cancellationToken);
+            if (balance == null)
+            {
+                return;
+            }
+
+            balance.Pending = Math.Max(0m, balance.Pending - days);
+            balance.Used += days;
+            balance.Balance = balance.Allocated - balance.Used - balance.Pending;
+        }
+
+        private async Task ReleasePendingBalanceAsync(Guid employeeId, Guid leaveTypeId, decimal days, CancellationToken cancellationToken)
+        {
+            var fiscalYear = await _unitOfWork.FiscalYears.GetCurrentYearAsync(cancellationToken);
+            if (fiscalYear == null)
+            {
+                return;
+            }
+
+            var balance = await _unitOfWork.Employees.GetLeaveBalanceAsync(employeeId, leaveTypeId, fiscalYear.Id, cancellationToken);
+            if (balance == null)
+            {
+                return;
+            }
+
+            balance.Pending = Math.Max(0m, balance.Pending - days);
+            balance.Balance = balance.Allocated - balance.Used - balance.Pending;
+        }
+
+        // 2026-07-23: composite Employee Profile page.
+        public async Task<CommonResponse<EmployeeProfileDto>> GetEmployeeProfileAsync(Guid employeeId, CancellationToken cancellationToken = default)
+        {
+            var employee = await _unitOfWork.Employees.GetByIdWithTeacherAsync(employeeId, cancellationToken);
+            if (employee == null)
+            {
+                var notFoundResponse = CommonResponse<EmployeeProfileDto>.Fail(ResponseCodes.NotFound, "Employee with id '" + employeeId + "' was not found.");
+                return notFoundResponse;
+            }
+
+            var profileDto = new EmployeeProfileDto
+            {
+                Id = employee.Id,
+                HasPhoto = !string.IsNullOrWhiteSpace(employee.PhotoPath),
+                Name = BuildFullName(employee.FirstName, employee.MiddleName, employee.LastName),
+                DateOfBirth = employee.DateOfBirth,
+                Phone = employee.Phone,
+                Email = employee.Email,
+                EmployeeCode = employee.EmployeeCode,
+                LevelCode = employee.LevelCode,
+                JobPositionCode = employee.JobPositionCode,
+                EmployeeCategoryCode = employee.EmployeeCategoryCode,
+                BranchCode = employee.BranchCode,
+                ProvinceCode = employee.ProvinceCode,
+                JoinDate = employee.JoinDate,
+                ServicePeriod = ResolveServicePeriod(employee.JoinDate),
+                ManagerId = employee.ManagerId,
+                ManagerName = employee.Manager != null ? BuildFullName(employee.Manager.FirstName, employee.Manager.MiddleName, employee.Manager.LastName) : null
+            };
+
+            var fiscalYear = await _unitOfWork.FiscalYears.GetCurrentYearAsync(cancellationToken);
+            if (fiscalYear != null)
+            {
+                var balances = await _unitOfWork.Employees.GetLeaveBalancesByEmployeeIdAsync(employeeId, fiscalYear.Id, cancellationToken);
+                foreach (var balance in balances)
+                {
+                    profileDto.LeaveSummary.Add(new LeaveSummaryLineDto
+                    {
+                        LeaveTypeId = balance.LeaveTypeId,
+                        LeaveTypeName = balance.LeaveType != null ? balance.LeaveType.Name : null,
+                        Used = balance.Used,
+                        Allocated = balance.Allocated,
+                        Balance = balance.Balance
+                    });
+                }
+            }
+
+            var today = DateTime.UtcNow.Date;
+            if (employee.DateOfBirth.HasValue)
+            {
+                var nextBirthday = RecurringDateHelper.ResolveNextOccurrence(employee.DateOfBirth.Value, today);
+                profileDto.UpcomingEvents.Add(new UpcomingEventDto { Type = "Birthday", Label = "Birthday", Date = nextBirthday });
+            }
+
+            if (employee.JoinDate.HasValue)
+            {
+                var nextAnniversary = RecurringDateHelper.ResolveNextOccurrence(employee.JoinDate.Value, today);
+                if (nextAnniversary.Year > employee.JoinDate.Value.Year)
+                {
+                    profileDto.UpcomingEvents.Add(new UpcomingEventDto { Type = "WorkAnniversary", Label = "Work Anniversary", Date = nextAnniversary });
+                }
+            }
+
+            var pendingFilter = new LeaveRequestFilter { EmployeeId = employeeId, IsPending = true };
+            var pendingRequests = await _unitOfWork.LeaveRequests.GetPagedByFilterAsync(pendingFilter, 1, int.MaxValue, cancellationToken);
+            foreach (var leaveRequest in pendingRequests.Items)
+            {
+                profileDto.PendingLeaveRequests.Add(EmployeeMapper.ToLeaveRequestDto(leaveRequest));
+            }
+
+            var successResponse = CommonResponse<EmployeeProfileDto>.Success(profileDto);
+            return successResponse;
+        }
+
+        // "3 years 4 months" -- whole months only (no day-level granularity, matching the
+        // mockup's "Service Period" field). Null JoinDate -> null (never shown as "0 years").
+        private static string ResolveServicePeriod(DateTime? joinDate)
+        {
+            if (!joinDate.HasValue)
+            {
+                return null;
+            }
+
+            var today = DateTime.UtcNow.Date;
+            var start = joinDate.Value.Date;
+            if (start > today)
+            {
+                return "0 years 0 months";
+            }
+
+            var totalMonths = ((today.Year - start.Year) * 12) + today.Month - start.Month;
+            if (today.Day < start.Day)
+            {
+                totalMonths -= 1;
+            }
+
+            totalMonths = Math.Max(0, totalMonths);
+            var years = totalMonths / 12;
+            var months = totalMonths % 12;
+            return years + " year" + (years == 1 ? "" : "s") + " " + months + " month" + (months == 1 ? "" : "s");
+        }
+
+        private static bool IsAllowedPhotoExtension(string fileName)
+        {
+            if (string.IsNullOrWhiteSpace(fileName))
+            {
+                return false;
+            }
+
+            var extension = Path.GetExtension(fileName).ToLowerInvariant();
+            return extension == ".jpg" || extension == ".jpeg" || extension == ".png";
+        }
+
+        private static string ResolveImageContentType(string filePath)
+        {
+            var extension = Path.GetExtension(filePath).ToLowerInvariant();
+            if (extension == ".png")
+            {
+                return "image/png";
+            }
+
+            return "image/jpeg";
+        }
+
         // Maps a persisted SalarySlip (payroll-run redesign, 2026-07-16) onto the same
         // PayslipDetailDto shape the projection produces, so the UI needs no second model.
         private static PayslipDetailDto BuildPersistedPayslipDetail(Employee employee, SalarySlip slip, int monthIndex)
@@ -2732,6 +3709,119 @@ namespace Application.Employees
             var configByCode = SalaryLineCalculationHelper.BuildConfigMap(await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.SalaryComponentType, cancellationToken));
             SalaryLineCalculationHelper.MergeConfigMap(configByCode, await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.DeductionType, cancellationToken));
             return configByCode;
+        }
+
+        // Org fields (2026-07-23) -- both remaining catalog codes are optional, so each is only
+        // checked against its catalog when actually supplied (blank/whitespace means "unset",
+        // same convention as every other optional Config-backed field in this codebase).
+        // ManagerId, when supplied, must resolve to a real employee and can't be the employee's
+        // own id (a manager can't be themselves). ProvinceCode moved out to ResolveAddressAsync
+        // below (2026-07-24) -- it's now the anchor of the address chain, validated together with
+        // DistrictCode/LocalLevelCode so the three can cross-check and auto-derive each other.
+        private async Task<string> ValidateOrgFieldsAsync(string branchCode, string levelCode, Guid? managerId, Guid? selfEmployeeId, CancellationToken cancellationToken)
+        {
+            if (!string.IsNullOrWhiteSpace(branchCode))
+            {
+                var branchExists = await _unitOfWork.Configs.CodeExistsAsync(ConfigTypeCodes.Branch, branchCode.Trim(), cancellationToken);
+                if (!branchExists)
+                {
+                    return "BranchCode '" + branchCode.Trim() + "' is not a known branch option.";
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(levelCode))
+            {
+                var levelExists = await _unitOfWork.Configs.CodeExistsAsync(ConfigTypeCodes.EmployeeLevel, levelCode.Trim(), cancellationToken);
+                if (!levelExists)
+                {
+                    return "LevelCode '" + levelCode.Trim() + "' is not a known level option.";
+                }
+            }
+
+            if (managerId.HasValue)
+            {
+                if (selfEmployeeId.HasValue && managerId.Value == selfEmployeeId.Value)
+                {
+                    return "An employee cannot be their own reporting manager.";
+                }
+
+                var manager = await _unitOfWork.Employees.GetByIdAsync(managerId.Value, cancellationToken);
+                if (manager == null)
+                {
+                    return "Manager with id '" + managerId.Value + "' was not found.";
+                }
+            }
+
+            return null;
+        }
+
+        // Address chain (2026-07-24): Province -> District -> LocalLevel. Whichever of the three
+        // is most specific wins and the coarser ones are derived from it -- a LocalLevelCode
+        // resolves its own DistrictCode/ProvinceCode from the catalog row's AdditionalValue1/2
+        // (this is the "reverse map the district and province automatically" behavior), a
+        // DistrictCode with no LocalLevelCode resolves its ProvinceCode from AdditionalValue1.
+        // Whatever the caller also supplied at a coarser level is cross-checked against the
+        // derived value rather than silently overridden, so a mismatched
+        // (ProvinceCode, DistrictCode, LocalLevelCode) triple is a validation error, not a
+        // silent correction. All three inputs are optional -- an employee can have a partial or
+        // no address at all.
+        private async Task<(string ErrorMessage, string ProvinceCode, string DistrictCode, string LocalLevelCode)> ResolveAddressAsync(string provinceCode, string districtCode, string localLevelCode, CancellationToken cancellationToken)
+        {
+            var trimmedProvinceCode = string.IsNullOrWhiteSpace(provinceCode) ? null : provinceCode.Trim();
+            var trimmedDistrictCode = string.IsNullOrWhiteSpace(districtCode) ? null : districtCode.Trim();
+            var trimmedLocalLevelCode = string.IsNullOrWhiteSpace(localLevelCode) ? null : localLevelCode.Trim();
+
+            if (trimmedLocalLevelCode != null)
+            {
+                var localLevel = await _unitOfWork.Configs.GetByTypeCodeAndCodeAsync(ConfigTypeCodes.LocalLevel, trimmedLocalLevelCode, cancellationToken);
+                if (localLevel == null)
+                {
+                    return ("LocalLevelCode '" + trimmedLocalLevelCode + "' is not a known local level option.", null, null, null);
+                }
+
+                var derivedDistrictCode = localLevel.AdditionalValue1;
+                var derivedProvinceCode = localLevel.AdditionalValue2;
+
+                if (trimmedDistrictCode != null && !string.Equals(trimmedDistrictCode, derivedDistrictCode, StringComparison.OrdinalIgnoreCase))
+                {
+                    return ("LocalLevelCode '" + trimmedLocalLevelCode + "' belongs to DistrictCode '" + derivedDistrictCode + "', not '" + trimmedDistrictCode + "'.", null, null, null);
+                }
+
+                if (trimmedProvinceCode != null && !string.Equals(trimmedProvinceCode, derivedProvinceCode, StringComparison.OrdinalIgnoreCase))
+                {
+                    return ("LocalLevelCode '" + trimmedLocalLevelCode + "' belongs to ProvinceCode '" + derivedProvinceCode + "', not '" + trimmedProvinceCode + "'.", null, null, null);
+                }
+
+                return (null, derivedProvinceCode, derivedDistrictCode, trimmedLocalLevelCode);
+            }
+
+            if (trimmedDistrictCode != null)
+            {
+                var district = await _unitOfWork.Configs.GetByTypeCodeAndCodeAsync(ConfigTypeCodes.District, trimmedDistrictCode, cancellationToken);
+                if (district == null)
+                {
+                    return ("DistrictCode '" + trimmedDistrictCode + "' is not a known district option.", null, null, null);
+                }
+
+                var derivedProvinceCode = district.AdditionalValue1;
+                if (trimmedProvinceCode != null && !string.Equals(trimmedProvinceCode, derivedProvinceCode, StringComparison.OrdinalIgnoreCase))
+                {
+                    return ("DistrictCode '" + trimmedDistrictCode + "' belongs to ProvinceCode '" + derivedProvinceCode + "', not '" + trimmedProvinceCode + "'.", null, null, null);
+                }
+
+                return (null, derivedProvinceCode, trimmedDistrictCode, null);
+            }
+
+            if (trimmedProvinceCode != null)
+            {
+                var provinceExists = await _unitOfWork.Configs.CodeExistsAsync(ConfigTypeCodes.Province, trimmedProvinceCode, cancellationToken);
+                if (!provinceExists)
+                {
+                    return ("ProvinceCode '" + trimmedProvinceCode + "' is not a known province option.", null, null, null);
+                }
+            }
+
+            return (null, trimmedProvinceCode, null, null);
         }
 
         private static string BuildFullName(string firstName, string middleName, string lastName)

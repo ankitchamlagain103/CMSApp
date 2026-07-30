@@ -30,6 +30,25 @@ namespace Application.Employees.Dtos
         public string CitNumber { get; set; }
         public string GratuityNumber { get; set; }
 
+        public string BranchCode { get; set; }
+        public string ProvinceCode { get; set; }
+        public string LevelCode { get; set; }
+        public Guid? ManagerId { get; set; }
+
+        // Address chain (2026-07-24) -- see the doc comment on Domain/Entities/Employee.DistrictCode.
+        public string DistrictCode { get; set; }
+        public string LocalLevelCode { get; set; }
+        public int? WardNo { get; set; }
+
+        // Resolved only when the Manager navigation was loaded (GetByIdWithTeacherAsync); the
+        // plain paged list leaves it null rather than issuing a per-row lookup, same convention
+        // as HasTeacherProfile above.
+        public string ManagerName { get; set; }
+
+        // Whether a profile photo has been uploaded -- the photo bytes themselves are only ever
+        // served through the dedicated download endpoint (PhotoPath is never exposed).
+        public bool HasPhoto { get; set; }
+
         // Non-null only when this employee also has a Teacher profile (shared-PK 1:1).
         public bool HasTeacherProfile { get; set; }
         public string CreatedBy { get; set; }

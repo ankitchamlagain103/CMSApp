@@ -37,6 +37,7 @@ namespace Infrastructure.Persistence.DataSeeder
             public string ParentCode { get; set; }
             public int Order { get; set; }
             public bool IsHidden { get; set; }
+            public bool IsQuickLink { get; set; }
         }
 
         public static async Task SeedAsync(IServiceProvider serviceProvider)
@@ -54,9 +55,6 @@ namespace Infrastructure.Persistence.DataSeeder
             var catalog = new List<MenuSeedDefinition>();
 
             catalog.Add(MainMenu("DASHBOARD", "Dashboard", "icons.DashboardOutlined", 1, "/dashboard/analytics"));
-            catalog.Add(Permission("DASHBOARD", "ERROR_LOG_LIST", "View Error Logs", "Dashboard", "GetErrorLogs", 1));
-            catalog.Add(Permission("DASHBOARD", "ERROR_LOG_SUMMARY", "View Error Summary", "Dashboard", "GetErrorSummary", 2));
-            catalog.Add(Permission("DASHBOARD", "ACCESS_LOG_LIST", "View Access Logs", "Dashboard", "GetAccessLogs", 3));
             catalog.Add(Permission("DASHBOARD", "DASHBOARD_SUMMARY", "View Dashboard Summary", "Dashboard", "GetSummary", 4));
             catalog.Add(Permission("DASHBOARD", "DASHBOARD_ENROLLMENT_STATS", "View Enrollment Stats", "Dashboard", "GetEnrollmentStats", 5));
             catalog.Add(Permission("DASHBOARD", "DASHBOARD_TEACHER_WIDGET", "View Teacher List Widget", "Dashboard", "GetTeacherListWidget", 6));
@@ -64,9 +62,24 @@ namespace Infrastructure.Persistence.DataSeeder
             catalog.Add(Permission("DASHBOARD", "DASHBOARD_BAR_GRAPH", "View Dashboard Bar Graph", "Dashboard", "GetBarGraph", 8));
             catalog.Add(Permission("DASHBOARD", "DASHBOARD_CURRENT_ACADEMIC_YEAR", "View Current Academic Year", "Dashboard", "GetCurrentAcademicYear", 9));
             catalog.Add(Permission("DASHBOARD", "DASHBOARD_QUICK_MENUS", "View Quick Menu Suggestions", "Dashboard", "GetQuickMenus", 10));
+            // Accounts/HR dashboard summaries (2026-07-28) -- persona-oriented composite widgets,
+            // same shape as DASHBOARD_SUMMARY. Grant to whatever role an admin creates for that
+            // function (e.g. "Accounts"/"HR") via POST /api/roles/claims -- no hardcoded role names.
+            catalog.Add(Permission("DASHBOARD", "DASHBOARD_ACCOUNTS_SUMMARY", "View Accounts Dashboard Summary", "Dashboard", "GetAccountsSummary", 11));
+            catalog.Add(Permission("DASHBOARD", "DASHBOARD_HR_SUMMARY", "View HR Dashboard Summary", "Dashboard", "GetHrSummary", 12));
+
+            // Logs (2026-07-28) -- System Access Logs and Error Logs were hidden PERMISSION rows
+            // directly under DASHBOARD with no sidebar entry of their own; moved to their own main
+            // menu with real (visible) SUB_MENU pages. Codes unchanged (ERROR_LOG_LIST/
+            // ERROR_LOG_SUMMARY/ACCESS_LOG_LIST) so the sync pass just re-parents/re-types them in
+            // place -- every existing role grant on these codes survives untouched.
+            catalog.Add(MainMenu("LOGS", "Logs", "icons.FileSearchOutlined", 14, null));
+            catalog.Add(SubMenu("LOGS", "ACCESS_LOG_LIST", "System Access Logs", "/logs/access", null, "Dashboard", "GetAccessLogs", 1));
+            catalog.Add(SubMenu("LOGS", "ERROR_LOG_LIST", "Error Logs", "/logs/errors", null, "Dashboard", "GetErrorLogs", 2));
+            catalog.Add(Permission("ERROR_LOG_LIST", "ERROR_LOG_SUMMARY", "View Error Summary", "Dashboard", "GetErrorSummary", 1));
 
             catalog.Add(MainMenu("USER_MANAGEMENT", "User Management", "icons.user", 2, null));
-            catalog.Add(SubMenu("USER_MANAGEMENT", "USER_LIST", "Users", "/apps/account/list", "icons.user", "Users", "GetUsers", 1));
+            catalog.Add(SubMenu("USER_MANAGEMENT", "USER_LIST", "Users", "/apps/account/list", "icons.user", "Users", "GetUsers", 1, isQuickLink: true));
             catalog.Add(Permission("USER_LIST", "USER_CREATE", "Create User", "Users", "CreateUser", 1));
             catalog.Add(Permission("USER_LIST", "USER_DETAIL", "View User Detail", "Users", "GetUserById", 2));
             catalog.Add(Permission("USER_LIST", "USER_UPDATE", "Update User", "Users", "UpdateUser", 3));
@@ -84,7 +97,7 @@ namespace Infrastructure.Persistence.DataSeeder
             catalog.Add(Permission("ROLE_LIST", "ROLE_USER_REMOVE", "Remove Role From User", "Roles", "RemoveRoleFromUser", 10));
 
             catalog.Add(MainMenu("CONFIG_MANAGEMENT", "Master Settings", "icons.Settings", 4, null));
-            catalog.Add(SubMenu("CONFIG_MANAGEMENT", "CONFIG_TYPE_LIST", "Config Types", "/apps/config-type/list", null, "Configs", "GetConfigTypes", 1));
+            catalog.Add(SubMenu("CONFIG_MANAGEMENT", "CONFIG_TYPE_LIST", "Config Types", "/apps/config-type/list", null, "Configs", "GetConfigTypes", 1, isQuickLink: true));
             catalog.Add(Permission("CONFIG_TYPE_LIST", "CONFIG_TYPE_CREATE", "Create Config Type", "Configs", "CreateConfigType", 1));
             catalog.Add(Permission("CONFIG_TYPE_LIST", "CONFIG_TYPE_DETAIL", "View Config Type Detail", "Configs", "GetConfigTypeById", 2));
             catalog.Add(Permission("CONFIG_TYPE_LIST", "CONFIG_TYPE_UPDATE", "Update Config Type", "Configs", "UpdateConfigType", 3));
@@ -119,7 +132,7 @@ namespace Infrastructure.Persistence.DataSeeder
             // the sync pass re-parents the existing rows in place and every role-claim grant
             // survives. FEE_MANAGEMENT/PAYROLL_MANAGEMENT keep only transactional submenus.
             catalog.Add(MainMenu("SETUP", "Setup", "icons.ControlOutlined", 5, null));
-            catalog.Add(SubMenu("SETUP", "YEAR_LIST", "Academic Years", "/apps/academic-year/list", null, "AcademicYears", "GetAcademicYears", 1));
+            catalog.Add(SubMenu("SETUP", "YEAR_LIST", "Academic Years", "/apps/academic-year/list", null, "AcademicYears", "GetAcademicYears", 1, isQuickLink: true));
             catalog.Add(Permission("YEAR_LIST", "YEAR_CREATE", "Create Academic Year", "AcademicYears", "CreateAcademicYear", 1));
             catalog.Add(Permission("YEAR_LIST", "YEAR_DETAIL", "View Academic Year Detail", "AcademicYears", "GetAcademicYearById", 2));
             catalog.Add(Permission("YEAR_LIST", "YEAR_UPDATE", "Update Academic Year", "AcademicYears", "UpdateAcademicYear", 3));
@@ -172,7 +185,7 @@ namespace Infrastructure.Persistence.DataSeeder
             catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_TAX_DETAILS_GRID", "View Teacher Tax Details Grid", "Teachers", "GetTaxDetailsGrid", 61));
 
             catalog.Add(MainMenu("STUDENT_MANAGEMENT", "Student Management", "icons.TeamOutlined", 8, null));
-            catalog.Add(SubMenu("STUDENT_MANAGEMENT", "STUDENT_LIST", "Students", "/apps/student/list", null, "Students", "GetStudents", 1));
+            catalog.Add(SubMenu("STUDENT_MANAGEMENT", "STUDENT_LIST", "Students", "/apps/student/list", null, "Students", "GetStudents", 1, isQuickLink: true));
             catalog.Add(Permission("STUDENT_LIST", "STUDENT_CREATE", "Create Student", "Students", "CreateStudent", 1));
             catalog.Add(Permission("STUDENT_LIST", "STUDENT_DETAIL", "View Student Detail", "Students", "GetStudentById", 2));
             catalog.Add(Permission("STUDENT_LIST", "STUDENT_UPDATE", "Update Student", "Students", "UpdateStudent", 3));
@@ -185,6 +198,9 @@ namespace Infrastructure.Persistence.DataSeeder
             catalog.Add(Permission("STUDENT_LIST", "STUDENT_DOCUMENT_DOWNLOAD", "Download Student Document", "Students", "DownloadDocument", 10));
             catalog.Add(Permission("STUDENT_LIST", "STUDENT_DOCUMENT_DELETE", "Delete Student Document", "Students", "DeleteDocument", 11));
             catalog.Add(Permission("STUDENT_LIST", "STUDENT_ID_CARD_PREVIEW", "Preview Student ID Card", "Students", "GetIdCardPreview", 12));
+            // Portal account provisioning (2026-07-27) -- see the matching EMPLOYEE_REGISTER_ACCOUNT
+            // comment under EMPLOYEE_LIST.
+            catalog.Add(Permission("STUDENT_LIST", "STUDENT_REGISTER_ACCOUNT", "Register Student Portal Account", "Students", "RegisterUserAccount", 13));
             catalog.Add(SubMenu("STUDENT_MANAGEMENT", "GUARDIAN_LIST", "Guardians", "/apps/guardian/list", null, "Guardians", "GetGuardians", 2));
             catalog.Add(Permission("GUARDIAN_LIST", "GUARDIAN_CREATE", "Create Guardian", "Guardians", "CreateGuardian", 1));
             catalog.Add(Permission("GUARDIAN_LIST", "GUARDIAN_DETAIL", "View Guardian Detail", "Guardians", "GetGuardianById", 2));
@@ -232,7 +248,7 @@ namespace Infrastructure.Persistence.DataSeeder
             catalog.Add(Permission("FEE_RULE_LIST", "FEE_RULE_DELETE", "Delete Fee Rule", "FeeRules", "DeleteFeeRule", 4));
 
             catalog.Add(MainMenu("FEE_MANAGEMENT", "Fee Management", "icons.DollarOutlined", 9, null));
-            catalog.Add(SubMenu("FEE_MANAGEMENT", "FEE_INVOICE_LIST", "Fee Generation", "/apps/fee-invoice/list", null, "FeeInvoices", "GetFeeInvoices", 1));
+            catalog.Add(SubMenu("FEE_MANAGEMENT", "FEE_INVOICE_LIST", "Fee Generation", "/apps/fee-invoice/list", null, "FeeInvoices", "GetFeeInvoices", 1, isQuickLink: true));
             catalog.Add(Permission("FEE_INVOICE_LIST", "FEE_INVOICE_GENERATE", "Generate Fee Invoices", "FeeInvoices", "Generate", 1));
             catalog.Add(Permission("FEE_INVOICE_LIST", "FEE_INVOICE_DETAIL", "View Fee Invoice Detail", "FeeInvoices", "GetFeeInvoiceById", 2));
             catalog.Add(Permission("FEE_INVOICE_LIST", "FEE_INVOICE_UPDATE", "Update Fee Invoice", "FeeInvoices", "UpdateFeeInvoice", 3));
@@ -338,7 +354,7 @@ namespace Infrastructure.Persistence.DataSeeder
             catalog.Add(Permission("MEETING_LIST", "MEETING_RESPOND", "Respond To Invitation", "Meetings", "RespondToInvitation", 5));
 
             catalog.Add(MainMenu("EMPLOYEE_MANAGEMENT", "Employee Management", "icons.IdcardOutlined", 11, null));
-            catalog.Add(SubMenu("EMPLOYEE_MANAGEMENT", "EMPLOYEE_LIST", "Employees", "/apps/employee/list", null, "Employees", "GetEmployees", 1));
+            catalog.Add(SubMenu("EMPLOYEE_MANAGEMENT", "EMPLOYEE_LIST", "Employees", "/apps/employee/list", null, "Employees", "GetEmployees", 1, isQuickLink: true));
             catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_CREATE", "Create Employee", "Employees", "CreateEmployee", 1));
             catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_DETAIL", "View Employee Detail", "Employees", "GetEmployeeById", 2));
             catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_UPDATE", "Update Employee", "Employees", "UpdateEmployee", 3));
@@ -383,6 +399,102 @@ namespace Infrastructure.Persistence.DataSeeder
             catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_DOCUMENT_DOWNLOAD", "Download Employee Document", "Employees", "DownloadDocument", 40));
             catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_DOCUMENT_DELETE", "Delete Employee Document", "Employees", "DeleteDocument", 41));
 
+            // Leave Management (2026-07-23) -- photo, leave balances, leave requests, and
+            // notifications are all Employee sub-resources (same "no dedicated cross-employee
+            // list action" reasoning as Loans/Adjustments above), so they're permission rows
+            // under EMPLOYEE_LIST rather than their own sub-menu. LeaveTypes (master data) gets
+            // its own LEAVE_MANAGEMENT main menu below, since GetLeaveTypes is a real top-level
+            // list action.
+            catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_PHOTO_UPLOAD", "Upload Employee Photo", "Employees", "UploadPhoto", 42));
+            catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_PHOTO_DOWNLOAD", "Download Employee Photo", "Employees", "DownloadPhoto", 43));
+            catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_PHOTO_DELETE", "Delete Employee Photo", "Employees", "DeletePhoto", 44));
+            catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_LEAVE_BALANCE_ALLOCATE", "Allocate Leave Balance", "Employees", "AllocateLeaveBalance", 45));
+            catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_LEAVE_BALANCE_LIST", "View Leave Balances", "Employees", "GetLeaveBalances", 46));
+            catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_LEAVE_REQUEST_CREATE", "Apply Leave", "Employees", "CreateLeaveRequest", 47));
+            catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_LEAVE_REQUEST_LIST", "View Leave Requests", "Employees", "GetLeaveRequests", 48));
+            catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_LEAVE_REQUEST_DETAIL", "View Leave Request Detail", "Employees", "GetLeaveRequestById", 49));
+            catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_LEAVE_REQUEST_MANAGER_APPROVE", "Approve Leave (Manager)", "Employees", "ApproveManagerDecision", 50));
+            catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_LEAVE_REQUEST_MANAGER_REJECT", "Reject Leave (Manager)", "Employees", "RejectManagerDecision", 51));
+            catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_LEAVE_REQUEST_HR_APPROVE", "Approve Leave (HR)", "Employees", "ApproveHrDecision", 52));
+            catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_LEAVE_REQUEST_HR_REJECT", "Reject Leave (HR)", "Employees", "RejectHrDecision", 53));
+            catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_LEAVE_REQUEST_CANCEL", "Cancel Leave Request", "Employees", "CancelLeaveRequest", 54));
+            catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_LEAVE_SUBSTITUTE_ADD", "Assign Leave Substitute", "Employees", "AddLeaveSubstitute", 55));
+            catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_LEAVE_SUBSTITUTE_REMOVE", "Remove Leave Substitute", "Employees", "RemoveLeaveSubstitute", 56));
+            catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_NOTIFICATION_LIST", "View Employee Notifications", "Employees", "GetNotifications", 57));
+            catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_NOTIFICATION_READ", "Mark Notification Read", "Employees", "MarkNotificationRead", 58));
+            catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_NOTIFICATION_READ_ALL", "Mark All Notifications Read", "Employees", "MarkAllNotificationsRead", 59));
+            catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_PROFILE_VIEW", "View Employee Profile", "Employees", "GetEmployeeProfile", 60));
+
+            // Portal account provisioning (2026-07-27) -- lets an admin create a login for an
+            // existing Employee record that didn't get one at creation time. Same permission
+            // gates the field on CreateEmployeeCommand implicitly, since that's just EMPLOYEE_CREATE.
+            catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_REGISTER_ACCOUNT", "Register Employee Portal Account", "Employees", "RegisterUserAccount", 61));
+
+            catalog.Add(MainMenu("LEAVE_MANAGEMENT", "Leave Management", "icons.CalendarOutlined", 13, null));
+            catalog.Add(SubMenu("LEAVE_MANAGEMENT", "LEAVE_TYPE_LIST", "Leave Types", "/apps/leave-type/list", null, "LeaveTypes", "GetLeaveTypes", 1));
+            catalog.Add(Permission("LEAVE_TYPE_LIST", "LEAVE_TYPE_CREATE", "Create Leave Type", "LeaveTypes", "CreateLeaveType", 1));
+            catalog.Add(Permission("LEAVE_TYPE_LIST", "LEAVE_TYPE_DETAIL", "View Leave Type Detail", "LeaveTypes", "GetLeaveTypeById", 2));
+            catalog.Add(Permission("LEAVE_TYPE_LIST", "LEAVE_TYPE_UPDATE", "Update Leave Type", "LeaveTypes", "UpdateLeaveType", 3));
+            catalog.Add(Permission("LEAVE_TYPE_LIST", "LEAVE_TYPE_DELETE", "Delete Leave Type", "LeaveTypes", "DeleteLeaveType", 4));
+
+            // Exam Management (2026-07-28) -- assessment configuration lives on ClassSubject
+            // itself (extended in place, see AcademicClasses' CLASS_SUBJECT_ASSIGN/UPDATE
+            // permissions above -- no new endpoint), so this main menu only covers the new
+            // ExamTerm/Exam/ExamSchedule hierarchy. ExamSchedule create/update/delete
+            // auto-manage a linked CalendarEvent (CalendarEventType.Exam) internally -- no
+            // separate permission needed for that.
+            // Round 2 (2026-07-28, same day): marks entry, result processing (GradeScale/
+            // StudentExamMark/StudentResult), and student promotion (StudentPromotion) --
+            // sections 3-5 of the design doc, completing the module started above.
+            catalog.Add(MainMenu("EXAM_MANAGEMENT", "Exam Management", "icons.ScheduleOutlined", 15, null));
+            catalog.Add(SubMenu("EXAM_MANAGEMENT", "EXAM_TERM_LIST", "Exam Terms", "/apps/exam-term/list", null, "ExamTerms", "GetExamTerms", 1));
+            catalog.Add(Permission("EXAM_TERM_LIST", "EXAM_TERM_CREATE", "Create Exam Term", "ExamTerms", "CreateExamTerm", 1));
+            catalog.Add(Permission("EXAM_TERM_LIST", "EXAM_TERM_DETAIL", "View Exam Term Detail", "ExamTerms", "GetExamTermById", 2));
+            catalog.Add(Permission("EXAM_TERM_LIST", "EXAM_TERM_UPDATE", "Update Exam Term", "ExamTerms", "UpdateExamTerm", 3));
+            catalog.Add(Permission("EXAM_TERM_LIST", "EXAM_TERM_DELETE", "Delete Exam Term", "ExamTerms", "DeleteExamTerm", 4));
+            // Exam merges what used to be a separate Exam/ExamSchedule two-step flow into one
+            // resource -- one subject's sitting for one section, date/time/room/invigilator
+            // included, no separate "schedule" step. Full Marks/Pass Marks are never accepted
+            // here; they come from the linked ClassSubject (CLASS_SUBJECT_ASSIGN/UPDATE above).
+            catalog.Add(SubMenu("EXAM_MANAGEMENT", "EXAM_LIST", "Exams", "/apps/exam/list", null, "Exams", "GetExams", 2));
+            catalog.Add(Permission("EXAM_LIST", "EXAM_CREATE", "Create Exam", "Exams", "CreateExam", 1));
+            catalog.Add(Permission("EXAM_LIST", "EXAM_DETAIL", "View Exam Detail", "Exams", "GetExamById", 2));
+            catalog.Add(Permission("EXAM_LIST", "EXAM_UPDATE", "Update Exam", "Exams", "UpdateExam", 3));
+            catalog.Add(Permission("EXAM_LIST", "EXAM_DELETE", "Delete Exam", "Exams", "DeleteExam", 4));
+            catalog.Add(Permission("EXAM_LIST", "EXAM_LOCK", "Lock Exam Marks", "Exams", "LockExam", 5));
+            catalog.Add(Permission("EXAM_LIST", "EXAM_UNLOCK", "Unlock Exam Marks", "Exams", "UnlockExam", 6));
+            // 2026-07-30: schedule every subject of one class in one call -- the "set the whole
+            // routine at once" flow, replacing the earlier (Round 2, later removed) for-class
+            // convenience with a per-item date/time/invigilator shape.
+            catalog.Add(Permission("EXAM_LIST", "EXAM_CREATE_ROUTINE", "Create Exam Routine For Class", "Exams", "CreateExamRoutine", 7));
+            catalog.Add(SubMenu("EXAM_MANAGEMENT", "GRADE_SCALE_LIST", "Grade Scales", "/apps/grade-scale/list", null, "GradeScales", "GetGradeScales", 4));
+            catalog.Add(Permission("GRADE_SCALE_LIST", "GRADE_SCALE_CREATE", "Create Grade Scale", "GradeScales", "CreateGradeScale", 1));
+            catalog.Add(Permission("GRADE_SCALE_LIST", "GRADE_SCALE_DETAIL", "View Grade Scale Detail", "GradeScales", "GetGradeScaleById", 2));
+            catalog.Add(Permission("GRADE_SCALE_LIST", "GRADE_SCALE_UPDATE", "Update Grade Scale", "GradeScales", "UpdateGradeScale", 3));
+            catalog.Add(Permission("GRADE_SCALE_LIST", "GRADE_SCALE_DELETE", "Delete Grade Scale", "GradeScales", "DeleteGradeScale", 4));
+            catalog.Add(SubMenu("EXAM_MANAGEMENT", "STUDENT_EXAM_MARK_LIST", "Marks Entry", "/apps/exam-mark/list", null, "StudentExamMarks", "GetStudentExamMarks", 5));
+            catalog.Add(Permission("STUDENT_EXAM_MARK_LIST", "STUDENT_EXAM_MARK_CREATE", "Create Student Exam Mark", "StudentExamMarks", "CreateStudentExamMark", 1));
+            catalog.Add(Permission("STUDENT_EXAM_MARK_LIST", "STUDENT_EXAM_MARK_DETAIL", "View Student Exam Mark Detail", "StudentExamMarks", "GetStudentExamMarkById", 2));
+            catalog.Add(Permission("STUDENT_EXAM_MARK_LIST", "STUDENT_EXAM_MARK_UPDATE", "Update Student Exam Mark", "StudentExamMarks", "UpdateStudentExamMark", 3));
+            catalog.Add(Permission("STUDENT_EXAM_MARK_LIST", "STUDENT_EXAM_MARK_DELETE", "Delete Student Exam Mark", "StudentExamMarks", "DeleteStudentExamMark", 4));
+            catalog.Add(Permission("STUDENT_EXAM_MARK_LIST", "STUDENT_EXAM_MARK_BULK_UPSERT", "Bulk Upsert Student Exam Marks", "StudentExamMarks", "BulkUpsertStudentExamMarks", 5));
+            catalog.Add(Permission("STUDENT_EXAM_MARK_LIST", "STUDENT_EXAM_MARK_ROSTER", "View Student Exam Mark Roster", "StudentExamMarks", "GetStudentExamMarkRoster", 6));
+            catalog.Add(SubMenu("EXAM_MANAGEMENT", "EXAM_RESULT_LIST", "Exam Results", "/apps/exam-result/list", null, "ExamResults", "GetStudentResults", 6));
+            catalog.Add(Permission("EXAM_RESULT_LIST", "EXAM_RESULT_GENERATE", "Generate Exam Results", "ExamResults", "GenerateExamResults", 1));
+            catalog.Add(Permission("EXAM_RESULT_LIST", "EXAM_RESULT_PUBLISH", "Publish Exam Results", "ExamResults", "PublishExamResults", 2));
+            catalog.Add(Permission("EXAM_RESULT_LIST", "EXAM_RESULT_DETAIL", "View Exam Result Detail", "ExamResults", "GetStudentResultById", 3));
+            catalog.Add(Permission("EXAM_RESULT_LIST", "EXAM_RESULT_WITHHOLD", "Withhold Exam Result", "ExamResults", "WithholdExamResult", 4));
+            catalog.Add(Permission("EXAM_RESULT_LIST", "EXAM_RESULT_LIFT_WITHHOLD", "Lift Exam Result Withhold", "ExamResults", "LiftExamResultWithhold", 5));
+            catalog.Add(SubMenu("EXAM_MANAGEMENT", "STUDENT_PROMOTION_LIST", "Student Promotions", "/apps/student-promotion/list", null, "StudentPromotions", "GetStudentPromotions", 7));
+            catalog.Add(Permission("STUDENT_PROMOTION_LIST", "STUDENT_PROMOTION_CREATE", "Create Student Promotion", "StudentPromotions", "CreateStudentPromotion", 1));
+            catalog.Add(Permission("STUDENT_PROMOTION_LIST", "STUDENT_PROMOTION_DETAIL", "View Student Promotion Detail", "StudentPromotions", "GetStudentPromotionById", 2));
+            catalog.Add(Permission("STUDENT_PROMOTION_LIST", "STUDENT_PROMOTION_BULK_PROCESS", "Bulk Process Promotion", "StudentPromotions", "BulkProcessPromotion", 3));
+
+            // Exam hall seat arrangement (ExamRoom/ExamHallArrangement/ExamSeatAllocation) was
+            // removed entirely 2026-07-30, per instruction -- the module only needs simple
+            // subject/date/time scheduling (see EXAM_CREATE_ROUTINE above). Their catalog rows
+            // are retired below (BuildRetiredMenuCodes), not redefined here.
+
             return catalog;
         }
 
@@ -423,7 +535,31 @@ namespace Infrastructure.Persistence.DataSeeder
                 "TEACHER_DOCUMENT_UPLOAD",
                 "TEACHER_DOCUMENT_LIST",
                 "TEACHER_DOCUMENT_DOWNLOAD",
-                "TEACHER_DOCUMENT_DELETE"
+                "TEACHER_DOCUMENT_DELETE",
+
+                // Retired 2026-07-30: the exam hall seat-allocation subsystem (ExamRoom/
+                // ExamHallArrangement/ExamHallArrangementClass/ExamSeatAllocation) was removed
+                // entirely, per instruction -- the module only needs simple subject/date/time
+                // scheduling. The "skip while live children exist" guard reads the DB, not this
+                // pass's own in-memory flips, so the parent SubMenu rows below only finish
+                // retiring on the boot after their children first get soft-deleted -- expected,
+                // same self-healing-over-boots convention documented on the guard itself.
+                "EXAM_ROOM_CREATE",
+                "EXAM_ROOM_DETAIL",
+                "EXAM_ROOM_UPDATE",
+                "EXAM_ROOM_DELETE",
+                "EXAM_ROOM_LIST",
+                "EXAM_HALL_ARRANGEMENT_CREATE",
+                "EXAM_HALL_ARRANGEMENT_DETAIL",
+                "EXAM_HALL_ARRANGEMENT_UPDATE",
+                "EXAM_HALL_ARRANGEMENT_DELETE",
+                "EXAM_HALL_ARRANGEMENT_ADD_CLASS",
+                "EXAM_HALL_ARRANGEMENT_REMOVE_CLASS",
+                "EXAM_HALL_ARRANGEMENT_GENERATE_SEATING",
+                "EXAM_HALL_ARRANGEMENT_LOCK",
+                "EXAM_HALL_ARRANGEMENT_PUBLISH",
+                "EXAM_HALL_ARRANGEMENT_MARK_ATTENDANCE",
+                "EXAM_HALL_ARRANGEMENT_LIST"
             };
 
             return retiredCodes;
@@ -453,7 +589,8 @@ namespace Infrastructure.Persistence.DataSeeder
             string icon,
             string controller,
             string action,
-            int order)
+            int order,
+            bool isQuickLink = false)
         {
             var definition = new MenuSeedDefinition
             {
@@ -466,7 +603,8 @@ namespace Infrastructure.Persistence.DataSeeder
                 Action = action,
                 ParentCode = parentCode,
                 Order = order,
-                IsHidden = false
+                IsHidden = false,
+                IsQuickLink = isQuickLink
             };
 
             return definition;
@@ -561,6 +699,7 @@ namespace Infrastructure.Persistence.DataSeeder
                 menu.ParentId = parentId;
                 menu.Order = definition.Order;
                 menu.IsHidden = definition.IsHidden;
+                menu.IsQuickLink = definition.IsQuickLink;
                 menu.IsDeleted = false;
                 menu.DeletedBy = null;
                 menu.DeletedTs = null;

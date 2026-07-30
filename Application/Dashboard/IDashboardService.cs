@@ -18,5 +18,11 @@ namespace Application.Dashboard
         Task<CommonResponse<CurrentAcademicYearDto>> GetCurrentAcademicYearAsync(CancellationToken cancellationToken = default);
 
         Task<CommonResponse<List<QuickMenuDto>>> GetQuickMenusAsync(int take, CancellationToken cancellationToken = default);
+
+        // Persona-oriented composite widgets (2026-07-28) -- same one-call shape as
+        // GetSummaryAsync, scoped to the Accounts (finance) and HR functions respectively.
+        Task<CommonResponse<AccountsDashboardSummaryDto>> GetAccountsSummaryAsync(int take, CancellationToken cancellationToken = default);
+
+        Task<CommonResponse<HrDashboardSummaryDto>> GetHrSummaryAsync(int take, CancellationToken cancellationToken = default);
     }
 }

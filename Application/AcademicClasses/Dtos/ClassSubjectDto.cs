@@ -21,5 +21,11 @@ namespace Application.AcademicClasses.Dtos
         public int? PassMarks { get; set; }
         public int? TheoryMarks { get; set; }
         public int? PracticalMarks { get; set; }
+
+        // Assessment configuration (2026-07-28) -- see the doc comment on Domain/Entities/ClassSubject.
+        public bool HasTheory { get; set; }
+        public bool HasPractical { get; set; }
+        public int? TheoryPassMarks { get; set; }
+        public int? PracticalPassMarks { get; set; }
     }
 }

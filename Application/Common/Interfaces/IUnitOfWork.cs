@@ -28,6 +28,12 @@ namespace Application.Common.Interfaces
 
         IEnrollmentRepository Enrollments { get; }
 
+        IExamTermRepository ExamTerms { get; }
+
+        IGradeScaleRepository GradeScales { get; }
+
+        IStudentPromotionRepository StudentPromotions { get; }
+
         IFeeStructureRepository FeeStructures { get; }
 
         IFeeRuleRepository FeeRules { get; }
@@ -49,6 +55,12 @@ namespace Application.Common.Interfaces
         ICalendarEventRepository CalendarEvents { get; }
 
         IMeetingRepository Meetings { get; }
+
+        ILeaveTypeRepository LeaveTypes { get; }
+
+        ILeaveRequestRepository LeaveRequests { get; }
+
+        INotificationRepository Notifications { get; }
 
         Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
     }

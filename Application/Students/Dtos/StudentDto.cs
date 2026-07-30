@@ -5,6 +5,10 @@ namespace Application.Students.Dtos
     public class StudentDto
     {
         public Guid Id { get; set; }
+
+        // Non-null only once a portal account has been provisioned for this student (2026-07-27).
+        public Guid? UserId { get; set; }
+
         public string AdmissionNo { get; set; }
         public string FirstName { get; set; }
         public string MiddleName { get; set; }

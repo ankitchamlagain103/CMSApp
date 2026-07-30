@@ -96,5 +96,15 @@ namespace Domain.Interfaces
         Task AddDocumentAsync(EmployeeDocument document, CancellationToken cancellationToken = default);
 
         void RemoveDocument(EmployeeDocument document);
+
+        // Leave balances (2026-07-23) -- owned here like Loans/Adjustments, since a balance is
+        // fundamentally an Employee-scoped running total, not its own aggregate root.
+        Task<IReadOnlyList<EmployeeLeaveBalance>> GetLeaveBalancesByEmployeeIdAsync(Guid employeeId, Guid fiscalYearId, CancellationToken cancellationToken = default);
+
+        Task<EmployeeLeaveBalance> GetLeaveBalanceAsync(Guid employeeId, Guid leaveTypeId, Guid fiscalYearId, CancellationToken cancellationToken = default);
+
+        Task<EmployeeLeaveBalance> GetLeaveBalanceByIdAsync(Guid leaveBalanceId, CancellationToken cancellationToken = default);
+
+        Task AddLeaveBalanceAsync(EmployeeLeaveBalance leaveBalance, CancellationToken cancellationToken = default);
     }
 }

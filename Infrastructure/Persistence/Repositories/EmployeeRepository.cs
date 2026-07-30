@@ -113,6 +113,7 @@ namespace Infrastructure.Persistence.Repositories
         {
             var employee = await DbSet
                 .Include(e => e.Teacher)
+                .Include(e => e.Manager)
                 .FirstOrDefaultAsync(e => e.Id == id, cancellationToken);
 
             return employee;
@@ -445,6 +446,40 @@ namespace Infrastructure.Persistence.Repositories
         public void RemoveDocument(EmployeeDocument document)
         {
             DbContext.Set<EmployeeDocument>().Remove(document);
+        }
+
+        // Leave balances (2026-07-23).
+
+        public async Task<IReadOnlyList<EmployeeLeaveBalance>> GetLeaveBalancesByEmployeeIdAsync(Guid employeeId, Guid fiscalYearId, CancellationToken cancellationToken = default)
+        {
+            var balances = await DbContext.Set<EmployeeLeaveBalance>()
+                .Include(b => b.LeaveType)
+                .Include(b => b.FiscalYear)
+                .Where(b => b.EmployeeId == employeeId && b.FiscalYearId == fiscalYearId)
+                .ToListAsync(cancellationToken);
+
+            return balances;
+        }
+
+        public async Task<EmployeeLeaveBalance> GetLeaveBalanceAsync(Guid employeeId, Guid leaveTypeId, Guid fiscalYearId, CancellationToken cancellationToken = default)
+        {
+            var balance = await DbContext.Set<EmployeeLeaveBalance>()
+                .FirstOrDefaultAsync(b => b.EmployeeId == employeeId && b.LeaveTypeId == leaveTypeId && b.FiscalYearId == fiscalYearId, cancellationToken);
+
+            return balance;
+        }
+
+        public async Task<EmployeeLeaveBalance> GetLeaveBalanceByIdAsync(Guid leaveBalanceId, CancellationToken cancellationToken = default)
+        {
+            var balance = await DbContext.Set<EmployeeLeaveBalance>()
+                .FirstOrDefaultAsync(b => b.Id == leaveBalanceId, cancellationToken);
+
+            return balance;
+        }
+
+        public async Task AddLeaveBalanceAsync(EmployeeLeaveBalance leaveBalance, CancellationToken cancellationToken = default)
+        {
+            await DbContext.Set<EmployeeLeaveBalance>().AddAsync(leaveBalance, cancellationToken);
         }
     }
 }

@@ -429,6 +429,8 @@ namespace Application.AcademicClasses
                 return conflictResponse;
             }
 
+            var theoryDefaults = ResolveTheoryDefaults(command.HasPractical, command.FullMarks, command.PassMarks, command.TheoryMarks, command.TheoryPassMarks);
+
             var classSubject = new ClassSubject
             {
                 AcademicClassId = academicClassId,
@@ -440,8 +442,12 @@ namespace Application.AcademicClasses
                 CreditHours = command.CreditHours,
                 FullMarks = command.FullMarks,
                 PassMarks = command.PassMarks,
-                TheoryMarks = command.TheoryMarks,
-                PracticalMarks = command.PracticalMarks
+                TheoryMarks = theoryDefaults.TheoryMarks,
+                PracticalMarks = command.PracticalMarks,
+                HasTheory = command.HasTheory,
+                HasPractical = command.HasPractical,
+                TheoryPassMarks = theoryDefaults.TheoryPassMarks,
+                PracticalPassMarks = command.PracticalPassMarks
             };
 
             await _unitOfWork.AcademicClasses.AddClassSubjectAsync(classSubject, cancellationToken);
@@ -469,14 +475,20 @@ namespace Application.AcademicClasses
                 return notFoundResponse;
             }
 
+            var theoryDefaults = ResolveTheoryDefaults(command.HasPractical, command.FullMarks, command.PassMarks, command.TheoryMarks, command.TheoryPassMarks);
+
             // SubjectCode/IsMandatory/ClassSectionId are identity-like and stay immutable -- only
             // grading metadata and display order can change here.
             classSubject.DisplayOrder = command.DisplayOrder;
             classSubject.CreditHours = command.CreditHours;
             classSubject.FullMarks = command.FullMarks;
             classSubject.PassMarks = command.PassMarks;
-            classSubject.TheoryMarks = command.TheoryMarks;
+            classSubject.TheoryMarks = theoryDefaults.TheoryMarks;
             classSubject.PracticalMarks = command.PracticalMarks;
+            classSubject.HasTheory = command.HasTheory;
+            classSubject.HasPractical = command.HasPractical;
+            classSubject.TheoryPassMarks = theoryDefaults.TheoryPassMarks;
+            classSubject.PracticalPassMarks = command.PracticalPassMarks;
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
@@ -532,6 +544,26 @@ namespace Application.AcademicClasses
 
             var successResponse = CommonResponse<List<ClassSubjectDto>>.Success(classSubjectDtos);
             return successResponse;
+        }
+
+        // Whole-vs-divided assessment configuration (2026-07-30): when a subject has no practical
+        // component (HasPractical = false, the "whole marks" case), Theory IS the subject's only
+        // component -- so its full/pass marks default to the subject's overall FullMarks/PassMarks
+        // whenever the caller doesn't split them out explicitly. This is what makes the
+        // ValidateMarkAgainstSubject/IsSubjectPassed per-component caps in ExamService actually
+        // enforce the overall marks in whole mode, instead of silently leaving them uncapped.
+        // When HasPractical is true (divided mode), TheoryMarks/TheoryPassMarks are left exactly
+        // as submitted -- both components must be entered explicitly.
+        private static (int? TheoryMarks, int? TheoryPassMarks) ResolveTheoryDefaults(bool hasPractical, int? fullMarks, int? passMarks, int? theoryMarks, int? theoryPassMarks)
+        {
+            if (hasPractical)
+            {
+                return (theoryMarks, theoryPassMarks);
+            }
+
+            var resolvedTheoryMarks = theoryMarks ?? fullMarks;
+            var resolvedTheoryPassMarks = theoryPassMarks ?? passMarks;
+            return (resolvedTheoryMarks, resolvedTheoryPassMarks);
         }
 
         private static string BuildValidationErrorMessage(ValidationResult validationResult)

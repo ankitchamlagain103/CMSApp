@@ -9,17 +9,22 @@ using Application.DocumentTemplates;
 using Application.Employees;
 using Application.Enrollments;
 using Application.ErrorLogs;
+using Application.Exams;
 using Application.FeeGenerationRuns;
 using Application.FeeInvoices;
 using Application.FeePayments;
 using Application.FeeRules;
 using Application.Fees;
+using Application.GradeScales;
 using Application.Guardians;
+using Application.LeaveTypes;
 using Application.Meetings;
 using Application.Menus;
+using Application.Notifications;
 using Application.Payroll.FiscalYears;
 using Application.Payroll.SalaryCalculations;
 using Application.PayrollRuns;
+using Application.Promotions;
 using Application.Students;
 using Application.Teachers;
 using FluentValidation;
@@ -57,6 +62,9 @@ namespace Application
             services.AddScoped<IGuardianService, GuardianService>();
             services.AddScoped<IStudentService, StudentService>();
             services.AddScoped<IEnrollmentService, EnrollmentService>();
+            services.AddScoped<IExamService, ExamService>();
+            services.AddScoped<IGradeScaleService, GradeScaleService>();
+            services.AddScoped<IPromotionService, PromotionService>();
             services.AddScoped<IFeeStructureService, FeeStructureService>();
             services.AddScoped<IFeeRuleService, FeeRuleService>();
             services.AddScoped<IFeeInvoiceService, FeeInvoiceService>();
@@ -67,6 +75,8 @@ namespace Application
             services.AddScoped<IPayrollRunService, PayrollRunService>();
             services.AddScoped<ISalaryCalculatorService, SalaryCalculatorService>();
             services.AddScoped<IDocumentTemplateService, DocumentTemplateService>();
+            services.AddScoped<ILeaveTypeService, LeaveTypeService>();
+            services.AddScoped<INotificationService, NotificationService>();
         }
 
         private static void RegisterMenuServices(IServiceCollection services)

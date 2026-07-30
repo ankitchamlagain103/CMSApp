@@ -50,10 +50,42 @@ namespace Domain.Entities
         public string CitNumber { get; set; }
         public string GratuityNumber { get; set; }
 
+        // "Org" fields for the Employee Profile page (2026-07-23). BranchCode/ProvinceCode/
+        // LevelCode are Config codes (ConfigTypeCodes.Branch/Province/EmployeeLevel), same
+        // validate-in-service-not-FK convention as EmployeeCategoryCode/JobPositionCode --
+        // Designation on the profile UI is JobPositionCode's label, Department is
+        // EmployeeCategoryCode's label, neither needed a new field. ManagerId is a real
+        // self-referencing FK (Restrict, same reasoning as Menu's self-referencing ParentId) --
+        // an employee's own record for "reporting manager", not a separate concept.
+        public string BranchCode { get; set; }
+        public string ProvinceCode { get; set; }
+        public string LevelCode { get; set; }
+        public Guid? ManagerId { get; set; }
+
+        // Address chain (2026-07-24), extending ProvinceCode above into a full Nepal address:
+        // Province -> District -> LocalLevel (municipality/rural municipality/metro/sub-metro)
+        // -> WardNo. DistrictCode/LocalLevelCode are Config codes (ConfigTypeCodes.District/
+        // LocalLevel), same validate-in-service-not-FK convention as every other Config-backed
+        // column here. WardNo is a plain ward number (1-33 in practice, shape-only validated --
+        // ward counts vary per local level and aren't tracked as catalog metadata). All three
+        // optional; EmployeeService derives DistrictCode/ProvinceCode from LocalLevelCode
+        // automatically when only the local level is supplied (see EmployeeService.ResolveAddressAsync).
+        public string DistrictCode { get; set; }
+        public string LocalLevelCode { get; set; }
+        public int? WardNo { get; set; }
+
+        // Storage-relative path (IFileStorageService handle), never a user-supplied path or a
+        // publicly servable URL -- fetched via the same download-endpoint pattern as
+        // EmployeeDocument, not exposed directly. Null = no photo uploaded yet.
+        public string PhotoPath { get; set; }
+
         public virtual Teacher Teacher { get; set; }
+        public virtual Employee Manager { get; set; }
         public virtual ICollection<EmployeeSalary> Salaries { get; set; } = new List<EmployeeSalary>();
         public virtual ICollection<EmployeeLoan> Loans { get; set; } = new List<EmployeeLoan>();
         public virtual ICollection<EmployeeQualification> Qualifications { get; set; } = new List<EmployeeQualification>();
         public virtual ICollection<EmployeeDocument> Documents { get; set; } = new List<EmployeeDocument>();
+        public virtual ICollection<EmployeeLeaveBalance> LeaveBalances { get; set; } = new List<EmployeeLeaveBalance>();
+        public virtual ICollection<LeaveRequest> LeaveRequests { get; set; } = new List<LeaveRequest>();
     }
 }

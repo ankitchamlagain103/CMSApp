@@ -3,6 +3,7 @@ using Application.Employees.Dtos;
 using Application.Payroll;
 using Domain.Constants;
 using Domain.Entities;
+using Domain.Enums;
 
 namespace Application.Employees
 {
@@ -37,6 +38,15 @@ namespace Application.Employees
                 SsfNumber = employee.SsfNumber,
                 CitNumber = employee.CitNumber,
                 GratuityNumber = employee.GratuityNumber,
+                BranchCode = employee.BranchCode,
+                ProvinceCode = employee.ProvinceCode,
+                LevelCode = employee.LevelCode,
+                ManagerId = employee.ManagerId,
+                DistrictCode = employee.DistrictCode,
+                LocalLevelCode = employee.LocalLevelCode,
+                WardNo = employee.WardNo,
+                ManagerName = employee.Manager != null ? BuildFullName(employee.Manager.FirstName, employee.Manager.MiddleName, employee.Manager.LastName) : null,
+                HasPhoto = !string.IsNullOrWhiteSpace(employee.PhotoPath),
                 HasTeacherProfile = hasTeacherProfile || employee.Teacher != null,
                 CreatedBy = employee.CreatedBy,
                 CreatedTs = employee.CreatedTs,
@@ -204,6 +214,97 @@ namespace Application.Employees
             return documentDto;
         }
 
+        // Leave management (2026-07-23).
+
+        public static EmployeeLeaveBalanceDto ToLeaveBalanceDto(EmployeeLeaveBalance balance)
+        {
+            var balanceDto = new EmployeeLeaveBalanceDto
+            {
+                Id = balance.Id,
+                EmployeeId = balance.EmployeeId,
+                LeaveTypeId = balance.LeaveTypeId,
+                LeaveTypeName = balance.LeaveType != null ? balance.LeaveType.Name : null,
+                FiscalYearId = balance.FiscalYearId,
+                FiscalYearCode = balance.FiscalYear != null ? balance.FiscalYear.Code : null,
+                Allocated = balance.Allocated,
+                Used = balance.Used,
+                Pending = balance.Pending,
+                Balance = balance.Balance
+            };
+
+            return balanceDto;
+        }
+
+        // Expects LeaveType/Employee/SubstituteEmployee navigations to be loaded where present;
+        // falls back to null names otherwise. EffectiveStatus follows LeaveRequest's own doc
+        // comment: HrStatus is authoritative once decided; a still-Pending HrStatus alongside a
+        // Rejected ManagerStatus shows as a provisional Rejected (HR can still override).
+        public static LeaveRequestDto ToLeaveRequestDto(LeaveRequest request)
+        {
+            var requestDto = new LeaveRequestDto
+            {
+                Id = request.Id,
+                EmployeeId = request.EmployeeId,
+                EmployeeName = request.Employee != null ? BuildFullName(request.Employee.FirstName, request.Employee.MiddleName, request.Employee.LastName) : null,
+                LeaveTypeId = request.LeaveTypeId,
+                LeaveTypeName = request.LeaveType != null ? request.LeaveType.Name : null,
+                FromDate = request.FromDate,
+                ToDate = request.ToDate,
+                Days = request.Days,
+                Reason = request.Reason,
+                SubstituteEmployeeId = request.SubstituteEmployeeId,
+                SubstituteEmployeeName = request.SubstituteEmployee != null ? BuildFullName(request.SubstituteEmployee.FirstName, request.SubstituteEmployee.MiddleName, request.SubstituteEmployee.LastName) : null,
+                IsEmergency = request.IsEmergency,
+                ManagerStatus = request.ManagerStatus,
+                ManagerRemarks = request.ManagerRemarks,
+                ManagerDecisionTs = request.ManagerDecisionTs,
+                ManagerDecisionBy = request.ManagerDecisionBy,
+                HrStatus = request.HrStatus,
+                HrRemarks = request.HrRemarks,
+                HrDecisionTs = request.HrDecisionTs,
+                HrDecisionBy = request.HrDecisionBy,
+                EffectiveStatus = ResolveEffectiveLeaveStatus(request.ManagerStatus, request.HrStatus),
+                HasAttachment = !string.IsNullOrWhiteSpace(request.AttachmentPath),
+                AttachmentFileName = request.AttachmentFileName
+            };
+
+            foreach (var substitute in request.Substitutes)
+            {
+                requestDto.Substitutes.Add(ToLeaveSubstituteDto(substitute));
+            }
+
+            return requestDto;
+        }
+
+        public static LeaveSubstituteDto ToLeaveSubstituteDto(LeaveSubstitute substitute)
+        {
+            var substituteDto = new LeaveSubstituteDto
+            {
+                Id = substitute.Id,
+                LeaveRequestId = substitute.LeaveRequestId,
+                EmployeeId = substitute.EmployeeId,
+                EmployeeName = substitute.Employee != null ? BuildFullName(substitute.Employee.FirstName, substitute.Employee.MiddleName, substitute.Employee.LastName) : null,
+                Responsibility = substitute.Responsibility
+            };
+
+            return substituteDto;
+        }
+
+        private static LeaveApprovalStatus ResolveEffectiveLeaveStatus(LeaveApprovalStatus managerStatus, LeaveApprovalStatus hrStatus)
+        {
+            if (hrStatus == LeaveApprovalStatus.Approved || hrStatus == LeaveApprovalStatus.Rejected)
+            {
+                return hrStatus;
+            }
+
+            if (managerStatus == LeaveApprovalStatus.Rejected)
+            {
+                return LeaveApprovalStatus.Rejected;
+            }
+
+            return LeaveApprovalStatus.Pending;
+        }
+
         public static InsurancePremiumDto ToInsurancePremiumDto(EmployeeInsurancePremium premium, IReadOnlyDictionary<string, string> labelsByCode = null)
         {
             var premiumDto = new InsurancePremiumDto
@@ -263,6 +364,30 @@ namespace Application.Employees
             };
 
             return adjustmentDto;
+        }
+
+        // Small standalone helper (not shared with EmployeeService.BuildFullName -- mappers stay
+        // self-contained rather than reaching into a service class) for ManagerName above.
+        private static string BuildFullName(string firstName, string middleName, string lastName)
+        {
+            var nameParts = new List<string>();
+            if (!string.IsNullOrWhiteSpace(firstName))
+            {
+                nameParts.Add(firstName);
+            }
+
+            if (!string.IsNullOrWhiteSpace(middleName))
+            {
+                nameParts.Add(middleName);
+            }
+
+            if (!string.IsNullOrWhiteSpace(lastName))
+            {
+                nameParts.Add(lastName);
+            }
+
+            var fullName = string.Join(" ", nameParts);
+            return fullName;
         }
     }
 }

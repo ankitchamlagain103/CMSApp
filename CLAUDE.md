@@ -281,7 +281,7 @@ Four cross-cutting subsystems, all built as plain Domain entities + `IUnitOfWork
 
 ### Config catalog (`Application/Configs/`, `ConfigsController`)
 
-**Every dropdown in the system is sourced from `ConfigType`/`Config`**, not hardcoded lists: a `ConfigType` names a dropdown and owns an `int TypeCode`; its `Config` rows are the options (`Code`/`Label`/`Order` + three free-form `AdditionalValue` columns). The `Config.TypeCode → ConfigType.TypeCode` FK targets an **alternate key** (not the Guid PK) — `ConfigConfiguration` sets `HasPrincipalKey` explicitly, same shadow-FK caution as `RefreshToken`. `(TypeCode, Code)` is unique. Endpoints: `POST/GET /api/configs/types` (create/list types), `PUT/DELETE /api/configs/types/{id}` (update/delete type — `TypeCode` is immutable on update since it's the alternate key options FK onto; delete is refused with `Conflict` while the type still has `Config` rows, pre-checked via `IConfigRepository.AnyByTypeCodeAsync` because the `Restrict` FK would otherwise turn it into a 500), `POST /api/configs` (create option), `GET /api/configs/types/{id}` / `GET /api/configs/{id}` (single-item lookups, `ConfigTypeDto`/`ConfigDto`), `PUT/DELETE /api/configs/{id}` (update/delete option — update keeps `TypeCode` immutable and re-checks `Code` uniqueness only when it changes, mirroring `UpdateRoleCommand`; delete is **hard**, `Config` is only `AuditableEntity`), `GET /api/configs/dropdown/{typeCode}` (options ordered by `Order` — listed in `DefaultEnabledMenu`, so any authenticated user can populate dropdowns without a permission grant). **The dropdown endpoint returns `DropdownItemDto` (`Application/Common/Models/`) — `Value`/`Label`/`Order`/`AdditionalValue1..3` — not `ConfigDto`**: it's the common dropdown shape, deliberately placed in `Common/Models` so every future dropdown endpoint returns the same type and one frontend select component binds them all. `ConfigDto` (with `Id`/`TypeCode`/`Code`) stays the admin-CRUD shape.
+**Every dropdown in the system is sourced from `ConfigType`/`Config`**, not hardcoded lists: a `ConfigType` names a dropdown and owns an `int TypeCode`; its `Config` rows are the options (`Code`/`Label`/`Order` + three free-form `AdditionalValue` columns). The `Config.TypeCode → ConfigType.TypeCode` FK targets an **alternate key** (not the Guid PK) — `ConfigConfiguration` sets `HasPrincipalKey` explicitly, same shadow-FK caution as `RefreshToken`. `(TypeCode, Code)` is unique. Endpoints: `POST/GET /api/configs/types` (create/list types), `PUT/DELETE /api/configs/types/{id}` (update/delete type — `TypeCode` is immutable on update since it's the alternate key options FK onto; delete is refused with `Conflict` while the type still has `Config` rows, pre-checked via `IConfigRepository.AnyByTypeCodeAsync` because the `Restrict` FK would otherwise turn it into a 500), `POST /api/configs` (create option), `GET /api/configs/types/{id}` / `GET /api/configs/{id}` (single-item lookups, `ConfigTypeDto`/`ConfigDto`), `PUT/DELETE /api/configs/{id}` (update/delete option — update keeps `TypeCode` immutable and re-checks `Code` uniqueness only when it changes, mirroring `UpdateRoleCommand`; delete is **hard**, `Config` is only `AuditableEntity`), `GET /api/configs/dropdown/{typeCode}` (options ordered by `Order` — listed in `DefaultEnabledMenu`, so any authenticated user can populate dropdowns without a permission grant; gained optional `parentCode`/`search` query params 2026-07-24, see the Employee Address round below). **The dropdown endpoint returns `DropdownItemDto` (`Application/Common/Models/`) — `Value`/`Label`/`Order`/`AdditionalValue1..3` — not `ConfigDto`**: it's the common dropdown shape, deliberately placed in `Common/Models` so every future dropdown endpoint returns the same type and one frontend select component binds them all. `ConfigDto` (with `Id`/`TypeCode`/`Code`) stays the admin-CRUD shape. **Known gap, documented in `Docs/config_catalog_implementation_guide.md`**: since every feature validates against a `Config.Code` string rather than a real FK (composite-key uniqueness makes an FK impractical), renaming or deleting a `Config` option is **not** reference-checked against whatever entity rows already stored that code — they're silently orphaned, not blocked or cascaded.
 
 ### App settings store (`Application/AppConfigs/`, `AppConfigsController`)
 
@@ -561,9 +561,490 @@ Implemented from `Docs/Dual_Calendar_AD_BS_Implementation_Guide.md`, adapted to 
 - **`CalendarSeeder`** (runs after `DocumentTemplateSeeder` in `Program.cs`): month names, weekday names (Saturday = weekly holiday), and the standard published **BS 2000–2090** month-length table (1092 rows, checkpoint-verified as above). Create-if-missing per row — admin edits survive restarts (`AppConfigSeeder` convention, deliberately not `MenuSeeder`'s sync semantics). BS 2091+ is added at runtime via the upsert endpoint. `MenuSeeder` gained `CALENDAR_MANAGEMENT` (main, order 12: `CALENDAR_VIEW` + `MEETING_LIST` submenus) and `CALENDAR_CONFIG_LIST` under `SETUP` (order 6).
 - Deliberately out of scope: recurring meetings, attendee email notifications, host display-name embedding in `MeetingDto` (resolve via users API), festivals spanning the BS new year (model as two occurrences), conversions before BS 2000.
 
+## Leave Management, Notifications & Employee Profile (2026-07-23)
+
+Built from a user-supplied schema sketch (`employees`/`leave_types`/`employee_leave_balance`/
+`leave_requests`/`leave_substitutes`/`holidays`/`notifications`) plus an Employee Profile page
+mockup. `Docs/leave_management_and_employee_profile_implementation_guide.md` is the full
+reference; summary:
+
+- **Everything is admin-facing**, reached via `/api/employees/{id}/...` — there is still no
+  employee-login feature (`Employee.UserId` remains forward-looking/unpopulated), so this follows
+  the exact same "no self-service, no identity-matching authorization" convention every other
+  Employee sub-resource already uses (Loans, Adjustments, Documents, Qualifications).
+- **`holidays` was NOT built as a new table** — per instruction, it reuses the Dual Calendar
+  module: `CalendarEvent.EventType == PublicHoliday` (already existed) gained optional
+  `ProvinceCode`/`BranchCode` (Config catalogs `1020`/`1019`, both null = everywhere) for scoping.
+  Two new `CalendarEventType` values, `StudentBirthday = 3`/`EmployeeBirthday = 4`, plus new
+  `StudentId`/`EmployeeId` scalar-with-real-nav fields (Student/Employee are both Domain
+  entities, unlike Meeting.HostUserId's Identity-boundary scalar-only case) so an admin can pin a
+  specific person's birthday onto the shared calendar. `CalendarService.ValidateEventPersonMappingAsync`
+  enforces exactly-one-mapping-for-the-matching-type. `GET /api/calendar/events` gained
+  `studentId`/`employeeId` query filters.
+- **Employee "org" fields**: `BranchCode`/`ProvinceCode`/`LevelCode` (Config catalogs
+  `1019`/`1020`/`1021` — Province seeded with Nepal's 7 federal provinces, Level with a generic
+  Junior/Mid/Senior/Lead/Executive ladder, Branch type-only/admin-created) plus a real
+  self-referencing `ManagerId` (Restrict delete, same pattern as `Menu.ParentId`) and a
+  `PhotoPath` (single-file, `POST/GET-download/DELETE /api/employees/{id}/photo`, jpg/jpeg/png
+  only). `EmployeeCategoryCode`/`JobPositionCode` already covered "Department"/"Designation" —
+  no new fields needed for those.
+- **`LeaveType`** (`Application/LeaveTypes/`, own `ILeaveTypeRepository`) is a real entity with
+  typed columns (`DaysPerYear`/`CarryForward`/`IsPaid`), not a Config catalog — deliberately, same
+  reasoning `ClassSubject`'s grading columns used over stuffing structured facts into
+  `Config.AdditionalValue1`. `LeaveTypeSeeder` seeds Annual/Sick/Casual (18/12/12 days) on first
+  boot, illustrative.
+- **`EmployeeLeaveBalance`** (owned by `IEmployeeRepository`, like `EmployeeLoan`/`SalaryAdjustment`)
+  is scoped by `FiscalYearId` — a deliberate addition beyond the raw sketch (which had no year
+  field at all), reusing the existing `FiscalYear` entity rather than inventing a parallel "leave
+  year" concept. `Balance = Allocated - Used - Pending`, recalculated on every mutation.
+- **`LeaveRequest`** (owned by `ILeaveRequestRepository`, which also owns child `LeaveSubstitute`
+  rows) has two independent one-shot approval fields, not one status column:
+  `ManagerStatus`/`HrStatus` (`LeaveApprovalStatus`: Pending/Approved/Rejected). Per explicit
+  instruction ("in emergency cases HR should be able to directly approve"): **`HrStatus` is
+  authoritative and is never gated on `ManagerStatus`** — HR can approve/reject regardless of
+  what the manager did or hasn't done yet, and only an HR decision actually consumes the leave
+  balance (moves the request's `Days` from `Pending` to `Used`, or releases it back out on
+  reject/cancel). `LeaveRequestDto.EffectiveStatus` is computed at read time, never persisted
+  (`HrStatus` if decided; else `Rejected` if `ManagerStatus == Rejected` — a provisional
+  rejection HR can still override; else `Pending`) — see `LeaveRequest`'s own doc comment for the
+  full derivation. `SubstituteEmployeeId` (single quick reference) and the `LeaveSubstitutes`
+  child collection (multi-person, each with their own `Responsibility`) coexist deliberately, per
+  the sketch having both. Optional multipart attachment on apply, same `DocumentFileRules`/
+  `IFileStorageService` convention as `EmployeeDocument`. Balance scoping is always the *current*
+  fiscal year, never a specific request's own date-implied year (`IFiscalYearRepository` has no
+  date-range lookup yet — a known simplification).
+- **`Notification`** (`Application/Notifications/`, own `INotificationRepository`, hard-deleted)
+  is system-raised only — `EmployeeService`'s leave-request methods call
+  `INotificationService.CreateNotificationAsync` directly (constructor-injected, same "one
+  Application service injects another feature service" pattern as `SalaryCalculatorService` ->
+  `IEmployeeService`) as a side effect of submit/manager-decision/HR-decision. `NotificationType`
+  also reserves `BirthdayReminder`/`WorkAnniversaryReminder` for a future scheduled job that
+  doesn't exist yet — nothing raises those two today.
+- **`GET /api/employees/{id}/profile`** (`EmployeeProfileDto`) is the one composite call behind
+  the whole profile page — personal/employment info, current-fiscal-year leave summary, live-
+  computed upcoming birthday/work-anniversary (rolls to next year once this year's date has
+  passed; no persisted row needed for an employee's own profile figure — that's a separate
+  concern from the manually-pinned `StudentBirthday`/`EmployeeBirthday` calendar events above,
+  which are for the *school-wide* calendar view, not this page), and pending leave requests
+  (`ManagerStatus == Pending || HrStatus == Pending`). The mockup's "View Attendance" quick action
+  has nothing to link to — **no Attendance module exists in this codebase**, not sketched, not
+  built here.
+- **New permissions**: `LEAVE_TYPE_CREATE/DETAIL/UPDATE/DELETE` (new `LEAVE_MANAGEMENT` main menu
+  → `LEAVE_TYPE_LIST` sub-menu, since `GetLeaveTypes` is a real top-level list action);
+  `EMPLOYEE_PHOTO_*`, `EMPLOYEE_LEAVE_BALANCE_*`, `EMPLOYEE_LEAVE_REQUEST_*`,
+  `EMPLOYEE_LEAVE_SUBSTITUTE_*`, `EMPLOYEE_NOTIFICATION_*`, `EMPLOYEE_PROFILE_VIEW` (all under the
+  existing `EMPLOYEE_LIST` sub-menu — same "no dedicated cross-employee list action exists" reasoning
+  Loans/Adjustments/Documents/Qualifications already established).
+- **Needs a migration**: new tables `dbo.leave_types`, `dbo.employee_leave_balances` (unique
+  `(employee_id, leave_type_id, fiscal_year_id)`), `dbo.leave_requests`, `dbo.leave_substitutes`,
+  `dbo.notifications`; new columns on `dbo.employees` (`branch_code`/`province_code`/`level_code`/
+  `manager_id`/`photo_path`) and `dbo.calendar_events` (`province_code`/`branch_code`/
+  `student_id`/`employee_id`) — every endpoint in this section 500s until these exist.
+
+**Round (2026-07-24): Employee address (Province → District → Local Level → Ward).** Extends the
+`ProvinceCode` org field above into a full Nepal address. `Docs/employee_address_implementation_guide.md`
+is the full reference.
+
+- **Two new Config catalogs, no new tables**: `District` (TypeCode `1022`, `AdditionalValue1` =
+  its `ProvinceCode`) and `LocalLevel` (TypeCode `1023`, `AdditionalValue1` = its `DistrictCode`,
+  `AdditionalValue2` = its `ProvinceCode` denormalized, `AdditionalValue3` = its type —
+  `Domain/Constants/LocalLevelTypeCodes`: `METROPOLITAN_CITY`/`SUB_METROPOLITAN_CITY`/
+  `MUNICIPALITY`/`RURAL_MUNICIPALITY`). `Employee` gained `DistrictCode`/`LocalLevelCode` (Config
+  codes, validated in the service like every other Config-backed column) and a plain `WardNo`
+  (int, shape-only `1`–`99` — ward counts vary per local level and aren't tracked as metadata).
+- **Seed data is deliberately partial for local levels**: `ConfigCatalogSeeder` seeds all 77
+  districts (the full, stable list) but only **80 of Nepal's 753 local levels** — the 6
+  Metropolitan + 11 Sub-Metropolitan Cities plus one notable municipality/rural municipality per
+  remaining district (every district has at least one usable option). The other ~670 were
+  deliberately left out rather than hand-type them from model training data with no authoritative
+  source to verify against — a wrong government record here is the kind of mistake that goes
+  unnoticed until a real address is wrong, unlike this codebase's other clearly-illustrative
+  placeholder seed data (payroll tax slabs, etc). Add the rest via `POST /api/configs` from an
+  official MoFAGA/Election Commission list before relying on this for real addresses.
+- **`GET /api/configs/dropdown/{typeCode}` gained generalized `parentCode`/`search` query params**
+  (`IConfigRepository.GetByTypeCodeAsync` overload, `EF.Functions.ILike` on `Label`) — reusable by
+  any hierarchical catalog, not just this feature: `parentCode` filters on `AdditionalValue1`
+  (cascading District-by-Province, LocalLevel-by-District), `search` is a case-insensitive Label
+  substring match (the searchable Local Level lookup the user asked for instead of three-level
+  cascading selects). Both optional and independent; omitting both is the unfiltered call every
+  existing caller already makes.
+- **`EmployeeService.ResolveAddressAsync`** is the actual "reverse map the district and province
+  automatically" implementation: given only `localLevelCode`, it derives `districtCode`/
+  `provinceCode` from that option's own `AdditionalValue1`/`AdditionalValue2` and persists them —
+  no frontend cooperation required. Given only `districtCode`, `provinceCode` is derived the same
+  way. Anything supplied at more than one level is cross-checked against the derived value (a
+  `ValidationError` naming the mismatch), never silently overridden by whichever level the caller
+  happened to also send.
+- **Needs a migration**: three new nullable columns on `dbo.employees` — `district_code
+  varchar(100)`, `local_level_code varchar(100)`, `ward_no integer`. No new tables (the two new
+  catalogs reuse the existing `dbo.config_types`/`dbo.configs`).
+
+**Round (2026-07-24): Leave configurability (day-count caps + emergency override) + two new leave
+types, revised same day.** `Docs/leave_configurability_implementation_guide.md` is the full
+reference.
+
+- **`LeaveType` gained two optional policy fields**: `MaxConsecutiveDays` (int?, cap per single
+  request) and `MaxDaysPerWeek`/`MaxDaysPerMonth` (decimal?, cap on Pending+Approved days of that
+  type within the calendar week/month containing a new request's `FromDate`). Both
+  optional/independent, so an unconfigured leave type behaves exactly as before this round.
+- **Revision, same day**: this round originally also added a per-type `RequiresDocumentAboveDays`
+  (mandatory-attachment-above-N-days rule) and `AllowEmergencyOverride` (per-type toggle gating
+  whether the emergency bypass below applied). **Both were removed by request** — whether a
+  supporting document backs a request is left to the requester/HR conversation (attach one at
+  apply time, or HR asks for one before deciding), not a system-enforced gate;
+  `LeaveRequest.AttachmentPath` stays optional for every leave type exactly as it was before this
+  feature existed.
+- **`LeaveRequest` gained `IsEmergency`** (bool, sent alongside the existing Apply Leave multipart
+  fields) — the requester's own unverified claim. With `AllowEmergencyOverride` gone, this now
+  **unconditionally** bypasses `MaxConsecutiveDays`/`MaxDaysPerWeek`/`MaxDaysPerMonth` for any
+  leave type, no per-type toggle needed. **Deliberately unrelated to the pre-existing "HR can
+  decide regardless of ManagerStatus" emergency override already documented in the Leave
+  Management round** — two different "emergency" concepts that happen to share the word; the
+  guide calls this out explicitly so it isn't conflated.
+- **Week/month cap math**: `EmployeeService.ValidateLeavePolicyAsync` (called from
+  `CreateLeaveRequestAsync`, before the attachment is saved to disk; returns immediately if
+  `IsEmergency` is `true`) resolves the calendar week/month containing the new request's
+  `FromDate`, sums every existing non-Rejected request of the same employee+leave type that
+  overlaps that window (clipped to the days actually inside it, via a new private
+  `ComputeOverlapDays` — a request spanning the window boundary only counts its portion) plus the
+  new request's own portion, and rejects if the total would exceed the configured cap. New
+  `ILeaveRequestRepository.GetActiveRequestsInRangeAsync` backs this (mirrors
+  `HasOverlappingRequestAsync`'s overlap predicate, scoped additionally to one `LeaveTypeId`).
+- **Two new seeded leave types** (`LeaveTypeSeeder`, illustrative, create-if-missing by `Name` —
+  an already-seeded database's existing rows do NOT retroactively gain these policy values):
+  Bereavement Leave (13 days/year, `MaxConsecutiveDays = 13` — capped at its own yearly
+  allocation in one request) and Marriage Leave (7 days/year, `MaxConsecutiveDays = 7`, same
+  reasoning). `Casual Leave` (pre-existing) also gained illustrative policy values in the same
+  seeder pass — `MaxConsecutiveDays = 3`/`MaxDaysPerMonth = 5` (the "prevent abuse" example); Sick
+  Leave and Annual Leave got no caps (sickness duration is unpredictable; annual leave is planned
+  and approved ahead of time).
+- **Needs a migration**: three new columns on `dbo.leave_types` (`max_consecutive_days integer NULL`,
+  `max_days_per_week decimal(6,2) NULL`, `max_days_per_month decimal(6,2) NULL`) and one new
+  column on `dbo.leave_requests` (`is_emergency boolean NOT NULL`).
+
+## Portal account provisioning for Employees & Students (2026-07-27)
+
+Closes the gap left by `Employee.UserId`/`Student.UserId` being forward-looking-only columns no
+code path ever set: an admin can now optionally give an `Employee` or `Student` record a real
+login, either at creation or retrofitted onto an existing record. `Docs/portal_account_provisioning_implementation_guide.md`
+is the full reference; summary:
+
+- **Two entry points per feature, one shared implementation**: `registerUserAccount: true` on
+  `POST /api/employees`/`POST /api/students` (create-time), or
+  `POST /api/employees/{id}/register-account` / `POST /api/students/{id}/register-account`
+  (retrofit, for a record that skipped the flag or predates this feature). Both call the exact
+  same private helper in `EmployeeService`/`StudentService` (`ProvisionAccountOrErrorAsync`) —
+  there is exactly one place this logic lives per feature, not two.
+- **Employee picks role(s), Student always gets a fixed role**: `CreateEmployeeCommand`/
+  `RegisterEmployeeUserAccountCommand` carry `RoleIds` (admin-chosen from `GET /api/roles`, same
+  shape as `CreateUserCommand.RoleIds`) — required, non-empty, when opting in. Students have no
+  role picker at all: every student account is assigned the new fixed `RoleNames.Student` role.
+  That role is seeded (`IdentitySeeder`) with **zero granted permissions**, same as `Admin`/`User`
+  until claims are granted — there is no results/schedule module yet in this codebase for it to be
+  granted against; this round only gets the login itself working.
+- **New shared primitive on `IIdentityService`** (`Application/Common/Interfaces/` — previously
+  documented as "has no callers, extend or drop deliberately"; this is that deliberate extension):
+  `EmailExistsAsync` and `ProvisionPortalAccountAsync` (takes a new `ProvisionPortalAccountRequest`
+  — `Email`/`FirstName`/`LastName`/`Gender` plus *either* `RoleIds` (Employee path) or `RoleNames`
+  (Student path, always `[RoleNames.Student]`) — both resolved and unioned inside
+  `IdentityService`). `EmployeeService`/`StudentService` call `EmailExistsAsync` first (→
+  `Conflict` on the service side, kept out of the Infrastructure primitive so the Application layer
+  decides the response code) before calling `ProvisionPortalAccountAsync` (→ `ValidationError` on
+  any other failure — a deliberate coarser catch-all, not a fully granular error-code mapping, to
+  keep `IIdentityService`'s surface small).
+- **No password is ever set by this flow** — `ProvisionPortalAccountAsync` creates the
+  `ApplicationUser` via `UserManager.CreateAsync(user)` with no password argument, identical to how
+  `AuthService.GoogleLoginAsync` creates a Google-only account. `EmailConfirmed` is set `true`
+  directly (an Employee/Student is already a verified record via HR/admission, unlike an anonymous
+  self-registration), so the immediately-generated password-reset token/email ("set your password
+  to activate your account", built with the same `EmailLinkBuilder.BuildResetPasswordLink`
+  `ForgotPasswordAsync` already uses) works right away with no separate email-verification step
+  first. **This reuses the existing anonymous `POST /api/auth/reset-password` endpoint as the
+  activation mechanism — no new endpoint was added for activation itself.**
+- **Username generation de-duplicated**: the email-local-part-plus-numeric-suffix logic that used
+  to live only as a private method on `AuthService` (used by `GoogleLoginAsync`) was extracted to
+  `Infrastructure/Identity/Common/UserNameGenerator.GenerateUniqueAsync` so both call sites
+  (Google sign-in and this new provisioning path) share one implementation.
+- **`Domain/Constants/RoleNames.cs` gained `Student`** (added to `All`, though nothing currently
+  reads `RoleNames.All`). `IdentitySeeder` seeds the role only — no bootstrap account, same as
+  `Admin`/`User` needing no seeded account either.
+- **Provisioned accounts also get a `PhoneNumber`** (base Identity property, copied from
+  `Employee.Phone`/`Student.Phone`) — `ProvisionPortalAccountRequest` gained `PhoneNumber`. And
+  **`AuthService.LoginAsync` now resolves its `userName` field against `UserName`, then `Email`,
+  then `PhoneNumber`** (new private `FindUserByIdentifierAsync`, replacing the bare
+  `FindByNameAsync` call) — necessary because a provisioned account's username is
+  system-generated and the person never chose it, so email or phone is realistically what they'll
+  type to log in. `PhoneNumber` has no unique-index constraint (unlike `UserName`/`Email`), so
+  it's a best-effort match; the password check right after still has to pass for that specific
+  user. This changes login for every account, not just provisioned ones.
+- **Needs a migration**: one new nullable column `dbo.students.user_id uuid NULL` plus a partial
+  unique index `ix_students_user_id WHERE user_id IS NOT NULL` — mirrors the existing
+  `dbo.employees.user_id` column/index, which needed no change here. Every
+  `POST /api/students/{id}/register-account` call and any `POST /api/students` with
+  `registerUserAccount: true` 500s until this is applied.
+
+## Dashboard: quick links, Logs menu, Accounts/HR summaries (2026-07-28)
+
+`Docs/dashboard_updated_file.md` is the full reference (updated in place, not a new file);
+`Docs/UI-Implementation-Guide.md`'s Dashboard section has the summary. Three related changes:
+
+- **`Menu.IsQuickLink`** (new bool, default `false`): the dashboard's "Quick Access" tile grid
+  used to be derived by a heuristic in `DashboardService.GetQuickMenusAsync` — any granted, visible
+  `SUB_MENU` that happened to carry a `Url`. Replaced with an explicit flag so an admin curates
+  exactly which pages show up there, via the normal `POST/PUT /api/menus` CRUD
+  (`MenuDto`/`CreateMenuCommand`/`UpdateMenuCommand` all gained `IsQuickLink`). `MenuSeeder`'s
+  `SubMenu(...)` factory gained a trailing optional `isQuickLink = false` param (every existing
+  call site untouched unless opted in) and marks it `true` on exactly the six rows matching the
+  original ask: `STUDENT_LIST`, `FEE_INVOICE_LIST`, `CONFIG_TYPE_LIST`, `USER_LIST`,
+  `EMPLOYEE_LIST`, `YEAR_LIST`. `GetQuickMenusAsync`'s filter changed from `menu.Url != null` to
+  `menu.IsQuickLink` — still intersected with the caller's actually-granted menu ids exactly as
+  before; `IsQuickLink` is additive on top of the permission check, never a substitute for it.
+  **Needs a migration**: `dbo.menus.is_quick_link boolean NOT NULL DEFAULT false`.
+- **`Logs` main menu**: System Access Logs and Error Logs (`ERROR_LOG_LIST`/`ERROR_LOG_SUMMARY`/
+  `ACCESS_LOG_LIST`) used to be hidden `PERMISSION` rows directly under `DASHBOARD`, with no
+  sidebar entry of their own. Re-defined in `MenuSeeder.BuildMenuCatalog()` as a new top-level
+  `LOGS` main menu (order 14) with two real `SUB_MENU` pages (`ACCESS_LOG_LIST` → `/logs/access`,
+  `ERROR_LOG_LIST` → `/logs/errors`, the latter parenting `ERROR_LOG_SUMMARY` as a hidden
+  permission). **Codes are unchanged**, so `MenuSeeder`'s existing sync pass (pass 2) just
+  re-parents/re-types these three rows in place on next boot — no retire-list entry needed, and
+  every existing role's grant on them survives untouched. **The API routes themselves didn't
+  change** (`GET /api/dashboard/error-logs`/`/error-logs/summary`/`/access-logs`) — only where
+  they sit in navigation. No migration needed for this part.
+- **`GET /api/dashboard/accounts-summary` / `GET /api/dashboard/hr-summary`** (new, `take` query
+  param default 5): persona-oriented composite widgets, same one-call shape as the existing
+  `GetSummaryAsync`. **Deliberate design call**: "Accounts"/"HR"/"SuperAdmin" describes what data
+  each endpoint returns, not new hardcoded `RoleNames` — this codebase already lets an admin
+  create arbitrary roles via `POST /api/roles` and grant them specific menu permissions (how every
+  department-specific role already works here), so the two new endpoints just get their own hidden
+  `PERMISSION` rows under `DASHBOARD` (`DASHBOARD_ACCOUNTS_SUMMARY`/`DASHBOARD_HR_SUMMARY`) like
+  every other dashboard widget.
+  - `AccountsDashboardSummaryDto`: fee collected today/this month/this fiscal year (`FeePayment`
+    sums excluding `Voided`), total outstanding due (`NetAmount - PaidAmount` across non-Draft
+    non-Cancelled `FeeInvoice` rows — the same formula already used throughout
+    `FeeInvoiceService`), invoice counts by status, pending `FeeAdjustment` count, the most
+    recently created `PayrollRun`'s summary (slip count/net pay excluding Cancelled slips, same
+    aggregate rule `PayrollRunMapper.ToDto` already applies — computed inline here rather than
+    pulling in the full mapper), and recent `FeePayment` rows with the paying student's name.
+  - `HrDashboardSummaryDto`: headcount by `EmploymentStatus`/`EmployeeCategoryCode` (labels via
+    `ConfigLabelHelper` against catalog `1011`), pending leave-request count (`HrStatus ==
+    Pending` — HR's decision is the authoritative gate per the Leave Management module's own
+    design, not gated on `ManagerStatus`), pending `EmployeeLoan` count, recent hires, and upcoming
+    birthdays/work-anniversaries (next 30 days, Active employees only).
+  - **`Application/Common/Helpers/RecurringDateHelper.cs`** (new): extracts the "next annual
+    occurrence" calculation (birthday/anniversary rolling to next year once passed) that used to
+    be a private method on `EmployeeService` alone, so `EmployeeService.GetEmployeeProfileAsync`
+    (single employee) and the new org-wide HR summary share one implementation.
+  - No new repository methods on `IFeeInvoiceRepository`/`IPayrollRunRepository`/
+    `ILeaveRequestRepository`/`IEmployeeRepository` — `DashboardService` queries
+    `ApplicationDbContext`/`ApplicationDbContext.Set<T>()` directly for these cross-cutting
+    aggregates, the same precedent its existing widgets already set (`GetSummaryAsync` queries
+    `_dbContext.Users` directly; `GetCurrentAcademicYearAsync` uses `_dbContext.Set<ClassSection>()`
+    for an entity with no top-level `DbSet` property). No migration needed for this part.
+
+## Exam Management: assessment configuration, exams, marks, results & promotion (2026-07-28)
+
+Implements the full Exam/Result/Promotion design (`Docs/Student_Management_System_Exam_Result_Promotion_Design.md`)
+across several same-day passes, **then redesigned once more the same day** after real UI testing
+surfaced two problems with the first cut: (1) the design doc's own `Exam`/`ExamSchedule` split (a
+term-wide named container, then a separate per-subject-per-section scheduling step) required two
+back-to-back API calls for what an admin experiences as one action, and the UI screenshot for it
+had no subject/class/section fields at all on the "Exam" step; (2) `ExamSchedule.MaximumMarks`/
+`PassMarks` duplicated what should have been configured once on `ClassSubject` (grade-wise,
+optionally section-wise) — re-entering marks per exam invited drift. **Both are fixed**: `Exam` is
+now the only resource (merges what `Exam`+`ExamSchedule` used to be — one row = one subject's
+sitting for one section, name/weightage/date/time/room/invigilator all on one create call), and it
+carries no marks columns at all — `ClassSubject.FullMarks`/`PassMarks` (and the theory/practical
+breakdown) are the single source of truth, read at marks-entry and result-generation time.
+`Docs/exam_management_implementation_guide.md` is the single comprehensive reference (one guide,
+not split by phase, for the same "don't split a cohesive workflow into confusing pieces" reason
+the entity merge exists); summary:
+
+- **Assessment configuration extends `ClassSubject` in place, no new entity** — `FullMarks`/
+  `PassMarks` (overall), `TheoryMarks`/`PracticalMarks` (per component, from the 2026-07-15
+  grading-metadata round), `HasTheory`/`HasPractical` (bool, default `true`/`false`), and
+  `TheoryPassMarks`/`PracticalPassMarks` (per-component pass thresholds, design doc §1.3). This is
+  the **only** place Full/Pass Marks are ever entered for the exam module — grade-wise via
+  `AcademicClassId`, optionally section-wise via `ClassSubject.ClassSectionId` (the existing
+  class-wide-vs-section-scoped mechanism, unchanged, just newly relied upon by exams). Wired
+  through `AssignClassSubjectCommand`/`UpdateClassSubjectCommand`, `ClassSubjectDto`,
+  `AcademicClassMapper`, `AcademicClassService.AssignSubjectAsync`/`UpdateClassSubjectAsync`. Two
+  `CHECK` constraints (`ck_class_subjects_theory_marks_range`/`ck_class_subjects_practical_marks_range`)
+  mirror the existing overall-marks-range constraint.
+- **`ExamTerm` → `Exam`** (`Application/Exams/`, one `IExamService`/`ExamService` — same "one
+  service, several tightly-nested resource kinds" precedent as `AcademicClassService`
+  covering Class+Section+Subject): `ExamTerm` (`SoftDeleteAuditableEntity`, FK to `AcademicYear`,
+  unique `Code`) is a macro period ("First Terminal"). `Exam` (`AuditableEntity`, hard-deleted
+  child of `ExamTerm`) is now the single sitting resource — `ClassSectionId`/`ClassSubjectId`
+  (real FKs, Restrict delete), `Name`/`Description`/`WeightagePercent`/`IsFinalExam` (what the
+  original "Exam" container held), `ExamDate`/`StartTime`/`EndTime`/`Room`/
+  `InvigilatorEmployeeId` (what the original "ExamSchedule" held — `InvigilatorEmployeeId` is a
+  real FK since `Employee` is a Domain entity, unlike Identity-boundary scalars like
+  `Meeting.HostUserId`), `MarksLocked` (design doc step 6 "Lock Marks" gate — `POST
+  /api/exams/{id}/lock`/`unlock`). **Deliberately has no `MaximumMarks`/`PassMarks` columns** —
+  see the `ClassSubject` bullet above. One `IExamTermRepository` owns `Exam` (mirrors
+  `IAcademicClassRepository`/`ITeacherRepository`'s "aggregate repository owns its children"
+  convention); `Exam` relies on EF's change-tracking for in-place edits (no explicit `UpdateExam`
+  repository method), same convention `ClassSubject`/`TeacherAssignment` already use. Unique
+  index on `(ExamTermId, ClassSectionId, ClassSubjectId, Name)` — the same subject/section can
+  have more than one named sitting within a term (e.g. "Quiz 1" and "Written"), just not two with
+  the identical name. `DeleteExamAsync` refuses (`409`) while the exam still has recorded marks —
+  a guard the original `ExamSchedule` delete was missing (would have hit a DB FK-restrict
+  violation and 500'd); fixed as part of this redesign.
+- **Routes are flat with filter query params**: `/api/examterms`, `/api/exams?examTermId=&classSectionId=&classSubjectId=`
+  (all optional/combinable) — two controllers (`ExamTermsController`/`ExamsController`), each
+  still just `[Route("api/[controller]")]` so `AuthorizedAction`'s controller-name matching keeps
+  working (see the "Heads up when editing `DefaultEnabledMenu`" caution above).
+- **`Exam` create/update/delete auto-manages a linked `CalendarEvent`** (new
+  `CalendarEventType.Exam = 5`) via `IBsAdConversionService`, so a scheduled exam shows up on the
+  existing `GET /api/calendar/month-view`/`GET /api/calendar/events` with zero new calendar-side
+  code. **The design doc's own `CalendarEvent` sketch (§2.4: `AcademicYearId`,
+  `StartDateTime`/`EndDateTime`, `RelatedEntityType`/`RelatedEntityId`) was NOT built** — this
+  codebase's `CalendarEvent` (Dual Calendar module) already has an incompatible, AD/BS-dual shape.
+  `Exam` gained its own `CalendarEventId` (plain scalar, no FK — same lineage-column convention as
+  `FeeInvoiceLine`'s lineage ids) pointing the other direction instead.
+- **`GradeScale`** (`Application/GradeScales/`, own `IGradeScaleRepository`) is a standalone
+  master-data table (percentage band → grade + grade point), soft-deleted, unique `Grade` — no
+  callers ever FK into it, values are copied onto `StudentExamMark` at result-generation time, not
+  referenced, so editing/deleting a band never retroactively changes an already-graded mark.
+- **`StudentExamMark`** (`Application/Exams/`, same service/repository — a child concept of
+  `Exam`) records one student's theory/practical/internal marks for one `Exam`. Every mark
+  create/update/delete and the bulk-upsert endpoint reject while `Exam.MarksLocked`.
+  `ComputeMarkTotals`/`ValidateMarkAgainstSubject` (private static helpers on `ExamService`)
+  derive `TotalMarks`/`IsAbsent` and enforce the "only fields the subject's `HasTheory`/
+  `HasPractical` actually has may be set" rule — obtained marks are capped against
+  `ClassSubject.TheoryMarks`/`PracticalMarks` when configured. `POST /api/studentexammarks/bulk`
+  upserts a whole roster in one call with a per-line skip list, same "partial success" convention
+  as `FeeInvoiceService`/`PayrollRunService`'s bulk endpoints.
+- **`StudentResult`**: `POST /api/examresults/generate` aggregates only **final** (`Exam.IsFinalExam`)
+  exams per section into one row per enrollment — percentage, credit-hour-weighted GPA, and a
+  section rank (in-memory selection-sort over the enrollments included in *this* generation call,
+  not a global re-rank). Full Marks for the aggregate now come from `ClassSubject.FullMarks` (was
+  `ExamSchedule.MaximumMarks`); overall pass/fail now reads `ClassSubject.PassMarks` (was
+  `ExamSchedule.PassMarks`) — defensively re-checked at generation time even though `Exam`
+  creation already requires these to be configured. `ResultStatus` is `Pass`/`Compartment`/`Fail`
+  by failed-subject count against `Domain/Constants/ExamResultRules.CompartmentMaxFailedSubjects`
+  (`2`). Regenerating **skips** any enrollment whose result is already `Withheld` so a routine
+  regenerate can't silently clear an administrative hold; `POST /api/examresults/{id}/withhold`
+  sets the hold, `POST /api/examresults/{id}/lift-withhold` **soft-deletes** the row instead of
+  just flipping a flag back — `GetResultByEnrollmentAndTermIgnoringFiltersAsync` finds and
+  resurrects that soft-deleted row on the next `generate` call rather than colliding with the
+  unique `(EnrollmentId, ExamTermId)` index. `POST /api/examresults/publish/{examTermId}` stamps
+  `PublishedDate` on every non-withheld result, flips `ExamTerm.PublishResult`, and marks every
+  contributing `StudentExamMark.IsPublished` (notifying parents/portal is explicitly not built).
+- **`StudentPromotion`** (`Application/Promotions/`, its own standalone `IStudentPromotionRepository`
+  — no single existing aggregate owns it, same "standalone" precedent as `GradeScale`/`LeaveType`)
+  is a hard-deleted, immutable audit row (`AuditableEntity`, no update/delete endpoint at all —
+  matches the design doc's section 5.1 immutability principles literally). `PromotionService`
+  **injects `IEnrollmentService`** and calls its existing `CreateEnrollmentAsync` for the new
+  enrollment rather than duplicating capacity/roll-number/one-active-enrollment-per-year
+  validation — same "one Application service injects another feature service" precedent as
+  `SalaryCalculatorService` → `IEmployeeService`. This makes a promotion **two separate
+  `SaveChangesAsync` calls, not one atomic transaction** — a deliberate, documented
+  simplification. `POST /api/studentpromotions` handles all three `PromotionType` values
+  (Promoted/Retained/Transferred) with one shape — **no automatic "next grade" inference**, the
+  caller always names the destination section explicitly. `POST /api/studentpromotions/bulk-process`
+  automates the design doc's §5.3 decision workflow for a whole section: every `Enrolled`
+  student's `StudentResult` for a given `ExamTermId` decides Pass → `PromotedToClassSectionId` or
+  Fail/Compartment → `RetainedToClassSectionId`; per-student failures land in a skip list.
+- **One `EXAM_MANAGEMENT` main menu**, sub-menus `EXAM_TERM_LIST`/`EXAM_LIST` (merged, replacing
+  the original `EXAM_LIST` + `EXAM_SCHEDULE_LIST` pair)/`GRADE_SCALE_LIST`/`STUDENT_EXAM_MARK_LIST`/
+  `EXAM_RESULT_LIST`/`STUDENT_PROMOTION_LIST`.
+- Deliberately out of scope: `AcademicYear`/`ExamTerm` date-range cross-validation,
+  attendance-integrated absence flags, parent/student portal notification on publish,
+  cross-section rank recompute on a partial-scope regenerate, and inter-school transfers.
+- **Round 2 (same day, follow-up UI feedback)**: two fixes. (1) `CreateExamAsync` **no longer
+  requires** `ClassSubject.FullMarks`/`PassMarks` to be configured before an exam can be created —
+  that check was removed per explicit instruction; exams can be scheduled before grading is
+  configured, and an ungraded subject is now caught defensively at result-generation time instead
+  (already-existing skip-with-reason behavior there, unchanged). (2) New
+  `POST /api/exams/for-class` (`CreateExamsForClassAsync`) — the "leave Section on 'All sections'"
+  convenience the frontend's New Exam form already expected: takes `academicClassId` instead of
+  `classSectionId` and creates one `Exam` per section of that class in one call (same subject —
+  which must be class-wide, i.e. `ClassSubject.ClassSectionId == null` — name/date/time/room/
+  invigilator on every row), skip-list style so re-running after a new section is added is safe.
+  New permission `EXAM_CREATE_FOR_CLASS`. No schema change — no new migration impact beyond what
+  Round 1 already needs.
+- **Round 3 (same day, teacher-wise/student-wise marks entry)**: two additive, read-only
+  endpoints, no schema change. (1) `GET /api/exams?...&teacherId=` — narrows the exam list to
+  ones the given teacher is actually assigned to grade, resolved via the existing
+  `ITeacherRepository.GetAssignmentsAsync(teacherId)` (`TeacherAssignment.ClassSubjectId` match,
+  `ClassSectionId` null-or-matching the exam's own section) rather than any new identity-based
+  filtering — this codebase has no "current logged-in teacher" resolution built anywhere yet
+  (Employee/Teacher portal login is new, 2026-07-27, and nothing wires a JWT back to a
+  `TeacherId`), so the caller (frontend, on behalf of whichever teacher is using it) supplies
+  `teacherId` explicitly, same as every other filter param in this module. (2)
+  `GET /api/studentexammarks/roster?examId=&search=` — the actual "search and select a student to
+  enter marks for" ask: one row per `Enrolled` student in the exam's section (search matches name
+  or admission no, case-insensitive substring), each carrying its existing `StudentExamMarkDto` or
+  `null`. Deliberately **read-only** — it composes on the existing create/update/bulk-upsert
+  endpoints (a `null` mark means POST a new one, a populated mark means PUT that id), not a new
+  submission path. New permission `STUDENT_EXAM_MARK_ROSTER`.
+- **Needs a NEW migration.** A migration for the original `Exam`+`ExamSchedule` two-table design
+  already exists (`Infrastructure/Migrations/20260728171309_Added initial exam module.cs`) but
+  predates this merge and no longer matches the code — it must not be treated as covering the
+  current model. The new migration needs to: drop `dbo.exam_schedules`, replace `dbo.exams`
+  with the merged shape (add `class_section_id`/`class_subject_id`/`exam_date`/`start_time`/
+  `end_time`/`room`/`invigilator_employee_id`/`marks_locked`/`calendar_event_id`, drop nothing new
+  since it's a from-scratch replacement of that table), rename
+  `dbo.student_exam_marks.exam_schedule_id` → `exam_id` and repoint its FK at the new `exams`
+  table. `grade_scales`/`student_results`/`student_promotions` are unaffected by this round. If a
+  dev database already has real rows in the old `exams`/`exam_schedules` shape (as it does here —
+  test data was entered through the original UI before this feedback), clearing those two tables
+  (and `student_exam_marks`, which FKs to the old shape) before applying the new migration is the
+  pragmatic path, same precedent as the 2026-07-13 class/section restructure note below.
+- **Round 4 (2026-07-29, second redesign, per `Docs/Exam_Module_Design_Revised.md`)**: `Exam` lost
+  `ClassSectionId`/`Name`/`WeightagePercent`/`IsFinalExam` entirely — it's now keyed by
+  `(ExamTermId, ClassSubjectId)` only, always covers the whole grade, and which enrollments sit it
+  is resolved dynamically by the new `Application/Exams/EligibleEnrollmentResolver` (shared by
+  marks entry and result generation) from `ClassSubject`'s own mandatory/elective/section-scoping
+  rules — the same mechanism already used everywhere else in Student Management.
+  `POST /api/exams/for-class` (Round 2) was removed: an exam already covering the whole grade by
+  construction leaves nothing for a "create one per section" convenience to do. Result generation
+  (`GenerateExamResultsAsync`) dropped its `IsFinalExam` filter along with the field — every exam
+  in the term now contributes to a student's `StudentResult`. This round also introduced
+  `Exam.RoomId` (FK to a new `ExamRoom` entity) plus an optional hall/seat-allocation engine
+  (`ExamHallArrangement`/`ExamHallArrangementClass`/`ExamSeatAllocation`) — **all of it removed
+  again the same week, see Round 5 below.** Migrations `20260729050427_Added update1 exam
+  module.cs` and `20260729135723_Added update2 exam module.cs` were subsequently created (by the
+  user, outside this assistant) and cover this round's shape, including the seating tables and the
+  `exams.remarks`/`room_id` columns — the "stale migration" gap this bullet used to describe here
+  is resolved by those two files.
+- **Round 5 (2026-07-30): the Room/seat-arrangement subsystem was removed entirely, per
+  instruction** — `ExamRoom`, `ExamHallArrangement`, `ExamHallArrangementClass`,
+  `ExamSeatAllocation` (entities, configs, repositories, `Application/ExamRooms/`,
+  `Application/Exams/ExamHallArrangementService`, `ExamRoomsController`,
+  `ExamHallArrangementsController`) are all gone; `Exam.RoomId`/`Exam.Room` are gone too
+  (`InvigilatorEmployeeId` stays — it's a real `Employee`, no dedicated table to remove). The four
+  `EXAM_ENABLE_SEAT_ARRANGEMENT`/`EXAM_AUTO_GENERATE_ROLL_NUMBER`/
+  `EXAM_ALLOW_MULTIPLE_CLASSES_PER_HALL`/`EXAM_AUTO_ALLOCATE_STUDENTS` `AppConfig` rows were
+  dropped from `AppConfigSeeder` (create-if-missing, so any already-seeded rows on an existing
+  database are simply orphaned, not deleted — harmless, nothing reads them anymore). Their
+  `EXAM_ROOM_LIST`/`EXAM_HALL_ARRANGEMENT_LIST` menu subtrees are retired via
+  `MenuSeeder.BuildRetiredMenuCodes` (soft-deleted on next boot; any role holding those grants
+  loses them). **New: `POST /api/exams/routine`** (`IExamService.CreateExamRoutineAsync`,
+  permission `EXAM_CREATE_ROUTINE` under `EXAM_LIST`) — schedules an `Exam` for every listed
+  subject of one class within one exam term in a single call (each item still carries its own
+  date/time/invigilator; skip-list style, same convention as `BulkUpsertStudentExamMarksAsync`).
+  This is the "set the whole routine at once" flow, distinct from Round 2's removed
+  `for-class` (which cloned one subject across every section — the redesigned `Exam` no longer has
+  a section to clone across; this instead spans every subject of one class). **Also**: whole-vs-
+  divided assessment configuration on `ClassSubject` now defaults `TheoryMarks`/`TheoryPassMarks`
+  to `FullMarks`/`PassMarks` whenever `HasPractical` is `false` and the caller left them unset
+  (`AcademicClassService.ResolveTheoryDefaults`, called from `AssignSubjectAsync`/
+  `UpdateSubjectAsync`) — previously a "whole marks" subject left with `TheoryMarks` null had no
+  per-component cap at all, silently allowing a theory mark greater than `FullMarks` to be entered.
+  Full reference (supersedes the previous version of itself):
+  `Docs/exam_management_implementation_guide.md`; the routine endpoint and marks-configuration
+  defaulting also get their own focused guide, `Docs/exam_routine_and_marks_configuration_implementation_guide.md`.
+  **Needs a migration**: drop `dbo.exam_rooms`, `dbo.exam_hall_arrangements`,
+  `dbo.exam_hall_arrangement_classes`, `dbo.exam_seat_allocations`, and `dbo.exams.room_id` (with
+  its FK/index) — these only exist if `20260729135723_Added update2 exam module.cs` was applied;
+  if it wasn't, there's nothing to drop for this round beyond what Round 4's own pending migration
+  already covered.
+
 ## Known gaps (as of writing)
 
-- Migrations are **user-created** — don't run `dotnet ef` commands. Migrations for the initial schema, the config/log tables, `app_configs`, the `config_group` nullable ALTER, the `is_ip_restricted`/`user_ip_allowed` columns, and the original 11 student-management tables all exist under `Infrastructure/Migrations/`. **Pending as of 2026-07-13**: the class/section restructure needs a migration (new `dbo.class_sections`; `academic_classes` loses `section_code`/`capacity`, unique index becomes `(year, grade)`; `enrollments.academic_class_id` → `class_section_id` with new indexes; `teacher_assignments` gains nullable `class_section_id`, unique index becomes `(teacher_id, class_subject_id, class_section_id)`; `class_subjects` gains nullable `class_section_id`, unique index becomes `(academic_class_id, subject_code, class_section_id)`; new `dbo.teacher_documents` and `dbo.student_documents`) — plus a data decision for any existing rows (each old grade+section class becomes one class + one section). Note the DB can't create a unique index over rows that already violate it — on a dev DB, clearing the class/enrollment tables before `database update` is the pragmatic path (see 2026-07-13 conversation). **Also pending as of 2026-07-15**: `class_subjects` needs a `CHECK` constraint (`is_mandatory = false OR class_section_id IS NULL`) and a partial unique index on `(academic_class_id, subject_code) WHERE class_section_id IS NULL` — see `Docs/filters_update.md` for the class/subject scoping fix this backs. **Also pending, same date**: `class_subjects` additionally gains 5 nullable grading columns (`credit_hours`, `full_marks`, `pass_marks`, `theory_marks`, `practical_marks`) plus a `ck_class_subjects_marks_range` `CHECK` constraint; new tables `dbo.fee_structures`, `dbo.student_discounts`, `dbo.student_scholarships`, `dbo.enrollment_fee_selections`, `dbo.fiscal_years`, `dbo.tax_slabs` — see `Docs/fee_management_implementation_guide.md` and `Docs/payroll_implementation_guide.md`. **`dbo.fee_structures` was redesigned twice more the same day**: from `(academic_class_id, fee_category_code, amount, frequency_type, is_optional, is_refundable, ...)` (one row per category per class) to a **header** (`id`, `academic_class_id` unique, `status`) owning a new child table `dbo.fee_structure_items` (`fee_structure_id` FK with cascade delete, `amount`, `frequency_type`, `is_optional`, `is_refundable`, plus **`fee_category_code`** — briefly a free-text `name` instead, reverted the same day back to a validated category code, unique index `(fee_structure_id, fee_category_code)`); `dbo.enrollment_fee_selections.fee_category_code` (string) becomes `fee_structure_item_id` (Guid FK), unique index becomes `(enrollment_id, fee_structure_item_id)`. A dev DB with any prior shape needs clearing, not just an additive migration. **Also pending, same date, and the largest schema change yet — the Employee/Teacher split** (see `Docs/employee_management_implementation_guide.md`): new `dbo.employees` table (unique `employee_code`; partial-unique `user_id` where not null); `dbo.teachers` loses `employee_no`/`first_name`/`middle_name`/`last_name`/`email`/`phone`/`joining_date`/`status`/its own soft-delete columns, gains `teaching_license_no`/`experience_years`/`specialization`, and its PK becomes FK-linked to `employees.id` (shared primary key, no separate identity column); `dbo.teacher_salaries` is replaced by `dbo.employee_salaries` (FK to `employees`, not `teachers`) plus three new child tables (`dbo.employee_salary_components`, `dbo.employee_salary_deductions`, `dbo.employee_insurance_premiums`); `dbo.fiscal_years` gains `retirement_exemption_cap_amount`; `dbo.teacher_qualifications`/`dbo.teacher_documents`/`dbo.teacher_assignments` are unchanged. **This needs a data migration, not just schema DDL**: existing `teachers` rows need a matching `employees` row inserted first (reusing their data), with the same id preserved as the new `employees.id`, so `teacher_assignments`/`teacher_documents`/`teacher_qualifications` keep resolving with zero data changes to them. **Also pending, same date**: new table `dbo.document_templates` (unique index on `template_type`, `html_content` as an unbounded `text` column) for the document-preview feature — see `Docs/document_preview_implementation_guide.md`. **Also pending, same date**: new table `dbo.employee_loans` (FK to `employees`, no other schema changes) for the Pay & Taxes module's Loans and Advances feature — see `Docs/pay_and_taxes_implementation_guide.md`; every `/loans` endpoint 500s until it exists. **Also pending as of 2026-07-16 — the fee-generation/payroll-run redesign**: 10 new tables, purely additive (`dbo.fee_rules`, `dbo.fee_invoices` with partial unique `(enrollment_id, billing_year, billing_month) WHERE status <> 6 AND is_deleted = false`, `dbo.fee_invoice_lines` (cascade from invoice; lineage id columns deliberately have **no** FKs), `dbo.fee_payments`, `dbo.fee_payment_allocations` (cascade from payment, Restrict to invoice), `dbo.fee_adjustments`, `dbo.payroll_runs` with partial unique `(fiscal_year_id, month_index) WHERE status <> 4 AND is_deleted = false`, `dbo.salary_slips` (cascade from run; Restrict to employees/employee_salaries; unique `(payroll_run_id, employee_id)` and `slip_no`), `dbo.salary_slip_lines` (cascade from slip), `dbo.salary_adjustments`) — no existing-table changes; every `/api/feerules`, `/api/feeinvoices`, `/api/feepayments`, `/api/payrollruns`, and `/api/employees/{id}/adjustments` endpoint 500s until it exists. See `Docs/setup_fee_payroll_redesign_implementation_guide.md`. ~~Pending as of 2026-07-17 — the fee-module fixes~~ **resolved**: `dbo.fee_structure_items.installment_count integer NULL` has been applied. **Still pending, added round 3 (2026-07-17)**: one new nullable column `dbo.fee_adjustments.fee_category_code varchar(100) NULL` — until it exists, every fee-adjustment read/write 500s (EF selects the mapped column). No other schema changes; the PaymentReceipt template row seeds itself. See `Docs/fee_module_fixes_implementation_guide.md` and `Docs/fee_advance_billing_and_annual_settlement_implementation_guide.md`. **Also pending as of 2026-07-16 — the dual-calendar/meetings feature**: 7 new tables, purely additive (`dbo.bs_month_lengths` unique `(bs_year, bs_month)`, `dbo.bs_month_names` unique `month_number`, `dbo.bs_weekday_names` unique `weekday_index`, `dbo.calendar_events` indexed on `ad_date` + BS triple, `dbo.festival_occurrences` indexed on the AD range + `bs_year`, `dbo.meetings` indexed on `ad_date`/BS triple/`host_user_id`, `dbo.meeting_attendees` cascade from meetings, unique `(meeting_id, email)`) — no existing-table changes; every `/api/calendar*` and `/api/meetings` endpoint 500s and `CalendarSeeder` skips until it exists. See `Docs/dual_calendar_implementation_guide.md`. **Also pending as of 2026-07-18 — the fee generation run/carry-forward feature**: new table `dbo.fee_generation_runs` (unique `(academic_year_id, billing_year, billing_month) WHERE is_deleted = false`) and two new columns, `dbo.fee_invoices.carried_forward_amount numeric NOT NULL DEFAULT 0` and `dbo.fee_invoices.carried_forward_to_invoice_id uuid NULL` (added same day, second pass, when carry-forward was redesigned to void the source invoice instead of just flagging it) — every `/api/feegenerationruns` endpoint 500s and every read/write of `FeeInvoice` fails until all three exist. See `Docs/fee_generation_run_and_carry_forward_implementation_guide.md`. **Also pending as of 2026-07-23**: `dbo.teacher_qualifications`/`dbo.teacher_documents` (described above as "unchanged" at the time of the Employee/Teacher split) are now renamed to `dbo.employee_qualifications`/`dbo.employee_documents` (column `teacher_id` → `employee_id` on both, FK repointed at `employees.id` instead of `teachers.id`) — schema-only, no data rewrite needed since `teacher_id`'s existing values already equal the correct `employee_id` (shared-PK design); plus five new nullable `varchar(50)` columns on `dbo.employees` (`pan_number`, `provident_fund_number`, `ssf_number`, `cit_number`, `gratuity_number`). See `Docs/employee_documents_and_qualifications_implementation_guide.md`.
+- Migrations are **user-created** — don't run `dotnet ef` commands. Migrations for the initial schema, the config/log tables, `app_configs`, the `config_group` nullable ALTER, the `is_ip_restricted`/`user_ip_allowed` columns, and the original 11 student-management tables all exist under `Infrastructure/Migrations/`. **Pending as of 2026-07-13**: the class/section restructure needs a migration (new `dbo.class_sections`; `academic_classes` loses `section_code`/`capacity`, unique index becomes `(year, grade)`; `enrollments.academic_class_id` → `class_section_id` with new indexes; `teacher_assignments` gains nullable `class_section_id`, unique index becomes `(teacher_id, class_subject_id, class_section_id)`; `class_subjects` gains nullable `class_section_id`, unique index becomes `(academic_class_id, subject_code, class_section_id)`; new `dbo.teacher_documents` and `dbo.student_documents`) — plus a data decision for any existing rows (each old grade+section class becomes one class + one section). Note the DB can't create a unique index over rows that already violate it — on a dev DB, clearing the class/enrollment tables before `database update` is the pragmatic path (see 2026-07-13 conversation). **Also pending as of 2026-07-15**: `class_subjects` needs a `CHECK` constraint (`is_mandatory = false OR class_section_id IS NULL`) and a partial unique index on `(academic_class_id, subject_code) WHERE class_section_id IS NULL` — see `Docs/filters_update.md` for the class/subject scoping fix this backs. **Also pending, same date**: `class_subjects` additionally gains 5 nullable grading columns (`credit_hours`, `full_marks`, `pass_marks`, `theory_marks`, `practical_marks`) plus a `ck_class_subjects_marks_range` `CHECK` constraint; new tables `dbo.fee_structures`, `dbo.student_discounts`, `dbo.student_scholarships`, `dbo.enrollment_fee_selections`, `dbo.fiscal_years`, `dbo.tax_slabs` — see `Docs/fee_management_implementation_guide.md` and `Docs/payroll_implementation_guide.md`. **`dbo.fee_structures` was redesigned twice more the same day**: from `(academic_class_id, fee_category_code, amount, frequency_type, is_optional, is_refundable, ...)` (one row per category per class) to a **header** (`id`, `academic_class_id` unique, `status`) owning a new child table `dbo.fee_structure_items` (`fee_structure_id` FK with cascade delete, `amount`, `frequency_type`, `is_optional`, `is_refundable`, plus **`fee_category_code`** — briefly a free-text `name` instead, reverted the same day back to a validated category code, unique index `(fee_structure_id, fee_category_code)`); `dbo.enrollment_fee_selections.fee_category_code` (string) becomes `fee_structure_item_id` (Guid FK), unique index becomes `(enrollment_id, fee_structure_item_id)`. A dev DB with any prior shape needs clearing, not just an additive migration. **Also pending, same date, and the largest schema change yet — the Employee/Teacher split** (see `Docs/employee_management_implementation_guide.md`): new `dbo.employees` table (unique `employee_code`; partial-unique `user_id` where not null); `dbo.teachers` loses `employee_no`/`first_name`/`middle_name`/`last_name`/`email`/`phone`/`joining_date`/`status`/its own soft-delete columns, gains `teaching_license_no`/`experience_years`/`specialization`, and its PK becomes FK-linked to `employees.id` (shared primary key, no separate identity column); `dbo.teacher_salaries` is replaced by `dbo.employee_salaries` (FK to `employees`, not `teachers`) plus three new child tables (`dbo.employee_salary_components`, `dbo.employee_salary_deductions`, `dbo.employee_insurance_premiums`); `dbo.fiscal_years` gains `retirement_exemption_cap_amount`; `dbo.teacher_qualifications`/`dbo.teacher_documents`/`dbo.teacher_assignments` are unchanged. **This needs a data migration, not just schema DDL**: existing `teachers` rows need a matching `employees` row inserted first (reusing their data), with the same id preserved as the new `employees.id`, so `teacher_assignments`/`teacher_documents`/`teacher_qualifications` keep resolving with zero data changes to them. **Also pending, same date**: new table `dbo.document_templates` (unique index on `template_type`, `html_content` as an unbounded `text` column) for the document-preview feature — see `Docs/document_preview_implementation_guide.md`. **Also pending, same date**: new table `dbo.employee_loans` (FK to `employees`, no other schema changes) for the Pay & Taxes module's Loans and Advances feature — see `Docs/pay_and_taxes_implementation_guide.md`; every `/loans` endpoint 500s until it exists. **Also pending as of 2026-07-16 — the fee-generation/payroll-run redesign**: 10 new tables, purely additive (`dbo.fee_rules`, `dbo.fee_invoices` with partial unique `(enrollment_id, billing_year, billing_month) WHERE status <> 6 AND is_deleted = false`, `dbo.fee_invoice_lines` (cascade from invoice; lineage id columns deliberately have **no** FKs), `dbo.fee_payments`, `dbo.fee_payment_allocations` (cascade from payment, Restrict to invoice), `dbo.fee_adjustments`, `dbo.payroll_runs` with partial unique `(fiscal_year_id, month_index) WHERE status <> 4 AND is_deleted = false`, `dbo.salary_slips` (cascade from run; Restrict to employees/employee_salaries; unique `(payroll_run_id, employee_id)` and `slip_no`), `dbo.salary_slip_lines` (cascade from slip), `dbo.salary_adjustments`) — no existing-table changes; every `/api/feerules`, `/api/feeinvoices`, `/api/feepayments`, `/api/payrollruns`, and `/api/employees/{id}/adjustments` endpoint 500s until it exists. See `Docs/setup_fee_payroll_redesign_implementation_guide.md`. ~~Pending as of 2026-07-17 — the fee-module fixes~~ **resolved**: `dbo.fee_structure_items.installment_count integer NULL` has been applied. **Still pending, added round 3 (2026-07-17)**: one new nullable column `dbo.fee_adjustments.fee_category_code varchar(100) NULL` — until it exists, every fee-adjustment read/write 500s (EF selects the mapped column). No other schema changes; the PaymentReceipt template row seeds itself. See `Docs/fee_module_fixes_implementation_guide.md` and `Docs/fee_advance_billing_and_annual_settlement_implementation_guide.md`. **Also pending as of 2026-07-16 — the dual-calendar/meetings feature**: 7 new tables, purely additive (`dbo.bs_month_lengths` unique `(bs_year, bs_month)`, `dbo.bs_month_names` unique `month_number`, `dbo.bs_weekday_names` unique `weekday_index`, `dbo.calendar_events` indexed on `ad_date` + BS triple, `dbo.festival_occurrences` indexed on the AD range + `bs_year`, `dbo.meetings` indexed on `ad_date`/BS triple/`host_user_id`, `dbo.meeting_attendees` cascade from meetings, unique `(meeting_id, email)`) — no existing-table changes; every `/api/calendar*` and `/api/meetings` endpoint 500s and `CalendarSeeder` skips until it exists. See `Docs/dual_calendar_implementation_guide.md`. **Also pending as of 2026-07-18 — the fee generation run/carry-forward feature**: new table `dbo.fee_generation_runs` (unique `(academic_year_id, billing_year, billing_month) WHERE is_deleted = false`) and two new columns, `dbo.fee_invoices.carried_forward_amount numeric NOT NULL DEFAULT 0` and `dbo.fee_invoices.carried_forward_to_invoice_id uuid NULL` (added same day, second pass, when carry-forward was redesigned to void the source invoice instead of just flagging it) — every `/api/feegenerationruns` endpoint 500s and every read/write of `FeeInvoice` fails until all three exist. See `Docs/fee_generation_run_and_carry_forward_implementation_guide.md`. **Also pending as of 2026-07-23**: `dbo.teacher_qualifications`/`dbo.teacher_documents` (described above as "unchanged" at the time of the Employee/Teacher split) are now renamed to `dbo.employee_qualifications`/`dbo.employee_documents` (column `teacher_id` → `employee_id` on both, FK repointed at `employees.id` instead of `teachers.id`) — schema-only, no data rewrite needed since `teacher_id`'s existing values already equal the correct `employee_id` (shared-PK design); plus five new nullable `varchar(50)` columns on `dbo.employees` (`pan_number`, `provident_fund_number`, `ssf_number`, `cit_number`, `gratuity_number`). See `Docs/employee_documents_and_qualifications_implementation_guide.md`. **Also pending as of 2026-07-24 — the employee address feature**: three new nullable columns on `dbo.employees` (`district_code varchar(100)`, `local_level_code varchar(100)`, `ward_no integer`) — no new tables, the two new catalogs (District `1022`, LocalLevel `1023`) reuse the existing `dbo.config_types`/`dbo.configs`. See `Docs/employee_address_implementation_guide.md`. **Also pending as of 2026-07-24 — leave configurability**: three new columns on `dbo.leave_types` (`max_consecutive_days integer NULL`, `max_days_per_week decimal(6,2) NULL`, `max_days_per_month decimal(6,2) NULL`) and one new column on `dbo.leave_requests` (`is_emergency boolean NOT NULL`) — every leave-type create/update and leave-request create call fails until these exist. See `Docs/leave_configurability_implementation_guide.md`. **Also pending as of 2026-07-27 — portal account provisioning**: one new nullable column `dbo.students.user_id uuid NULL` plus a partial unique index `ix_students_user_id WHERE user_id IS NOT NULL` (mirrors the existing `dbo.employees.user_id`, which needed no change) — every `POST /api/students/{id}/register-account` call and any `POST /api/students` with `registerUserAccount: true` 500s until applied. See `Docs/portal_account_provisioning_implementation_guide.md`. **Also pending as of 2026-07-28 — dashboard quick links**: one new column `dbo.menus.is_quick_link boolean NOT NULL DEFAULT false` — until it exists, every menu read/write 500s (EF selects the mapped column). See `Docs/dashboard_updated_file.md`. **Exam Management, 2026-07-28**: a migration (`20260728171309_Added initial exam module.cs`) was created and applied for the *original* design — `dbo.exam_terms`/`dbo.exams`/`dbo.exam_schedules`/`dbo.grade_scales`/`dbo.student_exam_marks`/`dbo.student_results`/`dbo.student_promotions`, plus four new columns on `dbo.class_subjects` (`has_theory`/`has_practical`/`theory_pass_marks`/`practical_pass_marks`) and two `CHECK` constraints. Two follow-up migrations were subsequently created (`20260729050427_Added update1 exam module.cs`, `20260729135723_Added update2 exam module.cs`) that cover the `Exam`+`ExamSchedule` merge redesign, drop `dbo.exam_schedules`, rename `student_exam_marks.exam_schedule_id` → `exam_id`, and (update2) add `dbo.exam_rooms`/`dbo.exam_hall_arrangements`/`dbo.exam_hall_arrangement_classes`/`dbo.exam_seat_allocations` plus `exams.room_id` for the Round 4 seat-arrangement engine. **Pending as of 2026-07-30 (Round 5 above)**: that seat-arrangement engine was removed entirely — a further migration is needed to drop those same four tables, `exams.room_id` (and its FK/index), and the `exams.class_section_id`/`room`/`name`/`weightage_percent`/`is_final_exam` columns from the original design if update1/update2 were never applied to a given database (check the actual schema before writing it — this repo's own migration files already drop those specific columns in update1/update2, so the exact statements needed depend on which of those two files a given database has run). See `Docs/exam_management_implementation_guide.md` and `Docs/exam_routine_and_marks_configuration_implementation_guide.md`.
 - Neither log table (`system_access_logs`, `error_logs`) has retention/pruning — same "later problem" status as `RefreshToken` rows.
 - ~~`IsIpRestricted`/`UserIpAllowed` are stored but not enforced~~ **resolved (2026-07-12)**: enforced both at token issuance (login/Google/refresh in `AuthService`) and per-request in `AuthorizedAction`, via `Infrastructure/Common/IpAllowlistChecker`. Remaining flavor of the gap: `ForwardedHeadersMiddleware` is **not** configured, so behind a reverse proxy `RemoteIpAddress` is the proxy — configure it (with `KnownProxies`) before relying on the allowlist (or the rate limiter's per-IP partitioning) in such a deployment.
 - ~~Chicken-and-egg on first permissions~~ **resolved**: `MenuSeeder` now seeds the menu/permission catalog in code and grants everything to SuperAdmin at startup. Remaining flavor of the gap: `Admin` and `User` roles start with zero permissions until someone grants them via the API, and any *new* endpoint is uncallable until its `PERMISSION` row is added to `MenuSeeder` (or created via `POST /api/menus`).

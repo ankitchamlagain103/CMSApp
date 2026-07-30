@@ -85,5 +85,17 @@ namespace WebApi.Controllers
             var response = await _documentTemplateService.GetPlaceholdersAsync(templateType, cancellationToken);
             return Ok(response);
         }
+
+        [HttpGet("{id:guid}/preview")]
+        public async Task<ActionResult<CommonResponse<DocumentPreviewDto>>> GetTemplatePreview(Guid id, CancellationToken cancellationToken)
+        {
+            var response = await _documentTemplateService.GetTemplatePreviewAsync(id, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            return Ok(response);
+        }
     }
 }

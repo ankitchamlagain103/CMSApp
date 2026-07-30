@@ -60,7 +60,11 @@ namespace Application.AcademicClasses
                 FullMarks = classSubject.FullMarks,
                 PassMarks = classSubject.PassMarks,
                 TheoryMarks = classSubject.TheoryMarks,
-                PracticalMarks = classSubject.PracticalMarks
+                PracticalMarks = classSubject.PracticalMarks,
+                HasTheory = classSubject.HasTheory,
+                HasPractical = classSubject.HasPractical,
+                TheoryPassMarks = classSubject.TheoryPassMarks,
+                PracticalPassMarks = classSubject.PracticalPassMarks
             };
 
             return classSubjectDto;

@@ -21,6 +21,7 @@ namespace Infrastructure.Persistence.DataSeeder
             await SeedRoleAsync(roleManager, RoleNames.SuperAdmin, "Full, unrestricted system access.");
             await SeedRoleAsync(roleManager, RoleNames.Admin, "Administrative access to manage users and content.");
             await SeedRoleAsync(roleManager, RoleNames.User, "Standard end-user access.");
+            await SeedRoleAsync(roleManager, RoleNames.Student, "Student portal access (view own profile, results, schedule).");
 
             await SeedUserAsync(userManager, configuration, logger, "Seed:SuperAdmin", RoleNames.SuperAdmin, UserType.SuperAdmin);
             await SeedUserAsync(userManager, configuration, logger, "Seed:Admin", RoleNames.Admin, UserType.Admin);

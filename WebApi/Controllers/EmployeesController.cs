@@ -3,6 +3,8 @@ using Application.Employees;
 using Application.Employees.Commands;
 using Application.Employees.Dtos;
 using Application.Employees.Queries;
+using Application.Notifications;
+using Application.Notifications.Dtos;
 using Domain.Enums;
 using Microsoft.AspNetCore.Mvc;
 
@@ -13,10 +15,12 @@ namespace WebApi.Controllers
     public class EmployeesController : ControllerBase
     {
         private readonly IEmployeeService _employeeService;
+        private readonly INotificationService _notificationService;
 
-        public EmployeesController(IEmployeeService employeeService)
+        public EmployeesController(IEmployeeService employeeService, INotificationService notificationService)
         {
             _employeeService = employeeService;
+            _notificationService = notificationService;
         }
 
         [HttpPost]
@@ -54,6 +58,25 @@ namespace WebApi.Controllers
         public async Task<ActionResult<CommonResponse<EmployeeDto>>> UpdateEmployee(Guid id, [FromBody] UpdateEmployeeCommand command, CancellationToken cancellationToken)
         {
             var response = await _employeeService.UpdateEmployeeAsync(id, command, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            if (response.ResponseCode != ResponseCodes.Success)
+            {
+                return BadRequest(response);
+            }
+
+            return Ok(response);
+        }
+
+        // Portal account provisioning retrofit (2026-07-27) -- for an employee that didn't get a
+        // login at creation time (CreateEmployeeCommand.RegisterUserAccount is the create-time path).
+        [HttpPost("{id:guid}/register-account")]
+        public async Task<ActionResult<CommonResponse<EmployeeDto>>> RegisterUserAccount(Guid id, [FromBody] RegisterEmployeeUserAccountCommand command, CancellationToken cancellationToken)
+        {
+            var response = await _employeeService.RegisterUserAccountAsync(id, command, cancellationToken);
             if (response.ResponseCode == ResponseCodes.NotFound)
             {
                 return NotFound(response);
@@ -687,6 +710,324 @@ namespace WebApi.Controllers
             if (response.ResponseCode != ResponseCodes.Success)
             {
                 return BadRequest(response);
+            }
+
+            return Ok(response);
+        }
+
+        // 2026-07-23: profile photo.
+
+        [HttpPost("{id:guid}/photo")]
+        public async Task<ActionResult<CommonResponse<bool>>> UploadPhoto(Guid id, [FromForm] IFormFile file, CancellationToken cancellationToken)
+        {
+            CommonResponse<bool> response;
+            if (file == null)
+            {
+                response = await _employeeService.UploadPhotoAsync(id, null, null, null, 0, cancellationToken);
+            }
+            else
+            {
+                using var fileStream = file.OpenReadStream();
+                response = await _employeeService.UploadPhotoAsync(id, fileStream, file.FileName, file.ContentType, file.Length, cancellationToken);
+            }
+
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            if (response.ResponseCode != ResponseCodes.Success)
+            {
+                return BadRequest(response);
+            }
+
+            return Ok(response);
+        }
+
+        [HttpGet("{id:guid}/photo/download")]
+        public async Task<IActionResult> DownloadPhoto(Guid id, CancellationToken cancellationToken)
+        {
+            var response = await _employeeService.GetPhotoFileAsync(id, cancellationToken);
+            if (response.ResponseCode != ResponseCodes.Success)
+            {
+                return NotFound(response);
+            }
+
+            var fileResult = File(response.Data.Content, response.Data.ContentType, response.Data.FileName);
+            return fileResult;
+        }
+
+        [HttpDelete("{id:guid}/photo")]
+        public async Task<ActionResult<CommonResponse<bool>>> DeletePhoto(Guid id, CancellationToken cancellationToken)
+        {
+            var response = await _employeeService.DeletePhotoAsync(id, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            if (response.ResponseCode != ResponseCodes.Success)
+            {
+                return BadRequest(response);
+            }
+
+            return Ok(response);
+        }
+
+        // 2026-07-23: leave balances.
+
+        [HttpPost("{id:guid}/leavebalances")]
+        public async Task<ActionResult<CommonResponse<EmployeeLeaveBalanceDto>>> AllocateLeaveBalance(Guid id, [FromBody] AllocateLeaveBalanceCommand command, CancellationToken cancellationToken)
+        {
+            var response = await _employeeService.AllocateLeaveBalanceAsync(id, command, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            if (response.ResponseCode != ResponseCodes.Success)
+            {
+                return BadRequest(response);
+            }
+
+            return Ok(response);
+        }
+
+        [HttpGet("{id:guid}/leavebalances")]
+        public async Task<ActionResult<CommonResponse<List<EmployeeLeaveBalanceDto>>>> GetLeaveBalances(Guid id, [FromQuery] Guid? fiscalYearId, CancellationToken cancellationToken)
+        {
+            var response = await _employeeService.GetLeaveBalancesAsync(id, fiscalYearId, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            return Ok(response);
+        }
+
+        // 2026-07-23: leave requests. Create is multipart/form-data (optional attachment file),
+        // same [FromForm] unwrap-only-at-the-controller pattern as document upload.
+
+        [HttpPost("{id:guid}/leaverequests")]
+        public async Task<ActionResult<CommonResponse<LeaveRequestDto>>> CreateLeaveRequest(Guid id, [FromForm] Guid leaveTypeId, [FromForm] DateTime fromDate, [FromForm] DateTime toDate, [FromForm] string reason, [FromForm] Guid? substituteEmployeeId, [FromForm] bool isEmergency, [FromForm] IFormFile attachment, CancellationToken cancellationToken)
+        {
+            var command = new CreateLeaveRequestCommand
+            {
+                LeaveTypeId = leaveTypeId,
+                FromDate = fromDate,
+                ToDate = toDate,
+                Reason = reason,
+                SubstituteEmployeeId = substituteEmployeeId,
+                IsEmergency = isEmergency
+            };
+
+            CommonResponse<LeaveRequestDto> response;
+            if (attachment == null)
+            {
+                response = await _employeeService.CreateLeaveRequestAsync(id, command, null, null, null, 0, cancellationToken);
+            }
+            else
+            {
+                using var attachmentStream = attachment.OpenReadStream();
+                response = await _employeeService.CreateLeaveRequestAsync(id, command, attachmentStream, attachment.FileName, attachment.ContentType, attachment.Length, cancellationToken);
+            }
+
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            if (response.ResponseCode != ResponseCodes.Success)
+            {
+                return BadRequest(response);
+            }
+
+            return Ok(response);
+        }
+
+        [HttpGet("{id:guid}/leaverequests")]
+        public async Task<ActionResult<CommonResponse<List<LeaveRequestDto>>>> GetLeaveRequests(Guid id, [FromQuery] LeaveApprovalStatus? managerStatus, [FromQuery] LeaveApprovalStatus? hrStatus, [FromQuery] bool? isPending, CancellationToken cancellationToken)
+        {
+            var response = await _employeeService.GetLeaveRequestsAsync(id, managerStatus, hrStatus, isPending, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            return Ok(response);
+        }
+
+        [HttpGet("{id:guid}/leaverequests/{requestId:guid}")]
+        public async Task<ActionResult<CommonResponse<LeaveRequestDto>>> GetLeaveRequestById(Guid id, Guid requestId, CancellationToken cancellationToken)
+        {
+            var response = await _employeeService.GetLeaveRequestByIdAsync(id, requestId, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            return Ok(response);
+        }
+
+        [HttpPost("{id:guid}/leaverequests/{requestId:guid}/manager-approve")]
+        public async Task<ActionResult<CommonResponse<LeaveRequestDto>>> ApproveManagerDecision(Guid id, Guid requestId, [FromBody] LeaveDecisionCommand command, CancellationToken cancellationToken)
+        {
+            var response = await _employeeService.ApproveManagerDecisionAsync(id, requestId, command, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            if (response.ResponseCode != ResponseCodes.Success)
+            {
+                return BadRequest(response);
+            }
+
+            return Ok(response);
+        }
+
+        [HttpPost("{id:guid}/leaverequests/{requestId:guid}/manager-reject")]
+        public async Task<ActionResult<CommonResponse<LeaveRequestDto>>> RejectManagerDecision(Guid id, Guid requestId, [FromBody] LeaveDecisionCommand command, CancellationToken cancellationToken)
+        {
+            var response = await _employeeService.RejectManagerDecisionAsync(id, requestId, command, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            if (response.ResponseCode != ResponseCodes.Success)
+            {
+                return BadRequest(response);
+            }
+
+            return Ok(response);
+        }
+
+        // HR decisions are deliberately not gated on ManagerStatus -- see
+        // IEmployeeService.ApproveHrDecisionAsync's doc comment (the "emergency override" case).
+        [HttpPost("{id:guid}/leaverequests/{requestId:guid}/hr-approve")]
+        public async Task<ActionResult<CommonResponse<LeaveRequestDto>>> ApproveHrDecision(Guid id, Guid requestId, [FromBody] LeaveDecisionCommand command, CancellationToken cancellationToken)
+        {
+            var response = await _employeeService.ApproveHrDecisionAsync(id, requestId, command, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            if (response.ResponseCode != ResponseCodes.Success)
+            {
+                return BadRequest(response);
+            }
+
+            return Ok(response);
+        }
+
+        [HttpPost("{id:guid}/leaverequests/{requestId:guid}/hr-reject")]
+        public async Task<ActionResult<CommonResponse<LeaveRequestDto>>> RejectHrDecision(Guid id, Guid requestId, [FromBody] LeaveDecisionCommand command, CancellationToken cancellationToken)
+        {
+            var response = await _employeeService.RejectHrDecisionAsync(id, requestId, command, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            if (response.ResponseCode != ResponseCodes.Success)
+            {
+                return BadRequest(response);
+            }
+
+            return Ok(response);
+        }
+
+        [HttpPost("{id:guid}/leaverequests/{requestId:guid}/cancel")]
+        public async Task<ActionResult<CommonResponse<bool>>> CancelLeaveRequest(Guid id, Guid requestId, CancellationToken cancellationToken)
+        {
+            var response = await _employeeService.CancelLeaveRequestAsync(id, requestId, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            if (response.ResponseCode != ResponseCodes.Success)
+            {
+                return BadRequest(response);
+            }
+
+            return Ok(response);
+        }
+
+        [HttpPost("{id:guid}/leaverequests/{requestId:guid}/substitutes")]
+        public async Task<ActionResult<CommonResponse<LeaveSubstituteDto>>> AddLeaveSubstitute(Guid id, Guid requestId, [FromBody] AddLeaveSubstituteCommand command, CancellationToken cancellationToken)
+        {
+            var response = await _employeeService.AddLeaveSubstituteAsync(id, requestId, command, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            if (response.ResponseCode != ResponseCodes.Success)
+            {
+                return BadRequest(response);
+            }
+
+            return Ok(response);
+        }
+
+        [HttpDelete("{id:guid}/leaverequests/{requestId:guid}/substitutes/{substituteId:guid}")]
+        public async Task<ActionResult<CommonResponse<bool>>> RemoveLeaveSubstitute(Guid id, Guid requestId, Guid substituteId, CancellationToken cancellationToken)
+        {
+            var response = await _employeeService.RemoveLeaveSubstituteAsync(id, requestId, substituteId, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            if (response.ResponseCode != ResponseCodes.Success)
+            {
+                return BadRequest(response);
+            }
+
+            return Ok(response);
+        }
+
+        // 2026-07-23: notifications. No employee-login exists yet, so this is the admin-facing
+        // "what's been sent to this employee" view, same convention as every other
+        // Employee-scoped sub-resource in this codebase -- not a self-service inbox.
+
+        [HttpGet("{id:guid}/notifications")]
+        public async Task<ActionResult<CommonResponse<PaginatedResponse<NotificationDto>>>> GetNotifications(Guid id, [FromQuery] bool? isRead, [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken cancellationToken = default)
+        {
+            var response = await _notificationService.GetNotificationsAsync(id, isRead, page, pageSize, cancellationToken);
+            return Ok(response);
+        }
+
+        [HttpPost("{id:guid}/notifications/{notificationId:guid}/read")]
+        public async Task<ActionResult<CommonResponse<bool>>> MarkNotificationRead(Guid id, Guid notificationId, CancellationToken cancellationToken)
+        {
+            var response = await _notificationService.MarkReadAsync(id, notificationId, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            return Ok(response);
+        }
+
+        [HttpPost("{id:guid}/notifications/read-all")]
+        public async Task<ActionResult<CommonResponse<bool>>> MarkAllNotificationsRead(Guid id, CancellationToken cancellationToken)
+        {
+            var response = await _notificationService.MarkAllReadAsync(id, cancellationToken);
+            return Ok(response);
+        }
+
+        // 2026-07-23: composite Employee Profile page.
+        [HttpGet("{id:guid}/profile")]
+        public async Task<ActionResult<CommonResponse<EmployeeProfileDto>>> GetEmployeeProfile(Guid id, CancellationToken cancellationToken)
+        {
+            var response = await _employeeService.GetEmployeeProfileAsync(id, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
             }
 
             return Ok(response);

@@ -96,5 +96,47 @@ namespace Application.Employees
         Task<CommonResponse<EmployeeDocumentFileDto>> GetDocumentFileAsync(Guid employeeId, Guid documentId, CancellationToken cancellationToken = default);
 
         Task<CommonResponse<bool>> DeleteDocumentAsync(Guid employeeId, Guid documentId, CancellationToken cancellationToken = default);
+
+        // Profile photo (2026-07-23) -- single-file, same storage/download convention as
+        // documents but only ever one per employee.
+        Task<CommonResponse<bool>> UploadPhotoAsync(Guid employeeId, Stream fileContent, string originalFileName, string contentType, long fileSizeBytes, CancellationToken cancellationToken = default);
+
+        Task<CommonResponse<EmployeeDocumentFileDto>> GetPhotoFileAsync(Guid employeeId, CancellationToken cancellationToken = default);
+
+        Task<CommonResponse<bool>> DeletePhotoAsync(Guid employeeId, CancellationToken cancellationToken = default);
+
+        // Leave balances (2026-07-23).
+        Task<CommonResponse<EmployeeLeaveBalanceDto>> AllocateLeaveBalanceAsync(Guid employeeId, AllocateLeaveBalanceCommand command, CancellationToken cancellationToken = default);
+
+        Task<CommonResponse<List<EmployeeLeaveBalanceDto>>> GetLeaveBalancesAsync(Guid employeeId, Guid? fiscalYearId, CancellationToken cancellationToken = default);
+
+        // Leave requests (2026-07-23) -- ManagerStatus/HrStatus each independently
+        // Approve/Reject, HR not gated on Manager's decision (see LeaveRequest's own doc comment).
+        Task<CommonResponse<LeaveRequestDto>> CreateLeaveRequestAsync(Guid employeeId, CreateLeaveRequestCommand command, Stream attachmentContent, string attachmentFileName, string attachmentContentType, long attachmentFileSizeBytes, CancellationToken cancellationToken = default);
+
+        Task<CommonResponse<List<LeaveRequestDto>>> GetLeaveRequestsAsync(Guid employeeId, LeaveApprovalStatus? managerStatus, LeaveApprovalStatus? hrStatus, bool? isPending, CancellationToken cancellationToken = default);
+
+        Task<CommonResponse<LeaveRequestDto>> GetLeaveRequestByIdAsync(Guid employeeId, Guid requestId, CancellationToken cancellationToken = default);
+
+        Task<CommonResponse<LeaveRequestDto>> ApproveManagerDecisionAsync(Guid employeeId, Guid requestId, LeaveDecisionCommand command, CancellationToken cancellationToken = default);
+
+        Task<CommonResponse<LeaveRequestDto>> RejectManagerDecisionAsync(Guid employeeId, Guid requestId, LeaveDecisionCommand command, CancellationToken cancellationToken = default);
+
+        Task<CommonResponse<LeaveRequestDto>> ApproveHrDecisionAsync(Guid employeeId, Guid requestId, LeaveDecisionCommand command, CancellationToken cancellationToken = default);
+
+        Task<CommonResponse<LeaveRequestDto>> RejectHrDecisionAsync(Guid employeeId, Guid requestId, LeaveDecisionCommand command, CancellationToken cancellationToken = default);
+
+        Task<CommonResponse<bool>> CancelLeaveRequestAsync(Guid employeeId, Guid requestId, CancellationToken cancellationToken = default);
+
+        Task<CommonResponse<LeaveSubstituteDto>> AddLeaveSubstituteAsync(Guid employeeId, Guid requestId, AddLeaveSubstituteCommand command, CancellationToken cancellationToken = default);
+
+        Task<CommonResponse<bool>> RemoveLeaveSubstituteAsync(Guid employeeId, Guid requestId, Guid substituteId, CancellationToken cancellationToken = default);
+
+        // Composite Employee Profile page (2026-07-23).
+        Task<CommonResponse<EmployeeProfileDto>> GetEmployeeProfileAsync(Guid employeeId, CancellationToken cancellationToken = default);
+
+        // Portal account provisioning retrofit (2026-07-27) -- for an employee that didn't get a
+        // login at creation time. 409 Conflict if one already exists.
+        Task<CommonResponse<EmployeeDto>> RegisterUserAccountAsync(Guid employeeId, RegisterEmployeeUserAccountCommand command, CancellationToken cancellationToken = default);
     }
 }

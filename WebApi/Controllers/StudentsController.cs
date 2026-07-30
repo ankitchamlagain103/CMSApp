@@ -66,6 +66,26 @@ namespace WebApi.Controllers
             return Ok(response);
         }
 
+        // Portal account provisioning retrofit (2026-07-27) -- for a student that didn't get a
+        // login at creation time (CreateStudentCommand.RegisterUserAccount is the create-time
+        // path). No body -- always the fixed RoleNames.Student role.
+        [HttpPost("{id:guid}/register-account")]
+        public async Task<ActionResult<CommonResponse<StudentDto>>> RegisterUserAccount(Guid id, CancellationToken cancellationToken)
+        {
+            var response = await _studentService.RegisterUserAccountAsync(id, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            if (response.ResponseCode != ResponseCodes.Success)
+            {
+                return BadRequest(response);
+            }
+
+            return Ok(response);
+        }
+
         [HttpDelete("{id:guid}")]
         public async Task<ActionResult<CommonResponse<bool>>> DeleteStudent(Guid id, CancellationToken cancellationToken)
         {

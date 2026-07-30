@@ -37,6 +37,22 @@ namespace Infrastructure.Persistence.DataSeeder
             await EnsureConfigTypeAsync(dbContext, ConfigTypeCodes.FeeAdjustmentType, "Fee Adjustment Type", "Pre-generation monthly fee override catalog (fee invoices); AdditionalValue1 = suggested direction (CHARGE/CREDIT) a UI can prefill from");
             await EnsureConfigTypeAsync(dbContext, ConfigTypeCodes.SsfRate, "SSF Rate", "Social Security Fund contribution rates (payroll) -- EMPLOYEE_SHARE/EMPLOYER_SHARE (Domain/Constants/SsfShareCodes); AdditionalValue1 = that share's percentage of Basic Salary, admin-editable when the law changes");
 
+            // Employee "org" fields (2026-07-23). Branch gets the TYPE only -- school-specific,
+            // admin-created via POST /api/configs, same split as Grade/Section. Province and
+            // Level get default OPTION rows since those vocabularies are near-universal (Nepal's
+            // 7 federal provinces; a generic seniority ladder).
+            await EnsureConfigTypeAsync(dbContext, ConfigTypeCodes.Branch, "Branch", "Employee branch/office catalog (employee management)");
+            await EnsureConfigTypeAsync(dbContext, ConfigTypeCodes.Province, "Province", "Employee province catalog (employee management) -- also usable to scope a PublicHoliday CalendarEvent");
+            await EnsureConfigTypeAsync(dbContext, ConfigTypeCodes.EmployeeLevel, "Employee Level", "Employee seniority level catalog (employee management)");
+
+            // Address chain (2026-07-24), extending Province into a full Nepal address.
+            // AdditionalValue1 = parent code (District's own ProvinceCode; LocalLevel's own
+            // DistrictCode); LocalLevel's AdditionalValue2 also denormalizes its ProvinceCode so a
+            // UI can reverse-map both levels from one LocalLevel option in a single lookup.
+            // AdditionalValue3 on LocalLevel is its type (Domain/Constants/LocalLevelTypeCodes).
+            await EnsureConfigTypeAsync(dbContext, ConfigTypeCodes.District, "District", "Nepal district catalog (employee address); AdditionalValue1 = its ProvinceCode");
+            await EnsureConfigTypeAsync(dbContext, ConfigTypeCodes.LocalLevel, "Local Level", "Nepal local-level (municipality/rural municipality/metropolitan/sub-metropolitan city) catalog (employee address); AdditionalValue1 = its DistrictCode, AdditionalValue2 = its ProvinceCode, AdditionalValue3 = its type (Domain/Constants/LocalLevelTypeCodes)");
+
             await EnsureConfigAsync(dbContext, ConfigTypeCodes.GuardianRelationship, "FATHER", "Father", 1);
             await EnsureConfigAsync(dbContext, ConfigTypeCodes.GuardianRelationship, "MOTHER", "Mother", 2);
             await EnsureConfigAsync(dbContext, ConfigTypeCodes.GuardianRelationship, "GRANDFATHER", "Grandfather", 3);
@@ -227,6 +243,242 @@ namespace Infrastructure.Persistence.DataSeeder
             await EnsureConfigAsync(dbContext, ConfigTypeCodes.FeeAdjustmentType, "FINE", "Fine", 3, additionalValue1: "CHARGE");
             await EnsureConfigAsync(dbContext, ConfigTypeCodes.FeeAdjustmentType, "CARRY_CORRECTION", "Opening Balance / Carry Correction", 4, additionalValue1: "CHARGE");
             await EnsureConfigAsync(dbContext, ConfigTypeCodes.FeeAdjustmentType, "OTHER", "Other", 5);
+
+            // Nepal's 7 federal provinces (2026-07-23) -- near-universal, same reasoning as
+            // GuardianRelationship.
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.Province, "KOSHI", "Koshi Province", 1);
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.Province, "MADHESH", "Madhesh Province", 2);
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.Province, "BAGMATI", "Bagmati Province", 3);
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.Province, "GANDAKI", "Gandaki Province", 4);
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.Province, "LUMBINI", "Lumbini Province", 5);
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.Province, "KARNALI", "Karnali Province", 6);
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.Province, "SUDURPASHCHIM", "Sudurpashchim Province", 7);
+
+            // A generic seniority ladder -- illustrative starting point, admin-extensible via
+            // POST /api/configs same as every other catalog.
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.EmployeeLevel, "JUNIOR", "Junior", 1);
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.EmployeeLevel, "MID", "Mid", 2);
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.EmployeeLevel, "SENIOR", "Senior", 3);
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.EmployeeLevel, "LEAD", "Lead", 4);
+            await EnsureConfigAsync(dbContext, ConfigTypeCodes.EmployeeLevel, "EXECUTIVE", "Executive", 5);
+
+            await SeedNepalDistrictsAndLocalLevelsAsync(dbContext);
+        }
+
+        // Nepal's 7 provinces / 77 districts / 753 local levels (2017 federal restructuring).
+        // Districts below are the full, stable 77 -- low risk, this list hasn't changed since
+        // 2017. LocalLevels below is a DELIBERATELY PARTIAL set (80 of 753): the 6 Metropolitan
+        // Cities, the 11 Sub-Metropolitan Cities, and one notable municipality/rural municipality
+        // per remaining district -- every one of the 77 districts has at least one usable,
+        // searchable option immediately. The other ~670 (mostly smaller rural municipalities) are
+        // NOT included here: hand-typing all of them from model training data risked baking wrong
+        // government records into the database with no authoritative source to check against
+        // (unlike, say, PayrollSeeder's clearly-illustrative placeholder tax slabs, a wrong
+        // municipality name/mapping here is unlikely to be noticed until an address is wrong).
+        // Add the rest via POST /api/configs (TypeCode 1023, AdditionalValue1 = DistrictCode,
+        // AdditionalValue2 = ProvinceCode, AdditionalValue3 = LocalLevelTypeCodes value) once you
+        // have the official MoFAGA/Election Commission of Nepal list to hand -- see
+        // Docs/employee_address_implementation_guide.md. Create-if-missing, same as every other
+        // catalog here -- admin corrections to any row below survive restarts.
+        private static readonly (string Code, string Label, string ProvinceCode)[] NepalDistricts =
+        {
+            ("TAPLEJUNG", "Taplejung", "KOSHI"),
+            ("PANCHTHAR", "Panchthar", "KOSHI"),
+            ("ILAM", "Ilam", "KOSHI"),
+            ("JHAPA", "Jhapa", "KOSHI"),
+            ("MORANG", "Morang", "KOSHI"),
+            ("SUNSARI", "Sunsari", "KOSHI"),
+            ("DHANKUTA", "Dhankuta", "KOSHI"),
+            ("TERHATHUM", "Terhathum", "KOSHI"),
+            ("SANKHUWASABHA", "Sankhuwasabha", "KOSHI"),
+            ("BHOJPUR", "Bhojpur", "KOSHI"),
+            ("SOLUKHUMBU", "Solukhumbu", "KOSHI"),
+            ("OKHALDHUNGA", "Okhaldhunga", "KOSHI"),
+            ("KHOTANG", "Khotang", "KOSHI"),
+            ("UDAYAPUR", "Udayapur", "KOSHI"),
+
+            ("SAPTARI", "Saptari", "MADHESH"),
+            ("SIRAHA", "Siraha", "MADHESH"),
+            ("DHANUSHA", "Dhanusha", "MADHESH"),
+            ("MAHOTTARI", "Mahottari", "MADHESH"),
+            ("SARLAHI", "Sarlahi", "MADHESH"),
+            ("RAUTAHAT", "Rautahat", "MADHESH"),
+            ("BARA", "Bara", "MADHESH"),
+            ("PARSA", "Parsa", "MADHESH"),
+
+            ("SINDHULI", "Sindhuli", "BAGMATI"),
+            ("RAMECHHAP", "Ramechhap", "BAGMATI"),
+            ("DOLAKHA", "Dolakha", "BAGMATI"),
+            ("BHAKTAPUR", "Bhaktapur", "BAGMATI"),
+            ("DHADING", "Dhading", "BAGMATI"),
+            ("KATHMANDU", "Kathmandu", "BAGMATI"),
+            ("KAVREPALANCHOK", "Kavrepalanchok", "BAGMATI"),
+            ("LALITPUR", "Lalitpur", "BAGMATI"),
+            ("NUWAKOT", "Nuwakot", "BAGMATI"),
+            ("RASUWA", "Rasuwa", "BAGMATI"),
+            ("SINDHUPALCHOK", "Sindhupalchok", "BAGMATI"),
+            ("CHITWAN", "Chitwan", "BAGMATI"),
+            ("MAKWANPUR", "Makwanpur", "BAGMATI"),
+
+            ("GORKHA", "Gorkha", "GANDAKI"),
+            ("LAMJUNG", "Lamjung", "GANDAKI"),
+            ("MANANG", "Manang", "GANDAKI"),
+            ("KASKI", "Kaski", "GANDAKI"),
+            ("TANAHUN", "Tanahun", "GANDAKI"),
+            ("SYANGJA", "Syangja", "GANDAKI"),
+            ("BAGLUNG", "Baglung", "GANDAKI"),
+            ("PARBAT", "Parbat", "GANDAKI"),
+            ("NAWALPUR", "Nawalpur", "GANDAKI"),
+            ("MYAGDI", "Myagdi", "GANDAKI"),
+            ("MUSTANG", "Mustang", "GANDAKI"),
+
+            ("RUPANDEHI", "Rupandehi", "LUMBINI"),
+            ("KAPILVASTU", "Kapilvastu", "LUMBINI"),
+            ("ARGHAKHANCHI", "Arghakhanchi", "LUMBINI"),
+            ("GULMI", "Gulmi", "LUMBINI"),
+            ("PALPA", "Palpa", "LUMBINI"),
+            ("PARASI", "Parasi (Nawalparasi West)", "LUMBINI"),
+            ("DANG", "Dang", "LUMBINI"),
+            ("PYUTHAN", "Pyuthan", "LUMBINI"),
+            ("ROLPA", "Rolpa", "LUMBINI"),
+            ("RUKUM_EAST", "Rukum East", "LUMBINI"),
+            ("BANKE", "Banke", "LUMBINI"),
+            ("BARDIYA", "Bardiya", "LUMBINI"),
+
+            ("DOLPA", "Dolpa", "KARNALI"),
+            ("MUGU", "Mugu", "KARNALI"),
+            ("HUMLA", "Humla", "KARNALI"),
+            ("JUMLA", "Jumla", "KARNALI"),
+            ("KALIKOT", "Kalikot", "KARNALI"),
+            ("RUKUM_WEST", "Rukum West", "KARNALI"),
+            ("SALYAN", "Salyan", "KARNALI"),
+            ("SURKHET", "Surkhet", "KARNALI"),
+            ("DAILEKH", "Dailekh", "KARNALI"),
+            ("JAJARKOT", "Jajarkot", "KARNALI"),
+
+            ("KAILALI", "Kailali", "SUDURPASHCHIM"),
+            ("ACHHAM", "Achham", "SUDURPASHCHIM"),
+            ("DOTI", "Doti", "SUDURPASHCHIM"),
+            ("BAJHANG", "Bajhang", "SUDURPASHCHIM"),
+            ("BAJURA", "Bajura", "SUDURPASHCHIM"),
+            ("KANCHANPUR", "Kanchanpur", "SUDURPASHCHIM"),
+            ("DADELDHURA", "Dadeldhura", "SUDURPASHCHIM"),
+            ("BAITADI", "Baitadi", "SUDURPASHCHIM"),
+            ("DARCHULA", "Darchula", "SUDURPASHCHIM")
+        };
+
+        // (Code, Label, DistrictCode, ProvinceCode, Type). See the doc comment above
+        // NepalDistricts for why this is 80 of 753, not the full list.
+        private static readonly (string Code, string Label, string DistrictCode, string ProvinceCode, string Type)[] NepalLocalLevels =
+        {
+            // 6 Metropolitan Cities.
+            ("KATHMANDU_MC", "Kathmandu Metropolitan City", "KATHMANDU", "BAGMATI", LocalLevelTypeCodes.MetropolitanCity),
+            ("POKHARA_MC", "Pokhara Metropolitan City", "KASKI", "GANDAKI", LocalLevelTypeCodes.MetropolitanCity),
+            ("LALITPUR_MC", "Lalitpur Metropolitan City", "LALITPUR", "BAGMATI", LocalLevelTypeCodes.MetropolitanCity),
+            ("BHARATPUR_MC", "Bharatpur Metropolitan City", "CHITWAN", "BAGMATI", LocalLevelTypeCodes.MetropolitanCity),
+            ("BIRATNAGAR_MC", "Biratnagar Metropolitan City", "MORANG", "KOSHI", LocalLevelTypeCodes.MetropolitanCity),
+            ("BIRGUNJ_MC", "Birgunj Metropolitan City", "PARSA", "MADHESH", LocalLevelTypeCodes.MetropolitanCity),
+
+            // 11 Sub-Metropolitan Cities.
+            ("DHARAN_SMC", "Dharan Sub-Metropolitan City", "SUNSARI", "KOSHI", LocalLevelTypeCodes.SubMetropolitanCity),
+            ("ITAHARI_SMC", "Itahari Sub-Metropolitan City", "SUNSARI", "KOSHI", LocalLevelTypeCodes.SubMetropolitanCity),
+            ("JANAKPUR_SMC", "Janakpur Sub-Metropolitan City", "DHANUSHA", "MADHESH", LocalLevelTypeCodes.SubMetropolitanCity),
+            ("KALAIYA_SMC", "Kalaiya Sub-Metropolitan City", "BARA", "MADHESH", LocalLevelTypeCodes.SubMetropolitanCity),
+            ("JITPUR_SIMARA_SMC", "Jitpur Simara Sub-Metropolitan City", "BARA", "MADHESH", LocalLevelTypeCodes.SubMetropolitanCity),
+            ("HETAUDA_SMC", "Hetauda Sub-Metropolitan City", "MAKWANPUR", "BAGMATI", LocalLevelTypeCodes.SubMetropolitanCity),
+            ("TULSIPUR_SMC", "Tulsipur Sub-Metropolitan City", "DANG", "LUMBINI", LocalLevelTypeCodes.SubMetropolitanCity),
+            ("GHORAHI_SMC", "Ghorahi Sub-Metropolitan City", "DANG", "LUMBINI", LocalLevelTypeCodes.SubMetropolitanCity),
+            ("NEPALGUNJ_SMC", "Nepalgunj Sub-Metropolitan City", "BANKE", "LUMBINI", LocalLevelTypeCodes.SubMetropolitanCity),
+            ("DHANGADHI_SMC", "Dhangadhi Sub-Metropolitan City", "KAILALI", "SUDURPASHCHIM", LocalLevelTypeCodes.SubMetropolitanCity),
+            ("SIDDHARTHANAGAR_SMC", "Siddharthanagar Sub-Metropolitan City", "RUPANDEHI", "LUMBINI", LocalLevelTypeCodes.SubMetropolitanCity),
+
+            // One notable municipality/rural municipality per remaining district (63).
+            ("PHUNGLING_M", "Phungling Municipality", "TAPLEJUNG", "KOSHI", LocalLevelTypeCodes.Municipality),
+            ("PHIDIM_M", "Phidim Municipality", "PANCHTHAR", "KOSHI", LocalLevelTypeCodes.Municipality),
+            ("ILAM_M", "Ilam Municipality", "ILAM", "KOSHI", LocalLevelTypeCodes.Municipality),
+            ("BHADRAPUR_M", "Bhadrapur Municipality", "JHAPA", "KOSHI", LocalLevelTypeCodes.Municipality),
+            ("DHANKUTA_M", "Dhankuta Municipality", "DHANKUTA", "KOSHI", LocalLevelTypeCodes.Municipality),
+            ("MYANGLUNG_M", "Myanglung Municipality", "TERHATHUM", "KOSHI", LocalLevelTypeCodes.Municipality),
+            ("KHANDBARI_M", "Khandbari Municipality", "SANKHUWASABHA", "KOSHI", LocalLevelTypeCodes.Municipality),
+            ("BHOJPUR_M", "Bhojpur Municipality", "BHOJPUR", "KOSHI", LocalLevelTypeCodes.Municipality),
+            ("SOLUDUDHKUNDA_M", "Solududhkunda Municipality", "SOLUKHUMBU", "KOSHI", LocalLevelTypeCodes.Municipality),
+            ("SIDDHICHARAN_M", "Siddhicharan Municipality", "OKHALDHUNGA", "KOSHI", LocalLevelTypeCodes.Municipality),
+            ("DIKTEL_RUPAKOT_MAJHUWAGADHI_M", "Diktel Rupakot Majhuwagadhi Municipality", "KHOTANG", "KOSHI", LocalLevelTypeCodes.Municipality),
+            ("TRIYUGA_M", "Triyuga Municipality", "UDAYAPUR", "KOSHI", LocalLevelTypeCodes.Municipality),
+
+            ("RAJBIRAJ_M", "Rajbiraj Municipality", "SAPTARI", "MADHESH", LocalLevelTypeCodes.Municipality),
+            ("SIRAHA_M", "Siraha Municipality", "SIRAHA", "MADHESH", LocalLevelTypeCodes.Municipality),
+            ("JALESHWAR_M", "Jaleshwar Municipality", "MAHOTTARI", "MADHESH", LocalLevelTypeCodes.Municipality),
+            ("MALANGWA_M", "Malangwa Municipality", "SARLAHI", "MADHESH", LocalLevelTypeCodes.Municipality),
+            ("GAUR_M", "Gaur Municipality", "RAUTAHAT", "MADHESH", LocalLevelTypeCodes.Municipality),
+
+            ("KAMALAMAI_M", "Kamalamai Municipality", "SINDHULI", "BAGMATI", LocalLevelTypeCodes.Municipality),
+            ("MANTHALI_M", "Manthali Municipality", "RAMECHHAP", "BAGMATI", LocalLevelTypeCodes.Municipality),
+            ("BHIMESHWAR_M", "Bhimeshwar Municipality", "DOLAKHA", "BAGMATI", LocalLevelTypeCodes.Municipality),
+            ("BHAKTAPUR_M", "Bhaktapur Municipality", "BHAKTAPUR", "BAGMATI", LocalLevelTypeCodes.Municipality),
+            ("NILKANTHA_M", "Nilkantha Municipality", "DHADING", "BAGMATI", LocalLevelTypeCodes.Municipality),
+            ("DHULIKHEL_M", "Dhulikhel Municipality", "KAVREPALANCHOK", "BAGMATI", LocalLevelTypeCodes.Municipality),
+            ("BIDUR_M", "Bidur Municipality", "NUWAKOT", "BAGMATI", LocalLevelTypeCodes.Municipality),
+            ("UTTARGAYA_RM", "Uttargaya Rural Municipality", "RASUWA", "BAGMATI", LocalLevelTypeCodes.RuralMunicipality),
+            ("CHAUTARA_SANGACHOWKGADHI_M", "Chautara Sangachowkgadhi Municipality", "SINDHUPALCHOK", "BAGMATI", LocalLevelTypeCodes.Municipality),
+
+            ("GORKHA_M", "Gorkha Municipality", "GORKHA", "GANDAKI", LocalLevelTypeCodes.Municipality),
+            ("BESISAHAR_M", "Besisahar Municipality", "LAMJUNG", "GANDAKI", LocalLevelTypeCodes.Municipality),
+            ("CHAME_RM", "Chame Rural Municipality", "MANANG", "GANDAKI", LocalLevelTypeCodes.RuralMunicipality),
+            ("BYAS_M", "Byas Municipality", "TANAHUN", "GANDAKI", LocalLevelTypeCodes.Municipality),
+            ("PUTALIBAZAR_M", "Putalibazar Municipality", "SYANGJA", "GANDAKI", LocalLevelTypeCodes.Municipality),
+            ("BAGLUNG_M", "Baglung Municipality", "BAGLUNG", "GANDAKI", LocalLevelTypeCodes.Municipality),
+            ("KUSHMA_M", "Kushma Municipality", "PARBAT", "GANDAKI", LocalLevelTypeCodes.Municipality),
+            ("KAWASOTI_M", "Kawasoti Municipality", "NAWALPUR", "GANDAKI", LocalLevelTypeCodes.Municipality),
+            ("BENI_M", "Beni Municipality", "MYAGDI", "GANDAKI", LocalLevelTypeCodes.Municipality),
+            ("GHARAPJHONG_RM", "Gharapjhong Rural Municipality", "MUSTANG", "GANDAKI", LocalLevelTypeCodes.RuralMunicipality),
+
+            ("KAPILVASTU_M", "Kapilvastu Municipality", "KAPILVASTU", "LUMBINI", LocalLevelTypeCodes.Municipality),
+            ("SANDHIKHARKA_M", "Sandhikharka Municipality", "ARGHAKHANCHI", "LUMBINI", LocalLevelTypeCodes.Municipality),
+            ("RESUNGA_M", "Resunga Municipality", "GULMI", "LUMBINI", LocalLevelTypeCodes.Municipality),
+            ("TANSEN_M", "Tansen Municipality", "PALPA", "LUMBINI", LocalLevelTypeCodes.Municipality),
+            ("RAMGRAM_M", "Ramgram Municipality", "PARASI", "LUMBINI", LocalLevelTypeCodes.Municipality),
+            ("PYUTHAN_M", "Pyuthan Municipality", "PYUTHAN", "LUMBINI", LocalLevelTypeCodes.Municipality),
+            ("LIWANG_M", "Liwang Municipality", "ROLPA", "LUMBINI", LocalLevelTypeCodes.Municipality),
+            ("SUNCHHAHARI_RM", "Sunchhahari Rural Municipality", "RUKUM_EAST", "LUMBINI", LocalLevelTypeCodes.RuralMunicipality),
+            ("GULARIYA_M", "Gulariya Municipality", "BARDIYA", "LUMBINI", LocalLevelTypeCodes.Municipality),
+
+            ("THULI_BHERI_M", "Thuli Bheri Municipality", "DOLPA", "KARNALI", LocalLevelTypeCodes.Municipality),
+            ("CHHAYANATH_RARA_M", "Chhayanath Rara Municipality", "MUGU", "KARNALI", LocalLevelTypeCodes.Municipality),
+            ("SIMKOT_RM", "Simkot Rural Municipality", "HUMLA", "KARNALI", LocalLevelTypeCodes.RuralMunicipality),
+            ("CHANDANNATH_M", "Chandannath Municipality", "JUMLA", "KARNALI", LocalLevelTypeCodes.Municipality),
+            ("KHANDACHAKRA_M", "Khandachakra Municipality", "KALIKOT", "KARNALI", LocalLevelTypeCodes.Municipality),
+            ("MUSIKOT_M", "Musikot Municipality", "RUKUM_WEST", "KARNALI", LocalLevelTypeCodes.Municipality),
+            ("SHARADA_M", "Sharada Municipality", "SALYAN", "KARNALI", LocalLevelTypeCodes.Municipality),
+            ("BIRENDRANAGAR_M", "Birendranagar Municipality", "SURKHET", "KARNALI", LocalLevelTypeCodes.Municipality),
+            ("NARAYAN_M", "Narayan Municipality", "DAILEKH", "KARNALI", LocalLevelTypeCodes.Municipality),
+            ("BHERI_M", "Bheri Municipality", "JAJARKOT", "KARNALI", LocalLevelTypeCodes.Municipality),
+
+            ("MANGALSEN_M", "Mangalsen Municipality", "ACHHAM", "SUDURPASHCHIM", LocalLevelTypeCodes.Municipality),
+            ("DIPAYAL_SILGADHI_M", "Dipayal Silgadhi Municipality", "DOTI", "SUDURPASHCHIM", LocalLevelTypeCodes.Municipality),
+            ("JAYA_PRITHVI_M", "Jaya Prithvi Municipality", "BAJHANG", "SUDURPASHCHIM", LocalLevelTypeCodes.Municipality),
+            ("BADIMALIKA_M", "Badimalika Municipality", "BAJURA", "SUDURPASHCHIM", LocalLevelTypeCodes.Municipality),
+            ("BHIMDATTA_M", "Bhimdatta Municipality", "KANCHANPUR", "SUDURPASHCHIM", LocalLevelTypeCodes.Municipality),
+            ("AMARGADHI_M", "Amargadhi Municipality", "DADELDHURA", "SUDURPASHCHIM", LocalLevelTypeCodes.Municipality),
+            ("DASHARATHCHAND_M", "Dasharathchand Municipality", "BAITADI", "SUDURPASHCHIM", LocalLevelTypeCodes.Municipality),
+            ("MAHAKALI_M", "Mahakali Municipality", "DARCHULA", "SUDURPASHCHIM", LocalLevelTypeCodes.Municipality)
+        };
+
+        private static async Task SeedNepalDistrictsAndLocalLevelsAsync(ApplicationDbContext dbContext)
+        {
+            var order = 1;
+            foreach (var district in NepalDistricts)
+            {
+                await EnsureConfigAsync(dbContext, ConfigTypeCodes.District, district.Code, district.Label, order, district.ProvinceCode);
+                order++;
+            }
+
+            order = 1;
+            foreach (var localLevel in NepalLocalLevels)
+            {
+                await EnsureConfigAsync(dbContext, ConfigTypeCodes.LocalLevel, localLevel.Code, localLevel.Label, order, localLevel.DistrictCode, localLevel.ProvinceCode, localLevel.Type);
+                order++;
+            }
         }
 
         private static async Task NormalizeFeeCategoryFrequenciesAsync(ApplicationDbContext dbContext)

@@ -35,6 +35,12 @@ namespace Application.Students.Validators
                 .MaximumLength(255)
                 .When(command => !string.IsNullOrWhiteSpace(command.Email));
 
+            // Portal account provisioning (2026-07-27) -- only required when opted in.
+            RuleFor(command => command.Email)
+                .NotEmpty()
+                .WithMessage("Email is required to create a portal account.")
+                .When(command => command.RegisterUserAccount);
+
             RuleFor(command => command.Phone)
                 .MaximumLength(20);
 

@@ -115,6 +115,18 @@ namespace Infrastructure.Persistence.Repositories
             return enrollment;
         }
 
+        public async Task<IReadOnlyList<Enrollment>> GetByIdsWithDetailsAsync(IReadOnlyList<Guid> enrollmentIds, CancellationToken cancellationToken = default)
+        {
+            var enrollments = await DbSet
+                .Include(e => e.Student)
+                .Include(e => e.ClassSection)
+                    .ThenInclude(section => section.AcademicClass)
+                .Where(e => enrollmentIds.Contains(e.Id))
+                .ToListAsync(cancellationToken);
+
+            return enrollments;
+        }
+
         public async Task<IReadOnlyList<Enrollment>> GetActiveByStudentAsync(Guid studentId, CancellationToken cancellationToken = default)
         {
             // The student profile's "current class" lookup: active rows with the year included
@@ -489,6 +501,15 @@ namespace Infrastructure.Persistence.Repositories
                 .ToListAsync(cancellationToken);
 
             return feeSelections;
+        }
+
+        public async Task<IReadOnlyList<EnrollmentSubject>> GetElectiveSubjectsByEnrollmentIdsAsync(IReadOnlyList<Guid> enrollmentIds, CancellationToken cancellationToken = default)
+        {
+            var electiveSubjects = await DbContext.Set<EnrollmentSubject>()
+                .Where(electiveSubject => enrollmentIds.Contains(electiveSubject.EnrollmentId))
+                .ToListAsync(cancellationToken);
+
+            return electiveSubjects;
         }
     }
 }

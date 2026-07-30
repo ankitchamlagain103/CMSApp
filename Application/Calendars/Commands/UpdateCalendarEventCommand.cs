@@ -17,5 +17,9 @@ namespace Application.Calendars.Commands
         public string ColorCode { get; set; }
         public string Language { get; set; } = "en";
         public bool IsActive { get; set; } = true;
+        public string ProvinceCode { get; set; }
+        public string BranchCode { get; set; }
+        public Guid? StudentId { get; set; }
+        public Guid? EmployeeId { get; set; }
     }
 }

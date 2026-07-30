@@ -29,6 +29,13 @@ Complete API reference for frontend integration: every endpoint with its exact r
 { "userName": "superadmin", "password": "Str0ng!Pass" }
 ```
 
+`userName` (field name kept for backward compatibility) accepts a **username, email, or phone
+number** (2026-07-27) — tried in that order. Added because a portal account provisioned for an
+Employee/Student (`registerUserAccount`/`register-account`, see `portal_account_provisioning_implementation_guide.md`)
+gets a system-generated username the person never chose, so email or phone is realistically what
+they'll type. Phone number has no unique constraint (unlike username/email), so it's a best-effort
+match — the password check right after still has to pass against that specific user.
+
 **Response** (`200`):
 ```json
 {
@@ -562,9 +569,15 @@ Only allowed once the menu has no children — delete bottom-up (permissions bef
 }
 ```
 
-## GET /api/configs/dropdown/{typeCode} — options for one dropdown
+## GET /api/configs/dropdown/{typeCode}?parentCode=&search= — options for one dropdown
 
 Available to **any authenticated user** (no permission grant needed). Returns the **common dropdown shape** (`DropdownItemDto`) — every dropdown endpoint in the system uses this same shape, so one frontend select component can bind them all: render `label`, submit `value`.
+
+Two optional query params (2026-07-24), reusable by any catalog: `parentCode` narrows to options
+whose `additionalValue1` equals it (cascading dropdowns — e.g. District options for one Province);
+`search` is a case-insensitive substring match against `label` (a searchable lookup for a catalog
+with too many options for a plain `<select>`). Both independent; omitting both is the plain
+unfiltered call.
 
 **Response** (`200`): `data` = `DropdownItemDto[]`, sorted by `order`. An unknown `typeCode` returns an empty array, not an error.
 ```json
@@ -625,7 +638,7 @@ Only allowed once the type has no options left.
 
 ## DELETE /api/configs/{id} — delete an option (admin)
 
-**Response** (`200`): `{ ..., "responseMessage": "Config deleted successfully.", "data": true }` — **hard** delete. **Failure**: `404 NOT_FOUND` `"Config with id '...' was not found."`
+**Response** (`200`): `{ ..., "responseMessage": "Config deleted successfully.", "data": true }` — **hard** delete. **Failure**: `404 NOT_FOUND` `"Config with id '...' was not found."` **No reference check** — deleting (or renaming the `code` of) an option that some entity's plain-string field already stores does not cascade or block; see `config_catalog_implementation_guide.md` for the full explanation and UI guidance.
 
 ---
 
@@ -827,7 +840,12 @@ Audit trail of who executed which critical action (only actions listed in the se
 
 ## GET /api/dashboard/quick-menus?take=8 — quick menu suggestions
 
-Shortcut links to the feature list pages (menu catalog `SUB_MENU` rows) the **current logged-in user** actually has permission to open — resolved the same way as `GET /api/roles/user-menus`, filtered to visible rows that carry a `url`. Zero grants returns an empty list, not a 403.
+Shortcut links to menu catalog `SUB_MENU` rows explicitly curated as quick links
+(`Menu.isQuickLink`, 2026-07-28 — an admin toggles this via `POST/PUT /api/menus`) that the
+**current logged-in user** actually has permission to open — resolved the same way as
+`GET /api/roles/user-menus`, filtered to visible + `isQuickLink` rows. Zero grants returns an
+empty list, not a 403. Seeded quick links: Students, Fee Generation, Config Types, Users,
+Employees, Academic Years.
 
 **Response** (`200`): `data` =
 ```json
@@ -838,7 +856,21 @@ Shortcut links to the feature list pages (menu catalog `SUB_MENU` rows) the **cu
 ```
 **Failure**: `401 UNAUTHORIZED` if not authenticated; `404 NOT_FOUND` if the caller's user row can't be found.
 
-Full request/response reference and design notes for these six endpoints: `Docs/dashboard_updated_file.md`.
+## GET /api/dashboard/accounts-summary?take=5 / GET /api/dashboard/hr-summary?take=5 (2026-07-28)
+
+Two persona-oriented composite widgets, same one-call shape as `summary` above: **Accounts**
+(fee collection totals, outstanding dues, invoice-status breakdown, current payroll run, recent
+payments) and **HR** (headcount by status/category, pending leave/loan approval counts, recent
+hires, upcoming birthdays/work anniversaries). Permission-gated like every other dashboard
+endpoint — grant `DASHBOARD_ACCOUNTS_SUMMARY`/`DASHBOARD_HR_SUMMARY` to whatever role a school
+uses for its finance/HR staff (there's no hardcoded "Accounts"/"HR" role). Full field reference:
+`Docs/dashboard_updated_file.md`.
+
+**Logs moved out of Dashboard**: System Access Logs and Error Logs (`GET /api/dashboard/error-logs`,
+`/error-logs/summary`, `/access-logs` — routes unchanged) now have their own top-level `Logs`
+sidebar menu instead of being reachable only from the Dashboard page.
+
+Full request/response reference and design notes for the Dashboard feature: `Docs/dashboard_updated_file.md`.
 
 ---
 
@@ -1094,12 +1126,133 @@ Full reference in `dual_calendar_implementation_guide.md`; orientation summary: 
 
 ---
 
+# Leave Management, Notifications & Employee Profile (2026-07-23)
+
+Full reference in `leave_management_and_employee_profile_implementation_guide.md`; orientation summary: built from a raw schema sketch and an Employee Profile page mockup, everything here is admin-facing at `/api/employees/{id}/...` — there's still no employee-login feature, so nothing is self-service. `Employee` gained org fields — `branchCode`/`provinceCode`/`levelCode` (Config catalogs `1019`/`1020`/`1021`), a self-referencing `managerId`, and a single `photoPath` (`POST/GET-download/DELETE /api/employees/{id}/photo`, jpg/jpeg/png only). `LeaveType` (`/api/leavetypes`, real entity — `daysPerYear`/`carryForward`/`isPaid`, not a Config catalog) is seeded with Annual/Sick/Casual (18/12/12, illustrative). `EmployeeLeaveBalance` (`GET/POST /api/employees/{id}/leavebalances`) is scoped to the **current fiscal year only** — `balance = allocated - used - pending`. `LeaveRequest` (`POST /api/employees/{id}/leaverequests` with optional multipart attachment, plus list/detail/manager-approve/manager-reject/hr-approve/hr-reject/cancel, and substitute add/remove) has **two independent one-shot approval fields**, `managerStatus`/`hrStatus` — **`hrStatus` is authoritative and is never gated on `managerStatus`**, so HR can approve or reject a request regardless of what the manager has or hasn't done (an explicit "emergency override" requirement) — only an HR decision actually moves days between `pending`/`used` on the balance. `effectiveStatus` in the response is computed, not stored (HR's decision if made; else `Rejected` if the manager rejected; else `Pending`). `Notification` (`GET /api/employees/{id}/notifications`, mark-read/mark-all-read) is raised automatically on submit and on each manager/HR decision — nothing else creates one yet (birthday/anniversary reminder types are reserved for a future job, not wired up). `GET /api/employees/{id}/profile` is the one composite call behind the whole profile page: personal/employment info, current-fiscal-year leave summary, live-computed upcoming birthday/work-anniversary, and pending leave requests — there's no Attendance module, so the mockup's "View Attendance" quick action has nothing to link to. Holidays reuse the existing Dual Calendar module rather than a new table: `CalendarEvent` with `eventType = PublicHoliday` gained optional `provinceCode`/`branchCode` scoping, and two new event types, `StudentBirthday`/`EmployeeBirthday`, let an admin pin a specific person's birthday onto the shared calendar (`studentId`/`employeeId` fields, exactly one required matching the type). **New tables (`leave_types`, `employee_leave_balances`, `leave_requests`, `leave_substitutes`, `notifications`) and new columns on `employees`/`calendar_events` need a migration that doesn't exist yet** — every endpoint in this section 500s until it's applied.
+
+---
+
+# Leave Configurability (2026-07-24, revised same day)
+
+Full reference in `leave_configurability_implementation_guide.md`; orientation summary: `LeaveType`
+gained two optional policy fields — `maxConsecutiveDays` (cap per single request) and
+`maxDaysPerWeek`/`maxDaysPerMonth` (cap on Pending+Approved days of that type within the calendar
+week/month containing the request's `fromDate`, clipped per request so a boundary-spanning request
+only counts its portion). `LeaveRequest` gained `isEmergency` (bool, requester's own claim, sent
+alongside the existing Apply Leave multipart fields) — **unconditionally** bypasses all three caps
+for any leave type (no per-type toggle), and is **unrelated** to the pre-existing HR "emergency
+override" of the manager/HR approval workflow; don't conflate the two. An earlier revision also
+added a per-type mandatory-document rule and a per-type emergency-override toggle — both were
+dropped the same day: whether a supporting document backs a request is left to the requester/HR
+conversation, not a system-enforced gate, so `LeaveRequest.AttachmentPath` stays optional for every
+leave type exactly as before. Two new seeded leave types: Bereavement Leave and Marriage Leave
+(both capped at their own yearly allocation as a single-request maximum). All policy fields are
+optional and independent — an unconfigured leave type behaves exactly as it did before this
+feature. **Needs a migration** — three new columns on `leave_types`, one new column
+(`is_emergency`) on `leave_requests`; every leave-type create/update and leave-request create call
+fails until applied.
+
+---
+
+# Employee Address — Province/District/Local Level/Ward (2026-07-24)
+
+Full reference in `employee_address_implementation_guide.md`; orientation summary: extends the
+existing Employee `provinceCode` org field into a full Nepal address chain — `districtCode`
+(Config catalog `1022`) and `localLevelCode` (`1023`, Nepal's municipality/rural-municipality/
+metropolitan/sub-metropolitan-city catalog) plus a plain `wardNo` (1–99, shape-only). Both new
+catalogs reuse the existing `ConfigType`/`Config` tables (no new tables). Seed data: all 77
+districts (full list, stable since the 2017 restructuring); **80 of 753 local levels** — the 6
+metro + 11 sub-metro cities plus one notable municipality per remaining district, so every
+district has at least one usable option — the remaining ~670 are deliberately not seeded (avoiding
+baking possibly-wrong government records from memory) and should be added via `POST /api/configs`
+from an official source before relying on this for real addresses. `GET /api/configs/dropdown/
+{typeCode}` gained generalized `parentCode` (cascading, filters on `AdditionalValue1`) and `search`
+(Label substring match) query params, reusable by any hierarchical catalog. `EmployeeService`
+auto-derives `districtCode`/`provinceCode` from a supplied `localLevelCode` (or `provinceCode` from
+`districtCode`) when the coarser fields are left blank — this is the actual "reverse map
+automatically" behavior; anything supplied at more than one level is cross-checked, never silently
+overridden. **Needs a migration** — three new nullable columns on `employees`
+(`district_code`/`local_level_code`/`ward_no`); every address read/write 500s until applied.
+
+---
+
+# Portal Account Provisioning for Employees & Students (2026-07-27)
+
+Full reference in `portal_account_provisioning_implementation_guide.md`; orientation summary: an
+Employee or Student can optionally get a real login, on request — `registerUserAccount: true` on
+`POST /api/employees`/`POST /api/students` (Employees also need `roleIds`, admin-picked; Students
+always get the fixed new `Student` role, no picker), or retrofitted afterward via
+`POST /api/employees/{id}/register-account` / `POST /api/students/{id}/register-account`.
+`EmployeeDto.userId`/`StudentDto.userId` are non-null once provisioned. The account is created
+with **no password** (same shape as a Google-signed-in account) and an email is sent with a
+password-reset link to activate it — reuses the existing `POST /api/auth/reset-password`
+endpoint, no new activation mechanism. `Conflict` if the email is already registered to another
+account or the record already has one; `ValidationError` for a missing email/role. **Needs a
+migration** — one new nullable column `students.user_id` + its unique partial index (mirrors the
+existing `employees.user_id`); every student `register-account` call and any create with
+`registerUserAccount: true` 500s until applied.
+
+## Exam Management — assessment configuration, exams, marks, results & promotion (2026-07-28, redesigned 2026-07-29 per `Docs/Exam_Module_Design_Revised.md`, room/seat-arrangement subsystem removed 2026-07-30)
+
+The full Exam/Result/Promotion design (`Docs/Student_Management_System_Exam_Result_Promotion_Design.md`)
+was implemented, then **redesigned once** (merging "Exam" + "ExamSchedule" into one resource), then
+**redesigned again** the next day from `Docs/Exam_Module_Design_Revised.md`: an `Exam` no longer
+pins a `ClassSection`, `Name`, `WeightagePercent`, or `IsFinalExam` at all — it's keyed by
+`(examTermId, classSubjectId)` only, always covers the whole grade, and "who sits it" is resolved
+dynamically from the subject's own mandatory/elective/section-scoping rules. That same redesign
+added an optional examination hall/seat-allocation engine, which was then **removed entirely the
+following day** (2026-07-30, per instruction) — the module only needs simple subject/date/time
+scheduling. Full reference, two guides: `exam_management_implementation_guide.md` (the module) and
+`exam_routine_and_marks_configuration_implementation_guide.md` (the 2026-07-30 whole-class routine
+endpoint + marks-configuration defaulting). Orientation summary:
+
+- `ClassSubject`'s existing grading fields (create/update via
+  `POST`/`PUT /api/academicclasses/{id}/subjects[/{classSubjectId}]`) are the **only** place
+  Full Marks/Pass Marks are configured for the whole module — `fullMarks`/`passMarks` (overall),
+  `theoryMarks`/`practicalMarks` (per component), `hasTheory`/`hasPractical`, `theoryPassMarks`/
+  `practicalPassMarks` (per-component pass thresholds). A student must clear the overall pass
+  marks *and* each enabled component's own pass mark. **2026-07-30**: when `hasPractical: false`
+  (whole-marks mode, the default), `theoryMarks`/`theoryPassMarks` now default to
+  `fullMarks`/`passMarks` whenever left unset — previously a whole-marks subject with no explicit
+  `theoryMarks` had no per-component cap at all, silently allowing an obtained mark greater than
+  the subject's own full marks.
+- `POST/GET/PUT/DELETE /api/examterms` (a macro period like "First Terminal", soft-deleted, unique
+  `code`) → `/api/exams` (**one subject's single sitting per term, no section, no name/weightage/
+  isFinal, no room** — date/time/optional invigilator/remarks, hard-deleted, `409` on a duplicate
+  `(examTerm, classSubject)` pair, plus `POST /api/exams/{id}/lock`/`unlock` to close/reopen its
+  marks-entry window; there is no `for-class` endpoint anymore — nothing left for it to do once an
+  exam already always covers the whole grade). **2026-07-30: `POST /api/exams/routine`** schedules
+  every subject of one class within one exam term in a single call (per-item date/time/invigilator,
+  skip-list style). **Creating/updating/deleting an exam auto-manages a linked `CalendarEvent`**
+  (`eventType: 5`). `ExamDto` exposes `fullMarks`/`passMarks`/etc. read-only, sourced from the
+  linked subject.
+- `/api/gradescales` (percentage-band grading schema, A+/A/B+/.../F with grade points, soft-deleted,
+  unique `grade`), `/api/studentexammarks` (+ `POST /api/studentexammarks/bulk` for a whole
+  roster's marks in one call, + `GET .../roster` for a searchable single-student entry worklist),
+  `/api/examresults` (`generate`/`publish/{examTermId}`/`{id}/withhold`/`{id}/lift-withhold` plus
+  the paged list/detail — **every exam in the term now contributes, there is no "final exam only"
+  filter anymore**), and `/api/studentpromotions` (+ `POST /api/studentpromotions/bulk-process`
+  for the pass→promote/fail→retain whole-section workflow) round out the module.
+- **`/api/examrooms` and `/api/examhallarrangements` no longer exist** (removed 2026-07-30, along
+  with `ExamRoom`/`ExamHallArrangement`/`ExamHallArrangementClass`/`ExamSeatAllocation` and
+  `Exam.RoomId`/`Room`) — drop any frontend calls to either controller or any `roomId` field on an
+  exam create/update.
+- **Needs a migration.** Exactly what depends on which of `20260728171309_Added initial exam
+  module.cs`/`20260729050427_Added update1 exam module.cs`/`20260729135723_Added update2 exam
+  module.cs` a given database has actually run — see the migration-status callout at the top of
+  `exam_management_implementation_guide.md` for the current, accurate breakdown (it previously
+  described a stale-migration problem that the update1/update2 files already resolve; the
+  remaining pending piece as of 2026-07-30 is dropping the four room/seat-arrangement tables plus
+  `exams.room_id` if update2 was applied).
+
+---
+
 # Seeded data (first run against a migrated DB)
 
-- Roles `SuperAdmin` / `Admin` / `User`, one account per role (credentials from the `Seed` config section).
-- Main menus `DASHBOARD` / `USER_MANAGEMENT` / `CONFIG_MANAGEMENT` / `SETUP` / `STUDENT_MANAGEMENT` / `FEE_MANAGEMENT` / `PAYROLL_MANAGEMENT` / `EMPLOYEE_MANAGEMENT` / `CALENDAR_MANAGEMENT` with permission leaves covering every protected endpoint (`ACADEMIC_MANAGEMENT`/`TEACHER_MANAGEMENT` retired 2026-07-16 — their contents live under `SETUP`/`EMPLOYEE_LIST`); **all permissions granted to the SuperAdmin role** — and SuperAdmin-typed accounts additionally bypass the permission check entirely, so the seeded superadmin works everywhere immediately.
-- Config catalogs for student management (`typeCode` 1001–1007) plus discount/scholarship/fee-category types (`1008`/`1009`/`1010`, fee categories carrying their normative `fee_frequency`) plus employee-category/job-position/salary-component/deduction/insurance-type (`1011`–`1015`) plus salary/fee adjustment types (`1016`/`1017`) plus SSF rates (`1018`, employee/employer share percentages in `additionalValue1`); default guardian-relationship, teacher-qualification, document-type (teacher + student), discount/scholarship-type (with default rates), all 11 fee-category options, and all employee-side options (categories, positions, salary components, deductions, insurance types with tax-deduction caps); a baseline of app-config settings (`GENERAL`/`THEME`/`ANNOUNCEMENT`, including `FEE_DUE_DAY_OF_MONTH`); one placeholder `FY-SAMPLE` fiscal year with illustrative Individual/Couple tax slabs and retirement-exemption cap (verify before real payroll use); one default `DocumentTemplate` HTML row per type (Payslip/FeeReceipt/StudentIdCard/TeacherIdCard) so the preview endpoints work out of the box; BS calendar reference data (12 month names + 7 weekday names EN/NP with Saturday as the weekly holiday, and the BS 2000–2090 month-length table) so the dual-calendar endpoints work out of the box.
-- `Admin`/`User` roles start with **zero** permissions; grant via `POST /api/roles/claims` while signed in as superadmin.
+- Roles `SuperAdmin` / `Admin` / `User`, one account per role (credentials from the `Seed` config section). A fourth role, `Student`, is also seeded (2026-07-27) with no seeded account and zero permissions — it's assigned automatically to every student portal account provisioned via `registerUserAccount`/`register-account`.
+- Main menus `DASHBOARD` / `USER_MANAGEMENT` / `CONFIG_MANAGEMENT` / `SETUP` / `STUDENT_MANAGEMENT` / `FEE_MANAGEMENT` / `PAYROLL_MANAGEMENT` / `EMPLOYEE_MANAGEMENT` / `CALENDAR_MANAGEMENT` / `LEAVE_MANAGEMENT` / `LOGS` (2026-07-28 — System Access Logs/Error Logs, moved out of `DASHBOARD`) / `EXAM_MANAGEMENT` (2026-07-28 — Exam Terms/Exams/Grade Scales/Marks Entry/Exam Results/Student Promotions; gained Exam Rooms/Hall Arrangements 2026-07-29) with permission leaves covering every protected endpoint (`ACADEMIC_MANAGEMENT`/`TEACHER_MANAGEMENT` retired 2026-07-16 — their contents live under `SETUP`/`EMPLOYEE_LIST`); **all permissions granted to the SuperAdmin role** — and SuperAdmin-typed accounts additionally bypass the permission check entirely, so the seeded superadmin works everywhere immediately.
+- Config catalogs for student management (`typeCode` 1001–1007) plus discount/scholarship/fee-category types (`1008`/`1009`/`1010`, fee categories carrying their normative `fee_frequency`) plus employee-category/job-position/salary-component/deduction/insurance-type (`1011`–`1015`) plus salary/fee adjustment types (`1016`/`1017`) plus SSF rates (`1018`, employee/employer share percentages in `additionalValue1`) plus branch/province/employee-level (`1019`–`1021`, province seeded with Nepal's 7 federal provinces) plus district/local-level (`1022`/`1023`, all 77 districts and 80 of 753 local levels — see `employee_address_implementation_guide.md` before relying on the local-level list for real addresses); default guardian-relationship, teacher-qualification, document-type (teacher + student), discount/scholarship-type (with default rates), all 11 fee-category options, and all employee-side options (categories, positions, salary components, deductions, insurance types with tax-deduction caps); a baseline of app-config settings (`GENERAL`/`THEME`/`ANNOUNCEMENT`, including `FEE_DUE_DAY_OF_MONTH`); one placeholder `FY-SAMPLE` fiscal year with illustrative Individual/Couple tax slabs and retirement-exemption cap (verify before real payroll use); one default `DocumentTemplate` HTML row per type (Payslip/FeeReceipt/StudentIdCard/TeacherIdCard) so the preview endpoints work out of the box; BS calendar reference data (12 month names + 7 weekday names EN/NP with Saturday as the weekly holiday, and the BS 2000–2090 month-length table) so the dual-calendar endpoints work out of the box; baseline `LeaveType` rows (Annual/Sick/Casual, 18/12/12 days, illustrative — verify against actual policy).
+- `Admin`/`User`/`Student` roles start with **zero** permissions; grant via `POST /api/roles/claims` while signed in as superadmin.
 
 # Error-handling checklist for the UI
 

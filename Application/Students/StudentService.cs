@@ -19,6 +19,7 @@ namespace Application.Students
     {
         private readonly IUnitOfWork _unitOfWork;
         private readonly IFileStorageService _fileStorage;
+        private readonly IIdentityService _identityService;
         private readonly CreateStudentCommandValidator _createValidator;
         private readonly UpdateStudentCommandValidator _updateValidator;
         private readonly LinkGuardianCommandValidator _linkGuardianValidator;
@@ -27,6 +28,7 @@ namespace Application.Students
         public StudentService(
             IUnitOfWork unitOfWork,
             IFileStorageService fileStorage,
+            IIdentityService identityService,
             CreateStudentCommandValidator createValidator,
             UpdateStudentCommandValidator updateValidator,
             LinkGuardianCommandValidator linkGuardianValidator,
@@ -34,6 +36,7 @@ namespace Application.Students
         {
             _unitOfWork = unitOfWork;
             _fileStorage = fileStorage;
+            _identityService = identityService;
             _createValidator = createValidator;
             _updateValidator = updateValidator;
             _linkGuardianValidator = linkGuardianValidator;
@@ -136,6 +139,20 @@ namespace Application.Students
                 Status = RecordStatus.Active
             };
 
+            var successMessage = "Student created successfully.";
+            if (command.RegisterUserAccount)
+            {
+                var provisionResult = await ProvisionAccountOrErrorAsync(student.Email, student.Phone, student.FirstName, student.LastName, student.Gender, cancellationToken);
+                if (provisionResult.ErrorResponseCode != null)
+                {
+                    var provisionFailureResponse = CommonResponse<StudentDto>.Fail(provisionResult.ErrorResponseCode, provisionResult.ErrorMessage);
+                    return provisionFailureResponse;
+                }
+
+                student.UserId = provisionResult.UserId;
+                successMessage = "Student created successfully. A portal account was created -- an activation email has been sent to " + student.Email + ".";
+            }
+
             await _unitOfWork.Students.AddAsync(student, cancellationToken);
 
             // Student + new guardians + links all land in one SaveChanges, so onboarding is
@@ -158,8 +175,79 @@ namespace Application.Students
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
             var studentDto = StudentMapper.ToDto(student, guardianLinks);
-            var successResponse = CommonResponse<StudentDto>.Success(studentDto, "Student created successfully.");
+            var successResponse = CommonResponse<StudentDto>.Success(studentDto, successMessage);
             return successResponse;
+        }
+
+        // Portal account provisioning retrofit (2026-07-27) -- for a student that didn't get a
+        // login at creation time.
+        public async Task<CommonResponse<StudentDto>> RegisterUserAccountAsync(Guid studentId, CancellationToken cancellationToken = default)
+        {
+            var student = await _unitOfWork.Students.GetByIdAsync(studentId, cancellationToken);
+            if (student == null)
+            {
+                var notFoundResponse = CommonResponse<StudentDto>.Fail(ResponseCodes.NotFound, "Student with id '" + studentId + "' was not found.");
+                return notFoundResponse;
+            }
+
+            if (student.UserId.HasValue)
+            {
+                var conflictResponse = CommonResponse<StudentDto>.Fail(ResponseCodes.Conflict, "This student already has a portal account.");
+                return conflictResponse;
+            }
+
+            if (string.IsNullOrWhiteSpace(student.Email))
+            {
+                var noEmailResponse = CommonResponse<StudentDto>.Fail(ResponseCodes.ValidationError, "This student has no email on record.");
+                return noEmailResponse;
+            }
+
+            var provisionResult = await ProvisionAccountOrErrorAsync(student.Email, student.Phone, student.FirstName, student.LastName, student.Gender, cancellationToken);
+            if (provisionResult.ErrorResponseCode != null)
+            {
+                var provisionFailureResponse = CommonResponse<StudentDto>.Fail(provisionResult.ErrorResponseCode, provisionResult.ErrorMessage);
+                return provisionFailureResponse;
+            }
+
+            student.UserId = provisionResult.UserId;
+            _unitOfWork.Students.Update(student);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            var studentDto = StudentMapper.ToDto(student);
+            var successResponse = CommonResponse<StudentDto>.Success(studentDto, "Portal account created -- an activation email has been sent to " + student.Email + ".");
+            return successResponse;
+        }
+
+        // Shared by CreateStudentAsync and RegisterUserAccountAsync -- checks the email isn't
+        // already registered to another ApplicationUser (Conflict), then delegates to
+        // IIdentityService.ProvisionPortalAccountAsync (ValidationError on any other failure).
+        // Always the fixed RoleNames.Student role -- no admin role picker, unlike Employees.
+        private async Task<(Guid? UserId, string ErrorResponseCode, string ErrorMessage)> ProvisionAccountOrErrorAsync(string email, string phone, string firstName, string lastName, Gender gender, CancellationToken cancellationToken)
+        {
+            var emailExists = await _identityService.EmailExistsAsync(email, cancellationToken);
+            if (emailExists)
+            {
+                return (null, ResponseCodes.Conflict, "Email '" + email + "' is already registered to a portal account.");
+            }
+
+            var provisionRequest = new ProvisionPortalAccountRequest
+            {
+                Email = email,
+                PhoneNumber = phone,
+                FirstName = firstName,
+                LastName = lastName,
+                Gender = gender,
+                RoleNames = new List<string> { RoleNames.Student }
+            };
+
+            var provisionResult = await _identityService.ProvisionPortalAccountAsync(provisionRequest, cancellationToken);
+            if (!provisionResult.Succeeded)
+            {
+                var combinedMessage = string.Join(" ", provisionResult.Errors);
+                return (null, ResponseCodes.ValidationError, combinedMessage);
+            }
+
+            return (Guid.Parse(provisionResult.UserId), null, null);
         }
 
         public async Task<CommonResponse<StudentDto>> GetStudentByIdAsync(Guid id, CancellationToken cancellationToken = default)

@@ -7,6 +7,7 @@ using Application.Common.Interfaces;
 using Application.Common.Models;
 using Domain.Common.Filters;
 using Domain.Entities;
+using Domain.Enums;
 using FluentValidation.Results;
 
 namespace Application.Calendars
@@ -286,6 +287,13 @@ namespace Application.Calendars
                 return conversionFailureResponse;
             }
 
+            var personMappingError = await ValidateEventPersonMappingAsync(command.EventType, command.StudentId, command.EmployeeId, cancellationToken);
+            if (personMappingError != null)
+            {
+                var personMappingResponse = CommonResponse<CalendarEventDto>.Fail(ResponseCodes.ValidationError, personMappingError);
+                return personMappingResponse;
+            }
+
             var calendarEvent = new CalendarEvent
             {
                 Title = command.Title.Trim(),
@@ -298,7 +306,11 @@ namespace Application.Calendars
                 IconKey = command.IconKey,
                 ColorCode = command.ColorCode,
                 Language = string.IsNullOrWhiteSpace(command.Language) ? "en" : command.Language.Trim(),
-                IsActive = command.IsActive
+                IsActive = command.IsActive,
+                ProvinceCode = string.IsNullOrWhiteSpace(command.ProvinceCode) ? null : command.ProvinceCode.Trim(),
+                BranchCode = string.IsNullOrWhiteSpace(command.BranchCode) ? null : command.BranchCode.Trim(),
+                StudentId = command.StudentId,
+                EmployeeId = command.EmployeeId
             };
 
             await _unitOfWork.CalendarEvents.AddAsync(calendarEvent, cancellationToken);
@@ -331,7 +343,9 @@ namespace Application.Calendars
                 FromAdDate = query.FromAdDate?.Date,
                 ToAdDate = query.ToAdDate?.Date,
                 BsYear = query.BsYear,
-                IsActive = query.IsActive
+                IsActive = query.IsActive,
+                StudentId = query.StudentId,
+                EmployeeId = query.EmployeeId
             };
 
             var pagedEvents = await _unitOfWork.CalendarEvents.GetPagedByFilterAsync(filter, query.Page, query.PageSize, cancellationToken);
@@ -386,6 +400,13 @@ namespace Application.Calendars
                 return conversionFailureResponse;
             }
 
+            var personMappingError = await ValidateEventPersonMappingAsync(command.EventType, command.StudentId, command.EmployeeId, cancellationToken);
+            if (personMappingError != null)
+            {
+                var personMappingResponse = CommonResponse<CalendarEventDto>.Fail(ResponseCodes.ValidationError, personMappingError);
+                return personMappingResponse;
+            }
+
             calendarEvent.Title = command.Title.Trim();
             calendarEvent.EventType = command.EventType;
             calendarEvent.AdDate = adDate;
@@ -397,6 +418,10 @@ namespace Application.Calendars
             calendarEvent.ColorCode = command.ColorCode;
             calendarEvent.Language = string.IsNullOrWhiteSpace(command.Language) ? "en" : command.Language.Trim();
             calendarEvent.IsActive = command.IsActive;
+            calendarEvent.ProvinceCode = string.IsNullOrWhiteSpace(command.ProvinceCode) ? null : command.ProvinceCode.Trim();
+            calendarEvent.BranchCode = string.IsNullOrWhiteSpace(command.BranchCode) ? null : command.BranchCode.Trim();
+            calendarEvent.StudentId = command.StudentId;
+            calendarEvent.EmployeeId = command.EmployeeId;
 
             _unitOfWork.CalendarEvents.Update(calendarEvent);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
@@ -420,6 +445,51 @@ namespace Application.Calendars
 
             var successResponse = CommonResponse<bool>.Success(true, "Calendar event deleted successfully.");
             return successResponse;
+        }
+
+        // 2026-07-23: StudentBirthday/EmployeeBirthday must name exactly the matching person
+        // (and no other event type may carry either mapping -- a PublicHoliday pinned to a
+        // specific student would be meaningless). Returns null when the command is consistent.
+        private async Task<string> ValidateEventPersonMappingAsync(CalendarEventType eventType, Guid? studentId, Guid? employeeId, CancellationToken cancellationToken)
+        {
+            if (eventType == CalendarEventType.StudentBirthday)
+            {
+                if (!studentId.HasValue || employeeId.HasValue)
+                {
+                    return "A StudentBirthday event requires StudentId (and no EmployeeId).";
+                }
+
+                var student = await _unitOfWork.Students.GetByIdAsync(studentId.Value, cancellationToken);
+                if (student == null)
+                {
+                    return "Student with id '" + studentId.Value + "' was not found.";
+                }
+
+                return null;
+            }
+
+            if (eventType == CalendarEventType.EmployeeBirthday)
+            {
+                if (!employeeId.HasValue || studentId.HasValue)
+                {
+                    return "An EmployeeBirthday event requires EmployeeId (and no StudentId).";
+                }
+
+                var employee = await _unitOfWork.Employees.GetByIdAsync(employeeId.Value, cancellationToken);
+                if (employee == null)
+                {
+                    return "Employee with id '" + employeeId.Value + "' was not found.";
+                }
+
+                return null;
+            }
+
+            if (studentId.HasValue || employeeId.HasValue)
+            {
+                return "StudentId/EmployeeId can only be set on a StudentBirthday/EmployeeBirthday event.";
+            }
+
+            return null;
         }
 
         // --- Festival occurrences ---

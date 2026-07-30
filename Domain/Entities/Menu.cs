@@ -14,6 +14,11 @@
         public string MenuFor { get; set; } // ADMIN, USER, BOTH
         public int Order { get; set; }
         public bool IsHidden { get; set; }
+
+        // Whether this menu shows up as a curated tile in the dashboard's "Quick Access" grid
+        // (2026-07-28) -- deliberately explicit rather than inferred from MenuType/Url, so an
+        // admin can curate exactly which pages appear there via POST/PUT /api/menus.
+        public bool IsQuickLink { get; set; }
         public virtual Menu MainMenu { get; set; }
         public virtual ICollection<Menu> Childrens { get; set; } = new List<Menu>();
     }

@@ -10,6 +10,7 @@ namespace Application.Students
             var studentDto = new StudentDto
             {
                 Id = student.Id,
+                UserId = student.UserId,
                 AdmissionNo = student.AdmissionNo,
                 FirstName = student.FirstName,
                 MiddleName = student.MiddleName,

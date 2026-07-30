@@ -11,6 +11,7 @@ using FluentValidation.Results;
 using Google.Apis.Auth;
 using Infrastructure.Common;
 using Infrastructure.Email;
+using Infrastructure.Identity.Common;
 using Infrastructure.Persistence;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
@@ -91,7 +92,11 @@ namespace Infrastructure.Identity.Services
 
             var invalidCredentialsResponse = CommonResponse<AuthResultDto>.Fail(ResponseCodes.Unauthorized, "Invalid username or password.");
 
-            var user = await _userManager.FindByNameAsync(command.UserName);
+            // UserName/Email/PhoneNumber are all accepted as the login identifier -- a portal
+            // account provisioned for an Employee/Student (2026-07-27) gets a system-generated
+            // username the person never chose, so email or phone is realistically what they'll
+            // type instead.
+            var user = await FindUserByIdentifierAsync(command.UserName);
             if (user == null)
             {
                 return invalidCredentialsResponse;
@@ -499,7 +504,7 @@ namespace Infrastructure.Identity.Services
                 {
                     user = new ApplicationUser
                     {
-                        UserName = await GenerateUniqueUserNameAsync(payload.Email),
+                        UserName = await UserNameGenerator.GenerateUniqueAsync(_userManager, payload.Email),
                         Email = payload.Email,
                         EmailConfirmed = payload.EmailVerified,
                         FirstName = payload.GivenName ?? payload.Email,
@@ -574,6 +579,30 @@ namespace Infrastructure.Identity.Services
         }
 
         // Helper Methods
+        // Tries UserName, then Email, then PhoneNumber -- in that order because UserName/Email
+        // both have a unique index and FindByNameAsync/FindByEmailAsync normalize case, while
+        // PhoneNumber has no such constraint (nothing enforces it's unique across accounts), so
+        // it's the last, best-effort fallback. A shared phone number across two accounts would
+        // just match whichever row comes back first; the password check right after this still
+        // has to pass against that specific user, so nothing is granted on a wrong match.
+        private async Task<ApplicationUser> FindUserByIdentifierAsync(string identifier)
+        {
+            var user = await _userManager.FindByNameAsync(identifier);
+            if (user != null)
+            {
+                return user;
+            }
+
+            user = await _userManager.FindByEmailAsync(identifier);
+            if (user != null)
+            {
+                return user;
+            }
+
+            user = await _userManager.Users.FirstOrDefaultAsync(u => u.PhoneNumber == identifier);
+            return user;
+        }
+
         // AuthorizedAction enforces the same allowlist on every authenticated request; checking it
         // here too means a disallowed address is refused at token issuance instead of getting a
         // token that 403s everywhere. Same fail-closed semantics as IpAllowlistChecker.
@@ -596,20 +625,6 @@ namespace Infrastructure.Identity.Services
             {
                 await _userManager.AddToRoleAsync(user, RoleNames.User);
             }
-        }
-        private async Task<string> GenerateUniqueUserNameAsync(string email)
-        {
-            var baseUserName = email.Split('@')[0];
-            var candidateUserName = baseUserName;
-            var suffix = 1;
-
-            while (await _userManager.FindByNameAsync(candidateUserName) != null)
-            {
-                candidateUserName = baseUserName + suffix;
-                suffix++;
-            }
-
-            return candidateUserName;
         }
         private async Task<AuthResultDto> IssueTokensAsync(ApplicationUser user, CancellationToken cancellationToken)
         {

@@ -11,6 +11,11 @@ namespace Domain.Interfaces
 
         Task<Enrollment> GetWithDetailsAsync(Guid id, CancellationToken cancellationToken = default);
 
+        // Batched counterpart of GetWithDetailsAsync (Exam Result Processing, 2026-07-28) -- bulk
+        // marks entry needs every roster enrollment's Student+ClassSection in one query instead of
+        // one round trip per student.
+        Task<IReadOnlyList<Enrollment>> GetByIdsWithDetailsAsync(IReadOnlyList<Guid> enrollmentIds, CancellationToken cancellationToken = default);
+
         Task<IReadOnlyList<Enrollment>> GetActiveByStudentAsync(Guid studentId, CancellationToken cancellationToken = default);
 
         Task<IReadOnlyList<Enrollment>> GetHistoryByStudentAsync(Guid studentId, CancellationToken cancellationToken = default);
@@ -90,5 +95,10 @@ namespace Domain.Interfaces
         Task<IReadOnlyList<StudentScholarship>> GetScholarshipsByEnrollmentIdsAsync(IReadOnlyList<Guid> enrollmentIds, CancellationToken cancellationToken = default);
 
         Task<IReadOnlyList<EnrollmentFeeSelection>> GetFeeSelectionsByEnrollmentIdsAsync(IReadOnlyList<Guid> enrollmentIds, CancellationToken cancellationToken = default);
+
+        // Batched elective-subjects lookup (Exam Result Processing, 2026-07-28) -- resolving the
+        // "effective subject list" for a whole term's worth of enrollments one-by-one would be an
+        // N+1; same batching convention as GetDiscountsByEnrollmentIdsAsync.
+        Task<IReadOnlyList<EnrollmentSubject>> GetElectiveSubjectsByEnrollmentIdsAsync(IReadOnlyList<Guid> enrollmentIds, CancellationToken cancellationToken = default);
     }
 }

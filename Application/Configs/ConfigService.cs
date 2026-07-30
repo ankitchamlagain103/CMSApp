@@ -297,9 +297,9 @@ namespace Application.Configs
             return successResponse;
         }
 
-        public async Task<CommonResponse<List<DropdownItemDto>>> GetConfigsByTypeCodeAsync(int typeCode, CancellationToken cancellationToken = default)
+        public async Task<CommonResponse<List<DropdownItemDto>>> GetConfigsByTypeCodeAsync(int typeCode, string parentCode = null, string search = null, CancellationToken cancellationToken = default)
         {
-            var configs = await _unitOfWork.Configs.GetByTypeCodeAsync(typeCode, cancellationToken);
+            var configs = await _unitOfWork.Configs.GetByTypeCodeAsync(typeCode, parentCode, search, cancellationToken);
 
             var dropdownItemDtos = new List<DropdownItemDto>();
             foreach (var config in configs)

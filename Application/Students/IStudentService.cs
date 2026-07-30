@@ -32,5 +32,10 @@ namespace Application.Students
         Task<CommonResponse<bool>> DeleteDocumentAsync(Guid studentId, Guid documentId, CancellationToken cancellationToken = default);
 
         Task<CommonResponse<DocumentPreviewDto>> GetIdCardPreviewAsync(Guid studentId, CancellationToken cancellationToken = default);
+
+        // Portal account provisioning retrofit (2026-07-27) -- for a student that didn't get a
+        // login at creation time. Always the fixed RoleNames.Student role. 409 Conflict if one
+        // already exists.
+        Task<CommonResponse<StudentDto>> RegisterUserAccountAsync(Guid studentId, CancellationToken cancellationToken = default);
     }
 }

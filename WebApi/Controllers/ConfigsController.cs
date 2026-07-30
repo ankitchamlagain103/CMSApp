@@ -142,9 +142,9 @@ namespace WebApi.Controllers
         }
 
         [HttpGet("dropdown/{typeCode:int}")]
-        public async Task<ActionResult<CommonResponse<List<DropdownItemDto>>>> GetConfigsByTypeCode(int typeCode, CancellationToken cancellationToken)
+        public async Task<ActionResult<CommonResponse<List<DropdownItemDto>>>> GetConfigsByTypeCode(int typeCode, [FromQuery] string parentCode, [FromQuery] string search, CancellationToken cancellationToken)
         {
-            var response = await _configService.GetConfigsByTypeCodeAsync(typeCode, cancellationToken);
+            var response = await _configService.GetConfigsByTypeCodeAsync(typeCode, parentCode, search, cancellationToken);
             return Ok(response);
         }
     }

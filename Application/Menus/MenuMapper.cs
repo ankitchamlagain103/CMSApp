@@ -20,7 +20,8 @@ namespace Application.Menus
                 ParentId = menu.ParentId,
                 MenuFor = menu.MenuFor,
                 Order = menu.Order,
-                IsHidden = menu.IsHidden
+                IsHidden = menu.IsHidden,
+                IsQuickLink = menu.IsQuickLink
             };
 
             return menuDto;

@@ -13,5 +13,6 @@ namespace Application.Menus.Commands
         public string MenuFor { get; set; }
         public int Order { get; set; }
         public bool IsHidden { get; set; }
+        public bool IsQuickLink { get; set; }
     }
 }

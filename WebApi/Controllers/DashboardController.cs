@@ -98,6 +98,22 @@ namespace WebApi.Controllers
             return Ok(response);
         }
 
+        [HttpGet("accounts-summary")]
+        public async Task<ActionResult<CommonResponse<AccountsDashboardSummaryDto>>> GetAccountsSummary([FromQuery] int take, CancellationToken cancellationToken)
+        {
+            var effectiveTake = take > 0 ? take : 5;
+            var response = await _dashboardService.GetAccountsSummaryAsync(effectiveTake, cancellationToken);
+            return Ok(response);
+        }
+
+        [HttpGet("hr-summary")]
+        public async Task<ActionResult<CommonResponse<HrDashboardSummaryDto>>> GetHrSummary([FromQuery] int take, CancellationToken cancellationToken)
+        {
+            var effectiveTake = take > 0 ? take : 5;
+            var response = await _dashboardService.GetHrSummaryAsync(effectiveTake, cancellationToken);
+            return Ok(response);
+        }
+
         [HttpGet("error-logs")]
         public async Task<ActionResult<CommonResponse<PaginatedResponse<ErrorLogDto>>>> GetErrorLogs([FromQuery] GetErrorLogsQuery query, CancellationToken cancellationToken)
         {

@@ -133,13 +133,14 @@ either calendar; the other half of the display fills itself):
 `VALIDATION_ERROR` when out of the configured range (before AD 1944-ish / BS 2000, or past
 the last configured BS year) or when `bsDay` exceeds that month's real length.
 
-### Calendar events (notes / public holidays / internal events)
+### Calendar events (notes / public holidays / internal events / birthdays)
 
-Enums: `eventType` — 0 Note, 1 PublicHoliday, 2 InternalEvent.
+Enums: `eventType` — 0 Note, 1 PublicHoliday, 2 InternalEvent, **3 StudentBirthday, 4
+EmployeeBirthday** (added 2026-07-23, see `leave_management_and_employee_profile_implementation_guide.md`).
 
 | Endpoint | Notes |
 |---|---|
-| `GET /api/calendar/events?page=1&pageSize=10&eventType=&fromAdDate=&toAdDate=&bsYear=&isActive=` | paged envelope (`items/page/pageSize/totalCount/…`), ordered by `adDate` |
+| `GET /api/calendar/events?page=1&pageSize=10&eventType=&fromAdDate=&toAdDate=&bsYear=&isActive=&studentId=&employeeId=` | paged envelope (`items/page/pageSize/totalCount/…`), ordered by `adDate` |
 | `POST /api/calendar/events` | create — see body below |
 | `GET /api/calendar/events/{id}` | single `CalendarEventDto` |
 | `PUT /api/calendar/events/{id}` | same body as create |
@@ -156,11 +157,30 @@ and stores the other side:
   "bsYear": 2083, "bsMonth": 6, "bsDay": 3,
   "adDate": null,
   "description": "…", "iconKey": "flag", "colorCode": "#d32f2f",
-  "language": "en", "isActive": true
+  "language": "en", "isActive": true,
+  "provinceCode": null, "branchCode": null,
+  "studentId": null, "employeeId": null
 }
 ```
 `isBsDate: false` → send `adDate` instead and leave the BS fields null. The returned DTO
 always carries both (`adDate` + `bsYear/bsMonth/bsDay`).
+
+**Two new optional field pairs, added 2026-07-23** (no change to any pre-existing behavior —
+both pairs default to `null`/everywhere):
+
+- **`provinceCode`/`branchCode`** (Config catalogs `1020`/`1019`) — holiday scoping. Meaningful
+  only on `eventType: 1` (PublicHoliday); leave both `null` for a holiday that applies
+  everywhere, or set one/both to scope it to a specific province and/or branch. This is how
+  the raw `holidays` table sketch (which had `province`/`branch` columns) was folded into the
+  existing `CalendarEvent` entity instead of becoming a new table.
+- **`studentId`/`employeeId`** — person mapping for the two new birthday event types.
+  `eventType: 3` (StudentBirthday) **requires** `studentId` set and `employeeId` null;
+  `eventType: 4` (EmployeeBirthday) requires the reverse; every other `eventType` requires
+  **both** null. Violating this is a `VALIDATION_ERROR` ("Student birthday events must
+  reference a student and no employee" / the employee equivalent / "…event type does not
+  accept a student or employee mapping"). Use this for a school-wide calendar entry an admin
+  wants to manually pin — it's separate from (and doesn't replace) the live-computed
+  upcoming-birthday figure already returned by `GET /api/employees/{id}/profile`.
 
 ### Festival occurrences (Dashain, Tihar, … — shift every AD year)
 
@@ -297,3 +317,11 @@ said 04-13, which is off by one against every published BS/AD reference date —
 against Nepali New Year 2072/2077/2081/2082/2083 and Constitution Day 2072-06-03 =
 2015-09-20). Attendee uniqueness is per (meeting, **email**), not (meeting, userId), since
 invitees don't need accounts.
+
+**2026-07-23 addition**: `CalendarEvent` gained `provinceCode`/`branchCode` (holiday scoping)
+and `studentId`/`employeeId` (birthday event mapping, new `eventType` values 3/4) — see the
+"Calendar events" section above and `leave_management_and_employee_profile_implementation_guide.md`
+for the full feature this was built for. **Two new columns needed on `dbo.calendar_events`**
+(`province_code`, `branch_code`, `student_id`, `employee_id` — four columns total) plus two
+new `Restrict`-delete FKs to `students`/`employees` — still pending the same
+user-owned-migration process as the rest of this file.
