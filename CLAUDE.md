@@ -216,8 +216,8 @@ JWT claims (`Infrastructure/Common/JwtTokenGenerator.cs`): `sub`/`ClaimTypes.Nam
 
 ### Email verification & forgot/reset password (SMTP)
 
-- `Application/Common/Interfaces/IEmailService.cs` (`SendEmailAsync(to, subject, htmlBody)`) → `Infrastructure/Email/SmtpEmailService.cs`, a plain `System.Net.Mail.SmtpClient` implementation reading the `Smtp` config section (`Host`/`Port`/`EnableSsl`/`UserName`/`Password`/`FromEmail`/`FromName`) — **all placeholder values in `appsettings.json`, nothing will actually send until real SMTP credentials are supplied.**
-- `Infrastructure/Email/EmailLinkBuilder.cs` builds verify/reset links against `App:ClientBaseUrl`. **That's empty by default** (no frontend exists yet) — when empty, the emailed "link" degrades to a raw `userId=...&token=...` query string with instructions implied by context rather than a clickable URL. Set `App:ClientBaseUrl` once a frontend route exists to verify/reset against.
+- `Application/Common/Interfaces/IEmailService.cs` (`SendEmailAsync(to, subject, htmlBody)`) → `Infrastructure/Email/SmtpEmailService.cs`, a plain `System.Net.Mail.SmtpClient` implementation reading the `Smtp` config section (`Host`/`Port`/`EnableSsl`/`UserName`/`Password`/`FromEmail`/`FromName`). **A real Gmail SMTP account + app password are configured in `appsettings.json` as of 2026-08-04** (previously placeholders) — email sending is live, not a no-op.
+- `Infrastructure/Email/EmailLinkBuilder.cs` builds verify/reset links against `App:ClientBaseUrl`. **Set to `http://localhost:3000` as of 2026-08-04** (previously empty, which meant the emailed "link" degraded to a raw `userId=...&token=...` query string with no scheme/host — not a clickable URL, and the root cause of a reported "password reset email has no full URL / reset doesn't work" bug) — update it if the frontend's dev origin changes, and to the real production origin before deploying. `AuthService.ForgotPasswordAsync`'s email body also now wraps the link in a real `<a href="...">` anchor (new `AuthService.BuildLinkHtml` helper) when it's an actual URL, instead of relying on the mail client to auto-linkify plain text; it still degrades to plain text if `ClientBaseUrl` is ever cleared again.
 - Registration (`UserService.CreateUserAsync`) automatically sends a verification email. `POST /api/auth/resend-verification-email` (`[AllowAnonymous]`, email in, always the same generic response) re-sends if the account exists and isn't already confirmed.
 - `POST /api/auth/verify-email` (`[AllowAnonymous]`, `{ userId, token }`) calls `UserManager.ConfirmEmailAsync`.
 - `POST /api/auth/forgot-password` (`[AllowAnonymous]`, email in) **always returns the same generic "if that email exists..." response** regardless of whether the account exists, is active, or is confirmed — internally it only actually generates+sends a reset token when all three are true, but the caller can never distinguish that from "email not found" by the response alone (this is the guide's own "never reveal whether email exists" rule, applied literally here since there's no password check to hide behind first, unlike login).
@@ -267,7 +267,7 @@ Runs right after `IdentitySeeder` in `Program.cs` (same try/catch, same "skip un
 **Rewritten 2026-07-13 as a data-driven, self-healing catalog** (the user had hand-restructured the menu tree in the database while the old seeder sat mostly commented out; the DB structure was adopted into code, with its data bugs fixed — e.g. a self-parented `CLASS_DETAIL`, and newer permissions parented to main menus instead of their list sub-menus). Key facts:
 
 1. `BuildMenuCatalog()` declares the whole tree as `MenuSeedDefinition` rows via `MainMenu`/`SubMenu`/`Permission` factory helpers. Three levels, all `MenuFor = ADMIN`:
-   - `MAIN_MENU` — nav areas: `DASHBOARD` (order 1, carries `Url` `/dashboard/analytics`, its four read permissions hang directly under it), `USER_MANAGEMENT` (2), `CONFIG_MANAGEMENT` ("Master Settings", 4), `SETUP` (5 — added 2026-07-16, parents the configuration submenus `YEAR_LIST`/`CLASS_LIST`/`FEE_STRUCTURE_LIST`/`FEE_RULE_LIST`/`FISCAL_YEAR_LIST`), `STUDENT_MANAGEMENT` (8), `FEE_MANAGEMENT` (9, transactional only: `FEE_INVOICE_LIST` — as of 2026-07-17 `FEE_PAYMENT_LIST` is a hidden permission under it, not its own sub-menu, since Fee Payments folded into a Fee Generation tab), `PAYROLL_MANAGEMENT` (10, transactional only: `PAYROLL_RUN_LIST`), `EMPLOYEE_MANAGEMENT` (11). No `ROLE_MANAGEMENT`/`MENU_MANAGEMENT` mains anymore — `ROLE_LIST` lives under `USER_MANAGEMENT`; `MENU_LIST`, `CONFIG_TYPE_LIST`, `APP_CONFIG_LIST` under `CONFIG_MANAGEMENT`. **`ACADEMIC_MANAGEMENT` and `TEACHER_MANAGEMENT` were retired 2026-07-16** — the seeder gained a pass-3 retire list (`BuildRetiredMenuCodes()`) that soft-deletes catalog-owned codes removed from the catalog (skipped while live children still point at them); every `TEACHER_*` permission (and `TEACHER_LIST` itself, redefined as a hidden permission) was re-parented under `EMPLOYEE_LIST` with codes/ids intact, so existing role grants survived.
+   - `MAIN_MENU` — nav areas: `DASHBOARD` (order 1, carries `Url` `/dashboard/analytics`, its four read permissions hang directly under it), `USER_MANAGEMENT` (2), `CONFIG_MANAGEMENT` ("Master Settings", 4), `SETUP` (5 — added 2026-07-16, parents the configuration submenus `YEAR_LIST`/`CLASS_LIST`/`FEE_STRUCTURE_LIST`/`FEE_RULE_LIST`/`FISCAL_YEAR_LIST`), `STUDENT_MANAGEMENT` (8), `ACCOUNTS` (9, transactional only: `FEE_INVOICE_LIST` — as of 2026-07-17 `FEE_PAYMENT_LIST` is a hidden permission under it, not its own sub-menu, since Fee Payments folded into a Fee Generation tab — `PAYROLL_RUN_LIST`, `SALARY_CALCULATOR`), `EMPLOYEE_MANAGEMENT` (11). **`FEE_MANAGEMENT` and `PAYROLL_MANAGEMENT` were merged into one generic `ACCOUNTS` main menu 2026-08-03** — each used to hold only one or two transactional submenus, so a shared "Accounts" nav area replaced both; `FEE_INVOICE_LIST`/`PAYROLL_RUN_LIST`/`SALARY_CALCULATOR` kept their codes/ids, just re-parented, same retire-and-reparent convention as the `ACADEMIC_MANAGEMENT`/`TEACHER_MANAGEMENT` retirement below. No `ROLE_MANAGEMENT`/`MENU_MANAGEMENT` mains anymore — `ROLE_LIST` lives under `USER_MANAGEMENT`; `MENU_LIST`, `CONFIG_TYPE_LIST`, `APP_CONFIG_LIST` under `CONFIG_MANAGEMENT`. **`ACADEMIC_MANAGEMENT` and `TEACHER_MANAGEMENT` were retired 2026-07-16** — the seeder gained a pass-3 retire list (`BuildRetiredMenuCodes()`) that soft-deletes catalog-owned codes removed from the catalog (skipped while live children still point at them); every `TEACHER_*` permission (and `TEACHER_LIST` itself, redefined as a hidden permission) was re-parented under `EMPLOYEE_LIST` with codes/ids intact, so existing role grants survived.
    - `SUB_MENU` — a feature's **list page**: visible, carries the frontend `Url` (e.g. `/apps/student/list`) *and* the list endpoint's `Controller`/`Action`, so it **doubles as the permission row for that endpoint** (`AuthorizedAction` matches on Controller/Action only, never `MenuType`).
    - `PERMISSION` — hidden, one per remaining endpoint, parented under its feature's list `SUB_MENU`.
 2. **Sync semantics, not create-only**: pass 1 inserts missing codes; pass 2 rewrites every catalog row's `DisplayName`/`Url`/`Icon`/`MenuType`/`Controller`/`Action`/`ParentId`/`Order`/`IsHidden` to match the definition (a no-op for in-sync rows — EF's change tracker sees identical values) and resurrects soft-deleted catalog rows (their `Code` stays reserved by the unique index anyway). Corollary: **hand edits to catalog menus don't survive a restart — change `BuildMenuCatalog()` instead.**
@@ -442,7 +442,7 @@ Backend response to `Docs/Issues in Payroll System.pdf`; UI contract in `Docs/pa
 - **Run list totals bug fixed**: `PayrollRunRepository.GetPagedByFilterAsync` now Includes `Slips` (headers only) — the list DTO's `SlipCount`/`TotalGrossEarnings`/`TotalNetPay` are computed from that collection in `PayrollRunMapper.ToDto`, so without the Include every list row showed 0. Same mapper now **excludes Cancelled slips from the aggregates** (list and detail header alike) — cancelled amounts aren't paid; the slips themselves stay in the detail's `Slips` array.
 - **`POST /api/payrollruns/{id}/refresh`** (`PayrollRunService.RefreshRunAsync`, permission `PAYROLL_RUN_REFRESH`): Draft-only **in-place** regeneration — the sanctioned way to pick up compensation-plan edits, tax-slab fixes, newly Pending adjustments, and newly approved loans made after generation (runs are immutable snapshots by design; this was the real fix for "new fiscal year's tax slabs not used" — generation always did read the run's own fiscal year's slabs, there was just no re-read path). Mechanics: consumed adjustments are re-pended first (DB pending-query runs before the in-memory flip, so the merge can't double-count); each Draft slip has its generated lines replaced via the extracted `PopulateSlipLines` (shared with `BuildSlip`) while **Manual-source lines survive**; slip rows are rebuilt in place (id/`SlipNo` preserved) because `ix_salary_slips_run_employee` is a full — not partial — unique index, so soft-delete + recreate would violate it; individually-cancelled slips stay cancelled; newly eligible employees gain slips; no-longer-eligible ones have their Draft slip cancelled (all reported in `Skipped`).
 - **SSF rate catalog 1018** (`ConfigTypeCodes.SsfRate`, `Domain/Constants/SsfShareCodes`): options `EMPLOYEE_SHARE` (11) / `EMPLOYER_SHARE` (20), percentage in `AdditionalValue1` — Nepal's 31%-of-Basic SSF split. Correct plan modeling (the issue report had the shares swapped and double-counted): employer 20% = `SSF_CONTRIBUTION` **component** (taxable benefit, retirement-flagged, part of CTC, never deducted); employee 11% = `SSF_DEDUCTION` **deduction** (retirement-flagged).
-- **Salary calculator** (`Application/Payroll/SalaryCalculations/`, `POST /api/salarycalculator`, visible `SALARY_CALCULATOR` sub-menu under `PAYROLL_MANAGEMENT`): HR structuring tool — fix one monthly figure (`SalaryCalculationBasis`: NetPayment/GrossPayment/Ctc) and solve Basic/allowance split (`BasicPercentOfGross`, default 60), both SSF shares (rates from catalog 1018, fallback 11/20), and TDS. Builds a synthetic component/deduction list and reuses `TaxCalculator.CalculateFromSalary` so an accepted structure reproduces the calculator's numbers at run time. CTC→gross inverts algebraically; net→gross is a bounded binary search (net is strictly increasing in gross). Returns `SuggestedComponents`/`SuggestedDeductions` shaped like `POST /api/employees/{id}/salaries` inputs for direct form prefill. `SalaryComponentCodes` gained `SsfContribution`/`OtherAllowance`; new `SalaryDeductionCodes.SsfDeduction`.
+- **Salary calculator** (`Application/Payroll/SalaryCalculations/`, `POST /api/salarycalculator`, visible `SALARY_CALCULATOR` sub-menu, originally under `PAYROLL_MANAGEMENT`, now under `ACCOUNTS` per the 2026-08-03 menu merge): HR structuring tool — fix one monthly figure (`SalaryCalculationBasis`: NetPayment/GrossPayment/Ctc) and solve Basic/allowance split (`BasicPercentOfGross`, default 60), both SSF shares (rates from catalog 1018, fallback 11/20), and TDS. Builds a synthetic component/deduction list and reuses `TaxCalculator.CalculateFromSalary` so an accepted structure reproduces the calculator's numbers at run time. CTC→gross inverts algebraically; net→gross is a bounded binary search (net is strictly increasing in gross). Returns `SuggestedComponents`/`SuggestedDeductions` shaped like `POST /api/employees/{id}/salaries` inputs for direct form prefill. `SalaryComponentCodes` gained `SsfContribution`/`OtherAllowance`; new `SalaryDeductionCodes.SsfDeduction`.
 - Frontend-only items from the PDF (modal scrolling, gross-in-modal-header, slip line-entry autocomplete) are documented in the guide's §5 — no backend surface.
 
 **Round 2 (same day, follow-up feedback):**
@@ -1013,8 +1013,7 @@ the entity merge exists); summary:
   instruction** — `ExamRoom`, `ExamHallArrangement`, `ExamHallArrangementClass`,
   `ExamSeatAllocation` (entities, configs, repositories, `Application/ExamRooms/`,
   `Application/Exams/ExamHallArrangementService`, `ExamRoomsController`,
-  `ExamHallArrangementsController`) are all gone; `Exam.RoomId`/`Exam.Room` are gone too
-  (`InvigilatorEmployeeId` stays — it's a real `Employee`, no dedicated table to remove). The four
+  `ExamHallArrangementsController`) are all gone; `Exam.RoomId`/`Exam.Room` are gone too. The four
   `EXAM_ENABLE_SEAT_ARRANGEMENT`/`EXAM_AUTO_GENERATE_ROLL_NUMBER`/
   `EXAM_ALLOW_MULTIPLE_CLASSES_PER_HALL`/`EXAM_AUTO_ALLOCATE_STUDENTS` `AppConfig` rows were
   dropped from `AppConfigSeeder` (create-if-missing, so any already-seeded rows on an existing
@@ -1024,27 +1023,303 @@ the entity merge exists); summary:
   loses them). **New: `POST /api/exams/routine`** (`IExamService.CreateExamRoutineAsync`,
   permission `EXAM_CREATE_ROUTINE` under `EXAM_LIST`) — schedules an `Exam` for every listed
   subject of one class within one exam term in a single call (each item still carries its own
-  date/time/invigilator; skip-list style, same convention as `BulkUpsertStudentExamMarksAsync`).
-  This is the "set the whole routine at once" flow, distinct from Round 2's removed
-  `for-class` (which cloned one subject across every section — the redesigned `Exam` no longer has
-  a section to clone across; this instead spans every subject of one class). **Also**: whole-vs-
-  divided assessment configuration on `ClassSubject` now defaults `TheoryMarks`/`TheoryPassMarks`
-  to `FullMarks`/`PassMarks` whenever `HasPractical` is `false` and the caller left them unset
+  date/time; skip-list style, same convention as `BulkUpsertStudentExamMarksAsync`). This is the
+  "set the whole routine at once" flow, distinct from Round 2's removed `for-class` (which cloned
+  one subject across every section — the redesigned `Exam` no longer has a section to clone
+  across; this instead spans every subject of one class). **Also**: whole-vs-divided assessment
+  configuration on `ClassSubject` now defaults `TheoryMarks`/`TheoryPassMarks` to
+  `FullMarks`/`PassMarks` whenever `HasPractical` is `false` and the caller left them unset
   (`AcademicClassService.ResolveTheoryDefaults`, called from `AssignSubjectAsync`/
   `UpdateSubjectAsync`) — previously a "whole marks" subject left with `TheoryMarks` null had no
   per-component cap at all, silently allowing a theory mark greater than `FullMarks` to be entered.
   Full reference (supersedes the previous version of itself):
   `Docs/exam_management_implementation_guide.md`; the routine endpoint and marks-configuration
   defaulting also get their own focused guide, `Docs/exam_routine_and_marks_configuration_implementation_guide.md`.
-  **Needs a migration**: drop `dbo.exam_rooms`, `dbo.exam_hall_arrangements`,
-  `dbo.exam_hall_arrangement_classes`, `dbo.exam_seat_allocations`, and `dbo.exams.room_id` (with
-  its FK/index) — these only exist if `20260729135723_Added update2 exam module.cs` was applied;
-  if it wasn't, there's nothing to drop for this round beyond what Round 4's own pending migration
-  already covered.
+  **Migration already exists**: `Infrastructure/Migrations/20260730061558_changes in exam
+  module3 update.cs` drops `dbo.exam_rooms`, `dbo.exam_hall_arrangements`,
+  `dbo.exam_hall_arrangement_classes`, `dbo.exam_seat_allocations`, and `dbo.exams.room_id`
+  (FK + index) — apply it with `dotnet ef database update` if the target database hasn't run it yet.
+- **Round 6 (2026-07-30, same day, follow-up instruction): `Exam.InvigilatorEmployeeId`/
+  `InvigilatorEmployee` were also removed** — an `Exam` is now just `ExamTermId`/`ClassSubjectId`/
+  `ExamDate`/`StartTime`/`EndTime`/`Remarks`, nothing else. Gone from `CreateExamCommand`,
+  `UpdateExamCommand`, `ExamRoutineItemInput`, `ExamDto`, `ExamMapper`, `ExamConfiguration` (the
+  `HasOne(e => e.InvigilatorEmployee)` FK mapping and the `Include` calls in `ExamTermRepository`),
+  and every not-found/lookup branch in `ExamService` (`CreateExamAsync`/`CreateExamRoutineAsync`/
+  `UpdateExamAsync`) that used to resolve it against `IUnitOfWork.Employees`. **No migration exists
+  for this part yet** — unlike Round 5's Room removal (which had a pre-existing migration ready),
+  `dbo.exams.invigilator_employee_id` and its FK to `employees` are still in the schema per
+  `20260730061558_changes in exam module3 update.cs`, just unmapped by the entity now (harmless —
+  EF simply never reads/writes that column — but a real pending cleanup, not a "some day" gap
+  masking a runtime error). Drop it with a new migration:
+  `ALTER TABLE dbo.exams DROP CONSTRAINT "FK_exams_employees_invigilator_employee_id"; DROP INDEX "IX_exams_invigilator_employee_id"; ALTER TABLE dbo.exams DROP COLUMN invigilator_employee_id;`
+  (verify the actual constraint/index names against the schema before running it).
+- **Round 7 (2026-07-30, same day): the routine endpoint from Round 5 is redesigned from
+  create-only/skip-list into a full idempotent sync, per a formal batch-scheduling spec.** Room/
+  Invigilator double-booking/collision checks from that spec were explicitly declined (confirmed
+  with the user) — the batch grid stays subject + date/time + remarks only, matching Round 5/6's
+  removals; nothing about Room/Invigilator was reintroduced. `POST /api/exams/routine` →
+  **`PUT /api/exams/routine`** (`CreateExamRoutineCommand`/`CreateExamRoutineAsync` renamed to
+  `SaveExamRoutineCommand`/`ExamService.SaveExamRoutineAsync`, reflecting that it's no longer just a
+  create). Behavior: loads every existing `Exam` for the submitted `(ExamTermId, AcademicClassId)`
+  pair (`IExamTermRepository.GetExamsByTermAsync`, already existed) and reconciles it against the
+  submitted `Items` in two passes — pass 1 validates the **complete** timetable without mutating
+  anything (subject membership, duplicate subjects, `ExamDate` within `[ExamTerm.StartDate,
+  ExamTerm.EndDate]`, pairwise time-overlap across every item on the same date via a new
+  `TimeRangesOverlap` helper, and — for an existing exam whose subject is missing from `Items` —
+  refuses the removal if `HasMarksAsync` is true), collecting every issue into one list; if any
+  issues exist, the whole request 400s with them all joined (never a partial save); pass 2 (only
+  reached with zero issues) creates/updates/hard-deletes in one `SaveChangesAsync` — a genuinely
+  atomic, single-transaction batch save, unlike the skip-list convention every other bulk endpoint
+  in this codebase uses (`BulkUpsertStudentExamMarksAsync`, `CreateBulkFeeAdjustmentCommand`,
+  etc.) — deliberate here because the spec explicitly required "a single atomic transaction" and
+  per-rule "reject the batch" language, not partial success. `SaveExamRoutineResultDto` replaces
+  `CreateExamRoutineResultDto`/`ExamRoutineSkipDto` (both deleted) — `CreatedCount`/`UpdatedCount`/
+  `DeletedCount` plus `Items` (every resulting `ExamDto` for the pair, so the caller never needs a
+  follow-up `GET`), no skip list. Permission renamed `EXAM_CREATE_ROUTINE` → `EXAM_SAVE_ROUTINE`
+  (old code retired via `MenuSeeder.BuildRetiredMenuCodes`, same rename-retires-old-code convention
+  as every other permission rename in this codebase). Full reference:
+  `Docs/exam_routine_and_marks_configuration_implementation_guide.md` section 1 (rewritten).
+- **Round 8 (2026-07-30, same day): formalized the two-tier composite mark structure on
+  `ClassSubject`, removing `FullMarks`/`PassMarks` as request inputs entirely.** Previously
+  `AssignClassSubjectCommand`/`UpdateClassSubjectCommand` accepted `FullMarks`/`PassMarks`
+  independently and cross-validated them against `TheoryMarks`/`PracticalMarks` (`==` check) —
+  correct but redundant: two inputs that had to agree instead of one computed from the other,
+  leaving room for drift on a future edit that only touched one side. Fixed by removing
+  `FullMarks`/`PassMarks` from both commands; `AcademicClassService.ResolveCompositeMarks`
+  (replacing the narrower `ResolveTheoryDefaults` from Round 5, which only handled the whole-mode
+  Theory default) now always computes `FullMarks = TheoryMarks + PracticalMarks` and
+  `PassMarks = TheoryPassMarks + PracticalPassMarks` from whichever component values were
+  submitted. **Disabled-component zeroing, symmetric both ways**: `HasPractical = false` forces
+  `PracticalMarks`/`PracticalPassMarks` to `0` (not `null`) before summing — the "theory-only
+  fallback" rule — and `HasTheory = false` does the same for Theory (a practical-only subject).
+  **Null-propagation preserves "ungraded"**: the sum is computed only once both resolved
+  components (post-zeroing) have a value, so a subject nobody has graded yet still comes back with
+  `FullMarks: null`/`PassMarks: null`, never a misleading `0`. **New validator rule**: when both
+  `HasTheory` and `HasPractical` are `true`, `TheoryMarks`/`PracticalMarks` must be supplied
+  together (both set or both unset) — a lone component in divided mode would silently understate
+  the computed total instead of correctly staying null. **`PassMarks <= FullMarks` no longer needs
+  its own check** — removed from both validators — since it's now guaranteed by construction
+  once `TheoryPassMarks <= TheoryMarks` and `PracticalPassMarks <= PracticalMarks` both hold
+  (summing two component-wise inequalities preserves the total inequality). The **independent
+  component passing rule** (a student must clear each enabled component's pass mark individually,
+  not just the combined total) was already correctly implemented in `ExamService.IsSubjectPassed`
+  before this round and needed no change. No schema/migration impact — `ClassSubject.FullMarks`/
+  `PassMarks` are still stored `int?` columns, just always service-computed now rather than
+  sometimes-caller-supplied; existing rows keep whatever values they already have until their next
+  `PUT`. Full reference: `Docs/exam_routine_and_marks_configuration_implementation_guide.md`
+  section 2 (rewritten) and `Docs/exam_management_implementation_guide.md` section 1 (rewritten).
+- **Round 9 (2026-07-30, same day): section-aware marks entry, class-period timing, and
+  admin student-wise marks entry.** Three related additions:
+  1. **Section-aware marks entry** — `IExamTermRepository.GetMarksAsync` gained a `classSectionId`
+     filter (`m.Enrollment.ClassSectionId == classSectionId`, no schema change, filters through the
+     existing `Enrollment` navigation) and both `GetStudentExamMarksAsync`
+     (`GET /api/studentexammarks`) and `GetStudentExamMarkRosterAsync`
+     (`GET /api/studentexammarks/roster`) now accept it, threading through to
+     `EligibleEnrollmentResolver.ResolveAsync`'s existing `classSectionId` parameter (previously
+     always hardcoded `null` on the roster call — the actual bug this closes). **Why**: `Exam`
+     always covers the whole grade, but the same subject can be taught by *different teachers in
+     different sections* — without this, a section-A teacher's roster/marks-list silently included
+     section B's students too. Per this codebase's established "no current-logged-in-teacher
+     resolution" convention (Exam Management Round 3), the caller supplies `classSectionId`
+     explicitly (e.g. resolved client-side from the teacher's own `TeacherAssignment.ClassSectionId`
+     via `GET /api/teachers/{id}`'s `ServiceHistory`) — no new identity-resolution magic was added.
+  2. **Class period timing** (`ConfigTypeCodes.ExamPeriod = 1024` at the time this round shipped —
+     renamed `ClassPeriod` the same day, then replaced entirely 2026-08-03 by the real
+     `Domain/Entities/TimePeriod`/`ClassTimePeriod` tables described under "Time Periods & Class
+     Routine Mapping" below and the "class period timing" entry in Known gaps — the Config catalog
+     and this whole paragraph describe a design that no longer exists in code) — seeded
+     PERIOD1–PERIOD8 by `ConfigCatalogSeeder`, `AdditionalValue1`/`AdditionalValue2` = start/end
+     time as `"HH:mm:ss"`) — `Exam` gained `PeriodCode` (nullable string, Config-validated, no FK).
+     `CreateExamCommand`/
+     `UpdateExamCommand`/`ExamRoutineItemInput` all changed `StartTime`/`EndTime` from `TimeSpan` to
+     `TimeSpan?` and gained `PeriodCode`: the caller now sends **either** `PeriodCode` (and the
+     service resolves concrete `StartTime`/`EndTime` from the period's own configured times, ignoring
+     any raw times sent alongside it) **or** raw `StartTime`+`EndTime` directly — validator-enforced
+     as exactly one path (`ExamService.ResolveExamTimesAsync`, the new shared resolution helper,
+     wired into `CreateExamAsync`/`UpdateExamAsync`/`SaveExamRoutineAsync`'s pass 1). In
+     `SaveExamRoutineAsync`, period resolution happens during pass-1 validation (same "collect every
+     issue, mutate nothing until pass 2" atomicity `SaveExamRoutineAsync` already had) and the
+     resolved times (not the raw `Item.StartTime`/`EndTime`, which may be null) are what the overlap
+     check and pass-2 create/update actually use — `resolvedItems`'s tuple shape grew two fields
+     (`StartTime`, `EndTime`) to carry them through. `ExamDto` gained `PeriodCode` (no `PeriodLabel` —
+     resolve the display label client-side via the existing
+     `GET /api/configs/dropdown/1024` catalog endpoint, same as every other Config-backed code in
+     this codebase). **Needs a migration**: `dbo.exams.period_code varchar(100) NULL` — no FK, same
+     lineage-column convention as `FeeInvoiceLine`'s lineage ids. Until it exists, every
+     `Exam`/`SaveExamRoutine` read/write 500s (EF selects the mapped column).
+  3. **Admin, student-wise marks entry** — new `GET /api/studentexammarks/student/{enrollmentId}?examTermId=`
+     (`IExamService.GetStudentExamMarksByStudentAsync`, permission `STUDENT_EXAM_MARK_BY_STUDENT`
+     under `STUDENT_EXAM_MARK_LIST`): the "pick a student, see and enter every subject's marks in
+     one screen" counterpart to the existing teacher-wise roster (`GET /api/studentexammarks/roster`,
+     "one subject, every student"). Loads the enrollment's own class's exams for the term
+     (`GetExamsByTermAsync`, already existed), resolves per-exam eligibility exactly like
+     `GenerateExamResultsAsync` does (so an elective the student didn't pick, or a subject scoped to
+     a different section, never appears), and matches each against the student's own marks (one
+     batched `GetMarksAsync(null, enrollmentId, null, ...)` call). Read-only worklist, same
+     "browse here, submit through the existing create/update/bulk endpoints" pattern the roster
+     already established — no new submission path. New DTO `StudentExamMarkByStudentItemDto`
+     (`Application/Exams/Dtos/`).
+  Full reference: `Docs/exam_routine_and_marks_configuration_implementation_guide.md` (new
+  sections) and `Docs/exam_management_implementation_guide.md` (sections 3 and 5 updated).
+
+## Time Periods & Class Routine Mapping (2026-08-03)
+
+Replaces the same-day `ConfigTypeCodes.ClassPeriod` Config catalog (itself a rename of
+`ExamPeriod`) with real tables, because the actual requirement — "certain classes run different
+period structures than other classes" — is a relationship a flat Config option list has no way to
+express. Full reference: `Docs/time_period_and_class_routine_implementation_guide.md`.
+
+- **`TimePeriod`** (`Domain/Entities/`, own `ITimePeriodRepository`, soft-deleted): a routine slot
+  — `Name`, `StartTime`, `EndTime`, `Kind` (`Domain/Enums/PeriodKind`: `Period`/`Break`), `Order`.
+  Global, not owned by any class.
+- **`ClassTimePeriod`** (hard-deleted pure link row, owned by the same repository, same
+  "aggregate repo owns its children" convention as `IAcademicClassRepository`/`ITeacherRepository`):
+  the class↔period mapping, unique `(AcademicClassId, TimePeriodId)`. This is the relationship
+  Config couldn't express.
+- **`Exam.TimePeriodId`/`TeacherAssignment.TimePeriodId`** (`Guid?`, real FKs into `TimePeriod`,
+  `OnDelete(Restrict)`) replace what was a Config-code string on each (`Exam.PeriodCode` since
+  2026-07-30, `TeacherAssignment.PeriodCode` added and superseded the same day, 2026-08-03).
+  Picking a period for either is validated in two places doing the identical check —
+  `ExamService.ResolveExamTimesAsync` and `TeacherService.BuildAssignmentAsync` — the period must
+  be `Kind == Period` (not `Break`) **and** mapped to the specific class the exam/assignment
+  belongs to, via `ITimePeriodRepository.IsMappedToClassAsync`.
+- **`POST /api/timeperiods/map`** (`MapClassTimePeriodsCommand`: `academicClassIds[]`,
+  `timePeriodIds[]`) is the bulk input the whole feature exists for — creates the cross-product of
+  every listed class × every listed period in one call, skip-list style (`{ created, skipped }`,
+  same convention as every other bulk endpoint in this codebase). One call maps the Nursery-Five
+  period set, a separate call maps a different Six-Twelve set.
+- **`TimePeriodSeeder`** seeds one illustrative full day (8 periods + Short Break + Lunch Break,
+  create-if-missing by `Name`) but deliberately maps none of it to any class — which classes use
+  which periods is a real school-specific decision, made by the admin via the bulk-map endpoint,
+  not assumed by a seeder.
+- New `TIME_PERIOD_LIST` sub-menu under the existing `SETUP` main menu (not its own main menu —
+  it's config/setup data, same tier as `YEAR_LIST`/`CLASS_LIST`/`FEE_STRUCTURE_LIST`).
+- **Deliberately not built**: a day-of-week timetable. `TimePeriodId` names one slot ("Period 4"),
+  not "Period 4 on Mondays and Wednesdays" — there is no day-of-week concept anywhere in this
+  codebase's scheduling. A real weekly grid would be new work built on top of this, not a
+  replacement for it (this was an explicit scope decision, confirmed before building either way).
+- **Needs a migration** — see Known gaps below; it supersedes two just-applied `period_code`
+  string-column migrations, not just adds new tables.
+
+**Round (2026-08-04): general-purpose bulk entry for teacher assignments.** The 2026-08-03 bulk
+endpoint (`POST /api/teachers/{id}/assignments/bulk`) only varies the section list for one fixed
+`ClassSubjectId`/`TimePeriodId` per call. New sibling `POST /api/teachers/{id}/assignments/bulk-entry`
+(`AssignTeacherBulkEntryCommand`: `Items` — each with its own `ClassSubjectId`/`ClassSectionId`/
+`IsClassTeacher`/`TimePeriodId`) covers the general case: a teacher's whole routine (several
+different classes/subjects/sections/periods) entered in one call, still scoped to one teacher (the
+route id). `TeacherService.AssignClassSubjectBulkEntryAsync` loops the items through the same
+private `BuildAssignmentAsync` helper the single/bulk-sections endpoints already share, adding two
+new in-request-only guards `BuildAssignmentAsync`'s own DB-existence checks can't catch on their
+own (nothing is saved until the end of the loop): a duplicate `(ClassSubjectId, effective section)`
+pair within the same submission, and two rows both claiming `IsClassTeacher` for the same section
+within the same submission. Skip-list style, same convention as every other bulk endpoint in this
+codebase — `{ created: [...], skipped: [{ itemIndex, classSubjectId, classSectionId, reason }] }`,
+never an all-or-nothing reject; `itemIndex` (not the subject/section pair alone) is what correlates
+a skip back to its submitted row, since a duplicate row's whole point is sharing that pair with an
+earlier one. New permission `TEACHER_ASSIGNMENT_BULK_ENTRY_ADD` under `EMPLOYEE_LIST`. No migration
+— creates ordinary `TeacherAssignment` rows via the existing `AddAssignmentAsync` repository method.
+Full reference: `Docs/teacher_assignment_bulk_entry_implementation_guide.md`.
+
+**Round (2026-08-04, same day): class-scoped sibling — bulk entry from the Academic Class side.**
+New `POST /api/academicclasses/{id}/teacher-assignments/bulk-entry`
+(`AssignClassTeachersBulkEntryCommand`: `Items` — each with `TeacherId`/`ClassSubjectId`/
+`ClassSectionId`/`IsClassTeacher`/`TimePeriodId`) is a third assignment-bulk endpoint, scoped to
+one `AcademicClass` (route id) instead of one teacher — every row names its own `TeacherId`, so an
+admin can map every teacher who teaches that class, across its subjects/sections/periods, in one
+call from the class's own page. The shared per-row validation (`BuildAssignmentAsync`, formerly
+private on `TeacherService`) was extracted to a new static `Application/Teachers/
+TeacherAssignmentBuilder.BuildAsync(IUnitOfWork, ...)` so both `TeacherService` (all three of its
+assignment methods now call it) and the new `AcademicClassService.AssignTeachersBulkEntryAsync`
+share exactly one implementation of the (teacher, classSubject, section, timePeriod) rule set —
+`TeacherService` itself lost no behavior, it just delegates instead of owning the logic privately.
+`AcademicClassService.AssignTeachersBulkEntryAsync` adds one check the teacher-scoped endpoints
+don't need (a row's `ClassSubjectId` must belong to the route's own `AcademicClassId` — a subject
+from a different class is skipped, not silently allowed) and its in-request duplicate-detection key
+is `(TeacherId, ClassSubjectId, effective section)` — `TeacherId` is part of the key here (unlike
+the teacher-scoped bulk-entry endpoint, where it's implicit/constant for the whole request) because
+the same subject/section pair can legitimately be co-taught by two different teachers within one
+batch; only the same teacher assigned to it twice is flagged. The "at most one class teacher per
+section" in-request guard stays keyed by section only (not teacher), since that invariant doesn't
+care who claims it. New permission `CLASS_TEACHER_ASSIGNMENT_BULK_ENTRY_ADD` under `CLASS_LIST`. No
+migration — same `AddAssignmentAsync` repository method as every other assignment endpoint. Full
+reference: `Docs/class_teacher_assignment_bulk_entry_implementation_guide.md`.
+
+**Round (2026-08-04, same day): three validation tightenings applied uniformly across all four
+teacher-assignment endpoints** (single `AssignClassSubjectAsync`, both `AssignClassSubjectBulkAsync`/
+`AssignClassSubjectBulkEntryAsync`, and `AcademicClassService.AssignTeachersBulkEntryAsync`), since
+all four funnel through the one shared `TeacherAssignmentBuilder.BuildAsync`:
+
+1. **`ClassSectionId` is now required for a class-wide `ClassSubject`** — the old "leave it null to
+   cover every section of the class" shape is gone (`ClassSubjectId` remains optional on the
+   command DTOs, since a section-scoped subject still derives its section automatically; the
+   requiredness check lives entirely in `BuildAsync`, not in the DTOs). Rationale: a teacher can't
+   physically be in every section at once. Legacy rows created before this round may still carry a
+   null `ClassSectionId` on read (`TeacherAssignmentDto.Scope == ClassWide`) — that's a preserved
+   historical shape, not a creatable one going forward; no data migration was run against existing
+   rows.
+2. **New time-period conflict check** — `ITeacherRepository.TeacherHasTimePeriodConflictAsync(teacherId,
+   timePeriodId)` (new repository method, `TeacherRepository`) blocks assigning a teacher to a
+   second class/subject/section that shares a `TimePeriodId` with one of their existing assignments
+   — a teacher can only be in one place during a given period, and `TimePeriod.StartTime`/`EndTime`
+   is a fixed, class-independent definition (only *which* periods map to which class varies, via
+   `ClassTimePeriod`), so sharing a `TimePeriodId` row always means sharing the same wall-clock
+   slot regardless of which class/subject/section either assignment is for. Because this check only
+   sees rows already committed to the database, every bulk endpoint additionally gained an
+   in-request "staged period" guard (mirroring the existing staged-duplicate/staged-class-teacher
+   guards from the two 2026-08-04 bulk-entry rounds above) so two colliding rows in the *same*
+   batch are also caught before `SaveChangesAsync`. The staged key is `(teacherId, timePeriodId)` on
+   the class-scoped endpoint (teacher varies per row there — two *different* teachers legitimately
+   sharing a period is fine) and effectively just `timePeriodId` on the two teacher-scoped endpoints
+   (teacher is constant for the whole request). Consequence worth flagging: on
+   `POST /api/teachers/{id}/assignments/bulk`, `TimePeriodId` is shared by every section in the
+   list, so once it's set only the *first* section in the batch can ever succeed — every section
+   after it collides with the first by construction. That's the correct behavior (a teacher can't
+   teach several different sections during the identical period), not a bug; the guide now tells
+   callers to use `.../assignments/bulk-entry` instead when sections genuinely need different
+   periods.
+3. **"One class teacher per section" stays exactly as strict as before** (`ClassTeacherExistsForSectionAsync`
+   itself untouched) — the only change is that `BuildAsync`'s old `"ClassSectionId is required when
+   IsClassTeacher is true"` guard became dead code once `ClassSectionId` was made universally
+   required by rule 1 above (a class-teacher row can no longer reach that branch with a null
+   section), so it was deleted rather than left as unreachable defensive code.
+
+No migration — every change here is application-layer validation; `TeacherAssignment.ClassSectionId`
+remains a nullable DB column (existing class-wide rows are unaffected, only new creates are
+restricted). Both `Docs/teacher_assignment_bulk_entry_implementation_guide.md` and
+`Docs/class_teacher_assignment_bulk_entry_implementation_guide.md` updated with the new field
+requirements and failure-reason tables.
+
+**Round (2026-08-04, same day): the missing GET — list teachers by class.** Every earlier round
+this same day added a way to *create* `TeacherAssignment` rows, but there was no way to read them
+back scoped by class — only `GET /api/teachers/{id}/assignments` (one teacher at a time) existed.
+New **`GET /api/academicclasses/{id}/teacher-assignments`** (optional `?classSectionId=` to narrow
+to one section) returns `ClassTeacherAssignmentDto[]` (`Application/AcademicClasses/Dtos/`) — the
+same core fields `Application.Teachers.Dtos.TeacherAssignmentDto` already has, plus
+`TeacherName`/`EmployeeCode` (a class-scoped listing needs the teacher's name up front, since the
+viewer is looking at the class, not a specific teacher's profile). New
+`ITeacherRepository.GetAssignmentsByAcademicClassAsync(academicClassId, classSectionId)`
+(`TeacherRepository`) filters on `TeacherAssignment.ClassSubject.AcademicClassId` (optionally also
+`ClassSectionId`) and `Include`s `Teacher.Employee`/`ClassSubject`/`ClassSection`/`TimePeriod` — a
+deliberately new method rather than reusing `GetAssignmentsByClassSubjectIdsAsync` (the existing
+batched lookup behind the student-profile "who teaches this subject" `TeacherName` field), since
+that one's `Include` shape doesn't load `ClassSection`/`TimePeriod` and is tailored to its own
+caller. New `AcademicClassMapper.ToTeacherAssignmentDto` maps the entity to the DTO, with its own
+small `BuildFullName` helper — same "mappers stay self-contained, don't reach into another
+feature's copy" convention `EmployeeMapper`'s own `BuildFullName` already established.
+`AcademicClassService.GetTeacherAssignmentsAsync` 404s if the class doesn't exist, or if
+`classSectionId` is supplied but doesn't belong to that class (same guard pattern as every other
+section-scoped lookup in this feature). Unpaged, sorted by subject code then teacher first name —
+a class routine is a small, bounded dataset, same reasoning `GetClassSubjectsAsync`/
+`GetSectionsAsync` already use for their own unpaged lists. New permission
+`CLASS_TEACHER_ASSIGNMENT_LIST` under `CLASS_LIST`. Removing a row from the resulting list still
+goes through the pre-existing `DELETE /api/teachers/{teacherId}/assignments/{assignmentId}` — no
+new delete endpoint needed, since that one only needs the assignment's own `id`, which this list
+provides. No migration — read-only over existing data. Full reference:
+`Docs/class_teacher_assignments_list_implementation_guide.md`.
 
 ## Known gaps (as of writing)
 
-- Migrations are **user-created** — don't run `dotnet ef` commands. Migrations for the initial schema, the config/log tables, `app_configs`, the `config_group` nullable ALTER, the `is_ip_restricted`/`user_ip_allowed` columns, and the original 11 student-management tables all exist under `Infrastructure/Migrations/`. **Pending as of 2026-07-13**: the class/section restructure needs a migration (new `dbo.class_sections`; `academic_classes` loses `section_code`/`capacity`, unique index becomes `(year, grade)`; `enrollments.academic_class_id` → `class_section_id` with new indexes; `teacher_assignments` gains nullable `class_section_id`, unique index becomes `(teacher_id, class_subject_id, class_section_id)`; `class_subjects` gains nullable `class_section_id`, unique index becomes `(academic_class_id, subject_code, class_section_id)`; new `dbo.teacher_documents` and `dbo.student_documents`) — plus a data decision for any existing rows (each old grade+section class becomes one class + one section). Note the DB can't create a unique index over rows that already violate it — on a dev DB, clearing the class/enrollment tables before `database update` is the pragmatic path (see 2026-07-13 conversation). **Also pending as of 2026-07-15**: `class_subjects` needs a `CHECK` constraint (`is_mandatory = false OR class_section_id IS NULL`) and a partial unique index on `(academic_class_id, subject_code) WHERE class_section_id IS NULL` — see `Docs/filters_update.md` for the class/subject scoping fix this backs. **Also pending, same date**: `class_subjects` additionally gains 5 nullable grading columns (`credit_hours`, `full_marks`, `pass_marks`, `theory_marks`, `practical_marks`) plus a `ck_class_subjects_marks_range` `CHECK` constraint; new tables `dbo.fee_structures`, `dbo.student_discounts`, `dbo.student_scholarships`, `dbo.enrollment_fee_selections`, `dbo.fiscal_years`, `dbo.tax_slabs` — see `Docs/fee_management_implementation_guide.md` and `Docs/payroll_implementation_guide.md`. **`dbo.fee_structures` was redesigned twice more the same day**: from `(academic_class_id, fee_category_code, amount, frequency_type, is_optional, is_refundable, ...)` (one row per category per class) to a **header** (`id`, `academic_class_id` unique, `status`) owning a new child table `dbo.fee_structure_items` (`fee_structure_id` FK with cascade delete, `amount`, `frequency_type`, `is_optional`, `is_refundable`, plus **`fee_category_code`** — briefly a free-text `name` instead, reverted the same day back to a validated category code, unique index `(fee_structure_id, fee_category_code)`); `dbo.enrollment_fee_selections.fee_category_code` (string) becomes `fee_structure_item_id` (Guid FK), unique index becomes `(enrollment_id, fee_structure_item_id)`. A dev DB with any prior shape needs clearing, not just an additive migration. **Also pending, same date, and the largest schema change yet — the Employee/Teacher split** (see `Docs/employee_management_implementation_guide.md`): new `dbo.employees` table (unique `employee_code`; partial-unique `user_id` where not null); `dbo.teachers` loses `employee_no`/`first_name`/`middle_name`/`last_name`/`email`/`phone`/`joining_date`/`status`/its own soft-delete columns, gains `teaching_license_no`/`experience_years`/`specialization`, and its PK becomes FK-linked to `employees.id` (shared primary key, no separate identity column); `dbo.teacher_salaries` is replaced by `dbo.employee_salaries` (FK to `employees`, not `teachers`) plus three new child tables (`dbo.employee_salary_components`, `dbo.employee_salary_deductions`, `dbo.employee_insurance_premiums`); `dbo.fiscal_years` gains `retirement_exemption_cap_amount`; `dbo.teacher_qualifications`/`dbo.teacher_documents`/`dbo.teacher_assignments` are unchanged. **This needs a data migration, not just schema DDL**: existing `teachers` rows need a matching `employees` row inserted first (reusing their data), with the same id preserved as the new `employees.id`, so `teacher_assignments`/`teacher_documents`/`teacher_qualifications` keep resolving with zero data changes to them. **Also pending, same date**: new table `dbo.document_templates` (unique index on `template_type`, `html_content` as an unbounded `text` column) for the document-preview feature — see `Docs/document_preview_implementation_guide.md`. **Also pending, same date**: new table `dbo.employee_loans` (FK to `employees`, no other schema changes) for the Pay & Taxes module's Loans and Advances feature — see `Docs/pay_and_taxes_implementation_guide.md`; every `/loans` endpoint 500s until it exists. **Also pending as of 2026-07-16 — the fee-generation/payroll-run redesign**: 10 new tables, purely additive (`dbo.fee_rules`, `dbo.fee_invoices` with partial unique `(enrollment_id, billing_year, billing_month) WHERE status <> 6 AND is_deleted = false`, `dbo.fee_invoice_lines` (cascade from invoice; lineage id columns deliberately have **no** FKs), `dbo.fee_payments`, `dbo.fee_payment_allocations` (cascade from payment, Restrict to invoice), `dbo.fee_adjustments`, `dbo.payroll_runs` with partial unique `(fiscal_year_id, month_index) WHERE status <> 4 AND is_deleted = false`, `dbo.salary_slips` (cascade from run; Restrict to employees/employee_salaries; unique `(payroll_run_id, employee_id)` and `slip_no`), `dbo.salary_slip_lines` (cascade from slip), `dbo.salary_adjustments`) — no existing-table changes; every `/api/feerules`, `/api/feeinvoices`, `/api/feepayments`, `/api/payrollruns`, and `/api/employees/{id}/adjustments` endpoint 500s until it exists. See `Docs/setup_fee_payroll_redesign_implementation_guide.md`. ~~Pending as of 2026-07-17 — the fee-module fixes~~ **resolved**: `dbo.fee_structure_items.installment_count integer NULL` has been applied. **Still pending, added round 3 (2026-07-17)**: one new nullable column `dbo.fee_adjustments.fee_category_code varchar(100) NULL` — until it exists, every fee-adjustment read/write 500s (EF selects the mapped column). No other schema changes; the PaymentReceipt template row seeds itself. See `Docs/fee_module_fixes_implementation_guide.md` and `Docs/fee_advance_billing_and_annual_settlement_implementation_guide.md`. **Also pending as of 2026-07-16 — the dual-calendar/meetings feature**: 7 new tables, purely additive (`dbo.bs_month_lengths` unique `(bs_year, bs_month)`, `dbo.bs_month_names` unique `month_number`, `dbo.bs_weekday_names` unique `weekday_index`, `dbo.calendar_events` indexed on `ad_date` + BS triple, `dbo.festival_occurrences` indexed on the AD range + `bs_year`, `dbo.meetings` indexed on `ad_date`/BS triple/`host_user_id`, `dbo.meeting_attendees` cascade from meetings, unique `(meeting_id, email)`) — no existing-table changes; every `/api/calendar*` and `/api/meetings` endpoint 500s and `CalendarSeeder` skips until it exists. See `Docs/dual_calendar_implementation_guide.md`. **Also pending as of 2026-07-18 — the fee generation run/carry-forward feature**: new table `dbo.fee_generation_runs` (unique `(academic_year_id, billing_year, billing_month) WHERE is_deleted = false`) and two new columns, `dbo.fee_invoices.carried_forward_amount numeric NOT NULL DEFAULT 0` and `dbo.fee_invoices.carried_forward_to_invoice_id uuid NULL` (added same day, second pass, when carry-forward was redesigned to void the source invoice instead of just flagging it) — every `/api/feegenerationruns` endpoint 500s and every read/write of `FeeInvoice` fails until all three exist. See `Docs/fee_generation_run_and_carry_forward_implementation_guide.md`. **Also pending as of 2026-07-23**: `dbo.teacher_qualifications`/`dbo.teacher_documents` (described above as "unchanged" at the time of the Employee/Teacher split) are now renamed to `dbo.employee_qualifications`/`dbo.employee_documents` (column `teacher_id` → `employee_id` on both, FK repointed at `employees.id` instead of `teachers.id`) — schema-only, no data rewrite needed since `teacher_id`'s existing values already equal the correct `employee_id` (shared-PK design); plus five new nullable `varchar(50)` columns on `dbo.employees` (`pan_number`, `provident_fund_number`, `ssf_number`, `cit_number`, `gratuity_number`). See `Docs/employee_documents_and_qualifications_implementation_guide.md`. **Also pending as of 2026-07-24 — the employee address feature**: three new nullable columns on `dbo.employees` (`district_code varchar(100)`, `local_level_code varchar(100)`, `ward_no integer`) — no new tables, the two new catalogs (District `1022`, LocalLevel `1023`) reuse the existing `dbo.config_types`/`dbo.configs`. See `Docs/employee_address_implementation_guide.md`. **Also pending as of 2026-07-24 — leave configurability**: three new columns on `dbo.leave_types` (`max_consecutive_days integer NULL`, `max_days_per_week decimal(6,2) NULL`, `max_days_per_month decimal(6,2) NULL`) and one new column on `dbo.leave_requests` (`is_emergency boolean NOT NULL`) — every leave-type create/update and leave-request create call fails until these exist. See `Docs/leave_configurability_implementation_guide.md`. **Also pending as of 2026-07-27 — portal account provisioning**: one new nullable column `dbo.students.user_id uuid NULL` plus a partial unique index `ix_students_user_id WHERE user_id IS NOT NULL` (mirrors the existing `dbo.employees.user_id`, which needed no change) — every `POST /api/students/{id}/register-account` call and any `POST /api/students` with `registerUserAccount: true` 500s until applied. See `Docs/portal_account_provisioning_implementation_guide.md`. **Also pending as of 2026-07-28 — dashboard quick links**: one new column `dbo.menus.is_quick_link boolean NOT NULL DEFAULT false` — until it exists, every menu read/write 500s (EF selects the mapped column). See `Docs/dashboard_updated_file.md`. **Exam Management, 2026-07-28**: a migration (`20260728171309_Added initial exam module.cs`) was created and applied for the *original* design — `dbo.exam_terms`/`dbo.exams`/`dbo.exam_schedules`/`dbo.grade_scales`/`dbo.student_exam_marks`/`dbo.student_results`/`dbo.student_promotions`, plus four new columns on `dbo.class_subjects` (`has_theory`/`has_practical`/`theory_pass_marks`/`practical_pass_marks`) and two `CHECK` constraints. Two follow-up migrations were subsequently created (`20260729050427_Added update1 exam module.cs`, `20260729135723_Added update2 exam module.cs`) that cover the `Exam`+`ExamSchedule` merge redesign, drop `dbo.exam_schedules`, rename `student_exam_marks.exam_schedule_id` → `exam_id`, and (update2) add `dbo.exam_rooms`/`dbo.exam_hall_arrangements`/`dbo.exam_hall_arrangement_classes`/`dbo.exam_seat_allocations` plus `exams.room_id` for the Round 4 seat-arrangement engine. **Pending as of 2026-07-30 (Round 5 above)**: that seat-arrangement engine was removed entirely — a further migration is needed to drop those same four tables, `exams.room_id` (and its FK/index), and the `exams.class_section_id`/`room`/`name`/`weightage_percent`/`is_final_exam` columns from the original design if update1/update2 were never applied to a given database (check the actual schema before writing it — this repo's own migration files already drop those specific columns in update1/update2, so the exact statements needed depend on which of those two files a given database has run). See `Docs/exam_management_implementation_guide.md` and `Docs/exam_routine_and_marks_configuration_implementation_guide.md`.
+- Migrations are **user-created** — don't run `dotnet ef` commands. Migrations for the initial schema, the config/log tables, `app_configs`, the `config_group` nullable ALTER, the `is_ip_restricted`/`user_ip_allowed` columns, and the original 11 student-management tables all exist under `Infrastructure/Migrations/`. **Pending as of 2026-07-13**: the class/section restructure needs a migration (new `dbo.class_sections`; `academic_classes` loses `section_code`/`capacity`, unique index becomes `(year, grade)`; `enrollments.academic_class_id` → `class_section_id` with new indexes; `teacher_assignments` gains nullable `class_section_id`, unique index becomes `(teacher_id, class_subject_id, class_section_id)`; `class_subjects` gains nullable `class_section_id`, unique index becomes `(academic_class_id, subject_code, class_section_id)`; new `dbo.teacher_documents` and `dbo.student_documents`) — plus a data decision for any existing rows (each old grade+section class becomes one class + one section). Note the DB can't create a unique index over rows that already violate it — on a dev DB, clearing the class/enrollment tables before `database update` is the pragmatic path (see 2026-07-13 conversation). **Also pending as of 2026-07-15**: `class_subjects` needs a `CHECK` constraint (`is_mandatory = false OR class_section_id IS NULL`) and a partial unique index on `(academic_class_id, subject_code) WHERE class_section_id IS NULL` — see `Docs/filters_update.md` for the class/subject scoping fix this backs. **Also pending, same date**: `class_subjects` additionally gains 5 nullable grading columns (`credit_hours`, `full_marks`, `pass_marks`, `theory_marks`, `practical_marks`) plus a `ck_class_subjects_marks_range` `CHECK` constraint; new tables `dbo.fee_structures`, `dbo.student_discounts`, `dbo.student_scholarships`, `dbo.enrollment_fee_selections`, `dbo.fiscal_years`, `dbo.tax_slabs` — see `Docs/fee_management_implementation_guide.md` and `Docs/payroll_implementation_guide.md`. **`dbo.fee_structures` was redesigned twice more the same day**: from `(academic_class_id, fee_category_code, amount, frequency_type, is_optional, is_refundable, ...)` (one row per category per class) to a **header** (`id`, `academic_class_id` unique, `status`) owning a new child table `dbo.fee_structure_items` (`fee_structure_id` FK with cascade delete, `amount`, `frequency_type`, `is_optional`, `is_refundable`, plus **`fee_category_code`** — briefly a free-text `name` instead, reverted the same day back to a validated category code, unique index `(fee_structure_id, fee_category_code)`); `dbo.enrollment_fee_selections.fee_category_code` (string) becomes `fee_structure_item_id` (Guid FK), unique index becomes `(enrollment_id, fee_structure_item_id)`. A dev DB with any prior shape needs clearing, not just an additive migration. **Also pending, same date, and the largest schema change yet — the Employee/Teacher split** (see `Docs/employee_management_implementation_guide.md`): new `dbo.employees` table (unique `employee_code`; partial-unique `user_id` where not null); `dbo.teachers` loses `employee_no`/`first_name`/`middle_name`/`last_name`/`email`/`phone`/`joining_date`/`status`/its own soft-delete columns, gains `teaching_license_no`/`experience_years`/`specialization`, and its PK becomes FK-linked to `employees.id` (shared primary key, no separate identity column); `dbo.teacher_salaries` is replaced by `dbo.employee_salaries` (FK to `employees`, not `teachers`) plus three new child tables (`dbo.employee_salary_components`, `dbo.employee_salary_deductions`, `dbo.employee_insurance_premiums`); `dbo.fiscal_years` gains `retirement_exemption_cap_amount`; `dbo.teacher_qualifications`/`dbo.teacher_documents`/`dbo.teacher_assignments` are unchanged. **This needs a data migration, not just schema DDL**: existing `teachers` rows need a matching `employees` row inserted first (reusing their data), with the same id preserved as the new `employees.id`, so `teacher_assignments`/`teacher_documents`/`teacher_qualifications` keep resolving with zero data changes to them. **Also pending, same date**: new table `dbo.document_templates` (unique index on `template_type`, `html_content` as an unbounded `text` column) for the document-preview feature — see `Docs/document_preview_implementation_guide.md`. **Also pending, same date**: new table `dbo.employee_loans` (FK to `employees`, no other schema changes) for the Pay & Taxes module's Loans and Advances feature — see `Docs/pay_and_taxes_implementation_guide.md`; every `/loans` endpoint 500s until it exists. **Also pending as of 2026-07-16 — the fee-generation/payroll-run redesign**: 10 new tables, purely additive (`dbo.fee_rules`, `dbo.fee_invoices` with partial unique `(enrollment_id, billing_year, billing_month) WHERE status <> 6 AND is_deleted = false`, `dbo.fee_invoice_lines` (cascade from invoice; lineage id columns deliberately have **no** FKs), `dbo.fee_payments`, `dbo.fee_payment_allocations` (cascade from payment, Restrict to invoice), `dbo.fee_adjustments`, `dbo.payroll_runs` with partial unique `(fiscal_year_id, month_index) WHERE status <> 4 AND is_deleted = false`, `dbo.salary_slips` (cascade from run; Restrict to employees/employee_salaries; unique `(payroll_run_id, employee_id)` and `slip_no`), `dbo.salary_slip_lines` (cascade from slip), `dbo.salary_adjustments`) — no existing-table changes; every `/api/feerules`, `/api/feeinvoices`, `/api/feepayments`, `/api/payrollruns`, and `/api/employees/{id}/adjustments` endpoint 500s until it exists. See `Docs/setup_fee_payroll_redesign_implementation_guide.md`. ~~Pending as of 2026-07-17 — the fee-module fixes~~ **resolved**: `dbo.fee_structure_items.installment_count integer NULL` has been applied. **Still pending, added round 3 (2026-07-17)**: one new nullable column `dbo.fee_adjustments.fee_category_code varchar(100) NULL` — until it exists, every fee-adjustment read/write 500s (EF selects the mapped column). No other schema changes; the PaymentReceipt template row seeds itself. See `Docs/fee_module_fixes_implementation_guide.md` and `Docs/fee_advance_billing_and_annual_settlement_implementation_guide.md`. **Also pending as of 2026-07-16 — the dual-calendar/meetings feature**: 7 new tables, purely additive (`dbo.bs_month_lengths` unique `(bs_year, bs_month)`, `dbo.bs_month_names` unique `month_number`, `dbo.bs_weekday_names` unique `weekday_index`, `dbo.calendar_events` indexed on `ad_date` + BS triple, `dbo.festival_occurrences` indexed on the AD range + `bs_year`, `dbo.meetings` indexed on `ad_date`/BS triple/`host_user_id`, `dbo.meeting_attendees` cascade from meetings, unique `(meeting_id, email)`) — no existing-table changes; every `/api/calendar*` and `/api/meetings` endpoint 500s and `CalendarSeeder` skips until it exists. See `Docs/dual_calendar_implementation_guide.md`. **Also pending as of 2026-07-18 — the fee generation run/carry-forward feature**: new table `dbo.fee_generation_runs` (unique `(academic_year_id, billing_year, billing_month) WHERE is_deleted = false`) and two new columns, `dbo.fee_invoices.carried_forward_amount numeric NOT NULL DEFAULT 0` and `dbo.fee_invoices.carried_forward_to_invoice_id uuid NULL` (added same day, second pass, when carry-forward was redesigned to void the source invoice instead of just flagging it) — every `/api/feegenerationruns` endpoint 500s and every read/write of `FeeInvoice` fails until all three exist. See `Docs/fee_generation_run_and_carry_forward_implementation_guide.md`. **Also pending as of 2026-07-23**: `dbo.teacher_qualifications`/`dbo.teacher_documents` (described above as "unchanged" at the time of the Employee/Teacher split) are now renamed to `dbo.employee_qualifications`/`dbo.employee_documents` (column `teacher_id` → `employee_id` on both, FK repointed at `employees.id` instead of `teachers.id`) — schema-only, no data rewrite needed since `teacher_id`'s existing values already equal the correct `employee_id` (shared-PK design); plus five new nullable `varchar(50)` columns on `dbo.employees` (`pan_number`, `provident_fund_number`, `ssf_number`, `cit_number`, `gratuity_number`). See `Docs/employee_documents_and_qualifications_implementation_guide.md`. **Also pending as of 2026-07-24 — the employee address feature**: three new nullable columns on `dbo.employees` (`district_code varchar(100)`, `local_level_code varchar(100)`, `ward_no integer`) — no new tables, the two new catalogs (District `1022`, LocalLevel `1023`) reuse the existing `dbo.config_types`/`dbo.configs`. See `Docs/employee_address_implementation_guide.md`. **Also pending as of 2026-07-24 — leave configurability**: three new columns on `dbo.leave_types` (`max_consecutive_days integer NULL`, `max_days_per_week decimal(6,2) NULL`, `max_days_per_month decimal(6,2) NULL`) and one new column on `dbo.leave_requests` (`is_emergency boolean NOT NULL`) — every leave-type create/update and leave-request create call fails until these exist. See `Docs/leave_configurability_implementation_guide.md`. **Also pending as of 2026-07-27 — portal account provisioning**: one new nullable column `dbo.students.user_id uuid NULL` plus a partial unique index `ix_students_user_id WHERE user_id IS NOT NULL` (mirrors the existing `dbo.employees.user_id`, which needed no change) — every `POST /api/students/{id}/register-account` call and any `POST /api/students` with `registerUserAccount: true` 500s until applied. See `Docs/portal_account_provisioning_implementation_guide.md`. **Also pending as of 2026-07-28 — dashboard quick links**: one new column `dbo.menus.is_quick_link boolean NOT NULL DEFAULT false` — until it exists, every menu read/write 500s (EF selects the mapped column). See `Docs/dashboard_updated_file.md`. **Exam Management, 2026-07-28**: a migration (`20260728171309_Added initial exam module.cs`) was created and applied for the *original* design — `dbo.exam_terms`/`dbo.exams`/`dbo.exam_schedules`/`dbo.grade_scales`/`dbo.student_exam_marks`/`dbo.student_results`/`dbo.student_promotions`, plus four new columns on `dbo.class_subjects` (`has_theory`/`has_practical`/`theory_pass_marks`/`practical_pass_marks`) and two `CHECK` constraints. Two follow-up migrations were subsequently created (`20260729050427_Added update1 exam module.cs`, `20260729135723_Added update2 exam module.cs`) that cover the `Exam`+`ExamSchedule` merge redesign, drop `dbo.exam_schedules`, rename `student_exam_marks.exam_schedule_id` → `exam_id`, and (update2) add `dbo.exam_rooms`/`dbo.exam_hall_arrangements`/`dbo.exam_hall_arrangement_classes`/`dbo.exam_seat_allocations` plus `exams.room_id` for the Round 4 seat-arrangement engine. **Resolved as of 2026-07-30 (Round 5 above)**: that seat-arrangement engine was removed entirely, and a migration already exists for it — `20260730061558_changes in exam module3 update.cs` drops those same four tables and `exams.room_id` (FK + index). Just needs `dotnet ef database update` applied if it hasn't run yet. **Still pending as of Round 6 (same day)**: `Exam.InvigilatorEmployeeId` was also removed from the entity, but `dbo.exams.invigilator_employee_id` (and its FK to `employees`) is still in the schema per the migration above — a further migration is needed to drop it (exact statement in Round 6's own note). ~~Also pending as of Round 9 (same day) — class period timing: one new nullable column `dbo.exams.period_code varchar(100) NULL`~~ **resolved**: `20260730093356_changes in in exams for period code.cs` added it and was applied. **Also pending as of 2026-07-31 — class display ordering**: one new column `dbo.academic_classes.order integer NOT NULL DEFAULT 0` — a pure UI sort key (`AcademicClass.Order`, editable via `POST`/`PUT /api/academicclasses[/{id}]`, no uniqueness/index) — until it exists, every `AcademicClass` read/write 500s (EF selects the mapped column). See `Docs/student_management_implementation_guide.md`. ~~Also pending as of 2026-08-03 — teacher-assignment period timing: one new nullable column `dbo.teacher_assignments.period_code varchar(100) NULL`~~ **applied** (`20260803083606_update in setup for class assignment.cs`) **then immediately superseded the same day**: class period timing was redesigned off the Config catalog entirely onto real `dbo.time_periods`/`dbo.class_time_periods` tables (see "Time Periods & Class Routine Mapping" below) — `Exam.PeriodCode`/`TeacherAssignment.PeriodCode` (string) became `TimePeriodId` (`Guid?`, real FK). **Pending as of 2026-08-03 (final state)**: a migration that drops `period_code` from both `dbo.exams` and `dbo.teacher_assignments`, adds `time_period_id uuid NULL` (FK → `time_periods.id`, Restrict) to both, and creates `dbo.time_periods`/`dbo.class_time_periods` — until applied, every `TimePeriod`/`ClassTimePeriod` call 500s and every `Exam`/`TeacherAssignment` create/update 500s. See `Docs/time_period_and_class_routine_implementation_guide.md` for the exact statements.
 - Neither log table (`system_access_logs`, `error_logs`) has retention/pruning — same "later problem" status as `RefreshToken` rows.
 - ~~`IsIpRestricted`/`UserIpAllowed` are stored but not enforced~~ **resolved (2026-07-12)**: enforced both at token issuance (login/Google/refresh in `AuthService`) and per-request in `AuthorizedAction`, via `Infrastructure/Common/IpAllowlistChecker`. Remaining flavor of the gap: `ForwardedHeadersMiddleware` is **not** configured, so behind a reverse proxy `RemoteIpAddress` is the proxy — configure it (with `KnownProxies`) before relying on the allowlist (or the rate limiter's per-IP partitioning) in such a deployment.
 - ~~Chicken-and-egg on first permissions~~ **resolved**: `MenuSeeder` now seeds the menu/permission catalog in code and grants everything to SuperAdmin at startup. Remaining flavor of the gap: `Admin` and `User` roles start with zero permissions until someone grants them via the API, and any *new* endpoint is uncallable until its `PERMISSION` row is added to `MenuSeeder` (or created via `POST /api/menus`).

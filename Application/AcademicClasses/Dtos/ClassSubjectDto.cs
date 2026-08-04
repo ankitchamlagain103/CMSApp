@@ -17,6 +17,10 @@ namespace Application.AcademicClasses.Dtos
         public string SectionCode { get; set; }
         public SubjectScope Scope { get; set; }
         public decimal? CreditHours { get; set; }
+
+        // FullMarks/PassMarks are READ-ONLY, server-computed from TheoryMarks+PracticalMarks /
+        // TheoryPassMarks+PracticalPassMarks (2026-07-30) -- never accepted as input on
+        // Assign/UpdateClassSubjectCommand. See Domain/Entities/ClassSubject's doc comment.
         public int? FullMarks { get; set; }
         public int? PassMarks { get; set; }
         public int? TheoryMarks { get; set; }

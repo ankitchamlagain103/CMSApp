@@ -32,6 +32,8 @@ namespace Application.Common.Interfaces
 
         IGradeScaleRepository GradeScales { get; }
 
+        ITimePeriodRepository TimePeriods { get; }
+
         IStudentPromotionRepository StudentPromotions { get; }
 
         IFeeStructureRepository FeeStructures { get; }

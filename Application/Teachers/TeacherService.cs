@@ -269,82 +269,269 @@ namespace Application.Teachers
                 return subjectNotFoundResponse;
             }
 
-            // The assignment's section is DERIVED from the subject whenever the subject is
-            // itself section-scoped, rather than left for the caller to (possibly wrongly)
-            // repeat: a section-scoped subject can only ever be taught in its own section, so
-            // there is exactly one valid value and the caller doesn't need to supply it (the old
-            // code only rejected a *different* section, silently accepting a null one, which
-            // left the assignment looking like "every section" for a subject that isn't offered
-            // everywhere). A class-wide subject leaves the section optional as before -- null
-            // covers every section, or one specific section for a per-section teacher split.
-            Guid? effectiveClassSectionId = command.ClassSectionId;
-            ClassSection classSection = null;
-            if (classSubject.ClassSectionId.HasValue)
+            var (assignment, errorCode, errorMessage) = await TeacherAssignmentBuilder.BuildAsync(_unitOfWork, teacherId, classSubject, command.ClassSectionId, command.IsClassTeacher, command.TimePeriodId, cancellationToken);
+            if (errorCode != null)
             {
-                if (command.ClassSectionId.HasValue && command.ClassSectionId.Value != classSubject.ClassSectionId.Value)
-                {
-                    var scopedMismatchResponse = CommonResponse<TeacherAssignmentDto>.Fail(ResponseCodes.ValidationError, "Subject '" + classSubject.SubjectCode + "' is only offered in a different section.");
-                    return scopedMismatchResponse;
-                }
-
-                effectiveClassSectionId = classSubject.ClassSectionId;
-                classSection = classSubject.ClassSection;
+                var errorResponse = CommonResponse<TeacherAssignmentDto>.Fail(errorCode, errorMessage);
+                return errorResponse;
             }
-            else if (command.ClassSectionId.HasValue)
-            {
-                classSection = await _unitOfWork.AcademicClasses.GetSectionByIdAsync(command.ClassSectionId.Value, cancellationToken);
-                if (classSection == null)
-                {
-                    var sectionNotFoundResponse = CommonResponse<TeacherAssignmentDto>.Fail(ResponseCodes.NotFound, "Class section with id '" + command.ClassSectionId.Value + "' was not found.");
-                    return sectionNotFoundResponse;
-                }
-
-                if (classSection.AcademicClassId != classSubject.AcademicClassId)
-                {
-                    var sectionMismatchResponse = CommonResponse<TeacherAssignmentDto>.Fail(ResponseCodes.ValidationError, "That section belongs to a different class than the subject.");
-                    return sectionMismatchResponse;
-                }
-            }
-
-            var assignmentExists = await _unitOfWork.Teachers.AssignmentExistsAsync(teacherId, command.ClassSubjectId, effectiveClassSectionId, cancellationToken);
-            if (assignmentExists)
-            {
-                var conflictResponse = CommonResponse<TeacherAssignmentDto>.Fail(ResponseCodes.Conflict, "This teacher is already assigned to that class subject" + (effectiveClassSectionId.HasValue ? " for that section." : "."));
-                return conflictResponse;
-            }
-
-            // A class teacher belongs to exactly one section, and a section has at most one.
-            if (command.IsClassTeacher)
-            {
-                if (!effectiveClassSectionId.HasValue)
-                {
-                    var sectionRequiredResponse = CommonResponse<TeacherAssignmentDto>.Fail(ResponseCodes.ValidationError, "ClassSectionId is required when IsClassTeacher is true -- a class teacher is assigned to one section.");
-                    return sectionRequiredResponse;
-                }
-
-                var classTeacherExists = await _unitOfWork.Teachers.ClassTeacherExistsForSectionAsync(effectiveClassSectionId.Value, cancellationToken);
-                if (classTeacherExists)
-                {
-                    var classTeacherConflictResponse = CommonResponse<TeacherAssignmentDto>.Fail(ResponseCodes.Conflict, "This section already has a class teacher. Remove that assignment first.");
-                    return classTeacherConflictResponse;
-                }
-            }
-
-            var assignment = new TeacherAssignment
-            {
-                TeacherId = teacherId,
-                ClassSubjectId = command.ClassSubjectId,
-                ClassSectionId = effectiveClassSectionId,
-                IsClassTeacher = command.IsClassTeacher,
-                ClassSubject = classSubject,
-                ClassSection = classSection
-            };
 
             await _unitOfWork.Teachers.AddAssignmentAsync(assignment, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
             var assignmentDto = TeacherMapper.ToAssignmentDto(assignment);
             var successResponse = CommonResponse<TeacherAssignmentDto>.Success(assignmentDto, "Teacher assigned successfully.");
+            return successResponse;
+        }
+
+        // Optimized multi-section counterpart to AssignClassSubjectAsync (2026-08-03) -- assigns
+        // the same ClassSubject/TimePeriodId to a teacher across several sections in one call
+        // instead of repeating the whole single-assignment flow once per section. A teacher can
+        // freely be the class teacher of one section while also teaching this (or another)
+        // subject in a different section -- that's just two separate TeacherAssignment rows, one
+        // per section, exactly what this endpoint is built to create together.
+        public async Task<CommonResponse<TeacherAssignmentBulkResultDto>> AssignClassSubjectBulkAsync(Guid teacherId, AssignTeacherBulkCommand command, CancellationToken cancellationToken = default)
+        {
+            var teacher = await _unitOfWork.Teachers.GetByIdAsync(teacherId, cancellationToken);
+            if (teacher == null)
+            {
+                var notFoundResponse = CommonResponse<TeacherAssignmentBulkResultDto>.Fail(ResponseCodes.NotFound, "Teacher with id '" + teacherId + "' was not found.");
+                return notFoundResponse;
+            }
+
+            var requestedSectionIds = command.ClassSectionIds == null ? new List<Guid>() : command.ClassSectionIds.Distinct().ToList();
+            if (requestedSectionIds.Count == 0)
+            {
+                var noSectionsResponse = CommonResponse<TeacherAssignmentBulkResultDto>.Fail(ResponseCodes.ValidationError, "At least one ClassSectionId is required -- use the single-assignment endpoint with a null ClassSectionId to cover every section instead.");
+                return noSectionsResponse;
+            }
+
+            // A class teacher belongs to exactly one section -- rejected upfront as a request-shape
+            // error rather than per-item, since "class teacher of 3 sections at once" isn't a
+            // business conflict to skip past, it's a malformed request.
+            if (command.IsClassTeacher && requestedSectionIds.Count != 1)
+            {
+                var classTeacherShapeResponse = CommonResponse<TeacherAssignmentBulkResultDto>.Fail(ResponseCodes.ValidationError, "IsClassTeacher can only be set when assigning exactly one section.");
+                return classTeacherShapeResponse;
+            }
+
+            var classSubject = await _unitOfWork.AcademicClasses.GetClassSubjectByIdAsync(command.ClassSubjectId, cancellationToken);
+            if (classSubject == null)
+            {
+                var subjectNotFoundResponse = CommonResponse<TeacherAssignmentBulkResultDto>.Fail(ResponseCodes.NotFound, "Class subject with id '" + command.ClassSubjectId + "' was not found.");
+                return subjectNotFoundResponse;
+            }
+
+            var created = new List<TeacherAssignmentDto>();
+            var skipped = new List<TeacherAssignmentSkipDto>();
+
+            // TimePeriodId is fixed for the whole call -- if it's set, every section beyond the
+            // first one is now a time-period conflict with the ones already staged (a teacher
+            // can't teach several different sections during the identical period), since
+            // TeacherHasTimePeriodConflictAsync only sees rows already committed to the
+            // database, not ones Added-but-not-yet-SaveChanges'd within this same loop. Callers
+            // wanting several sections at genuinely different periods should use
+            // .../assignments/bulk-entry instead, where each row names its own TimePeriodId.
+            var timePeriodStaged = false;
+            foreach (var sectionId in requestedSectionIds)
+            {
+                if (command.TimePeriodId.HasValue && timePeriodStaged)
+                {
+                    var conflictSkip = new TeacherAssignmentSkipDto
+                    {
+                        ClassSectionId = sectionId,
+                        Reason = "Another section earlier in this same request already assigns this teacher to that time period -- a teacher can't teach two sections during the same period."
+                    };
+                    skipped.Add(conflictSkip);
+                    continue;
+                }
+
+                var (assignment, errorCode, errorMessage) = await TeacherAssignmentBuilder.BuildAsync(_unitOfWork, teacherId, classSubject, sectionId, command.IsClassTeacher, command.TimePeriodId, cancellationToken);
+                if (errorCode != null)
+                {
+                    var skip = new TeacherAssignmentSkipDto
+                    {
+                        ClassSectionId = sectionId,
+                        Reason = errorMessage
+                    };
+                    skipped.Add(skip);
+                    continue;
+                }
+
+                if (command.TimePeriodId.HasValue)
+                {
+                    timePeriodStaged = true;
+                }
+
+                await _unitOfWork.Teachers.AddAssignmentAsync(assignment, cancellationToken);
+                created.Add(TeacherMapper.ToAssignmentDto(assignment));
+            }
+
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            var resultDto = new TeacherAssignmentBulkResultDto
+            {
+                Created = created,
+                Skipped = skipped
+            };
+            var successResponse = CommonResponse<TeacherAssignmentBulkResultDto>.Success(resultDto, created.Count + " assignment(s) created, " + skipped.Count + " skipped.");
+            return successResponse;
+        }
+
+        // General bulk-entry counterpart to AssignClassSubjectBulkAsync -- that endpoint fixes
+        // ClassSubjectId/TimePeriodId for the whole call and only varies the section list; this
+        // one lets each row name its own ClassSubjectId/ClassSectionId/TimePeriodId, so a
+        // teacher's whole routine (several different classes/subjects/sections/periods) can be
+        // entered in one submission. Skip-list style, like every other bulk endpoint in this
+        // codebase -- a bad row is reported in Skipped, it never fails the whole request.
+        public async Task<CommonResponse<TeacherAssignmentBulkEntryResultDto>> AssignClassSubjectBulkEntryAsync(Guid teacherId, AssignTeacherBulkEntryCommand command, CancellationToken cancellationToken = default)
+        {
+            var teacher = await _unitOfWork.Teachers.GetByIdAsync(teacherId, cancellationToken);
+            if (teacher == null)
+            {
+                var notFoundResponse = CommonResponse<TeacherAssignmentBulkEntryResultDto>.Fail(ResponseCodes.NotFound, "Teacher with id '" + teacherId + "' was not found.");
+                return notFoundResponse;
+            }
+
+            if (command.Items == null || command.Items.Count == 0)
+            {
+                var noItemsResponse = CommonResponse<TeacherAssignmentBulkEntryResultDto>.Fail(ResponseCodes.ValidationError, "At least one item is required.");
+                return noItemsResponse;
+            }
+
+            var created = new List<TeacherAssignmentDto>();
+            var skipped = new List<TeacherAssignmentEntrySkipDto>();
+            var classSubjectCache = new Dictionary<Guid, ClassSubject>();
+
+            // Tracks what's already been staged earlier in this same request -- AssignmentExistsAsync
+            // and ClassTeacherExistsForSectionAsync (called from TeacherAssignmentBuilder.BuildAsync)
+            // only see rows already committed to the database, not entities Added-but-not-yet-
+            // SaveChanges'd, so two rows in the same batch that collide with each other (not with
+            // existing data) would otherwise both pass those checks and hit a unique-index violation
+            // at save time instead.
+            var stagedKeys = new HashSet<(Guid ClassSubjectId, Guid ClassSectionKey)>();
+            var stagedClassTeacherSections = new HashSet<Guid>();
+
+            // Same reasoning as above -- TeacherHasTimePeriodConflictAsync (called from
+            // TeacherAssignmentBuilder.BuildAsync) only sees rows already committed to the
+            // database, so two rows in this same batch naming the same TimePeriodId for this
+            // (fixed, route-scoped) teacher must be caught here.
+            var stagedTimePeriods = new HashSet<Guid>();
+
+            for (var itemIndex = 0; itemIndex < command.Items.Count; itemIndex++)
+            {
+                var item = command.Items[itemIndex];
+
+                if (item.ClassSubjectId == Guid.Empty)
+                {
+                    var skip = new TeacherAssignmentEntrySkipDto
+                    {
+                        ItemIndex = itemIndex,
+                        ClassSubjectId = item.ClassSubjectId,
+                        ClassSectionId = item.ClassSectionId,
+                        Reason = "ClassSubjectId is required."
+                    };
+                    skipped.Add(skip);
+                    continue;
+                }
+
+                if (!classSubjectCache.TryGetValue(item.ClassSubjectId, out var classSubject))
+                {
+                    classSubject = await _unitOfWork.AcademicClasses.GetClassSubjectByIdAsync(item.ClassSubjectId, cancellationToken);
+                    classSubjectCache[item.ClassSubjectId] = classSubject;
+                }
+
+                if (classSubject == null)
+                {
+                    var skip = new TeacherAssignmentEntrySkipDto
+                    {
+                        ItemIndex = itemIndex,
+                        ClassSubjectId = item.ClassSubjectId,
+                        ClassSectionId = item.ClassSectionId,
+                        Reason = "Class subject with id '" + item.ClassSubjectId + "' was not found."
+                    };
+                    skipped.Add(skip);
+                    continue;
+                }
+
+                if (item.TimePeriodId.HasValue && stagedTimePeriods.Contains(item.TimePeriodId.Value))
+                {
+                    var skip = new TeacherAssignmentEntrySkipDto
+                    {
+                        ItemIndex = itemIndex,
+                        ClassSubjectId = item.ClassSubjectId,
+                        ClassSectionId = item.ClassSectionId,
+                        Reason = "Another item earlier in this same request already assigns this teacher to that time period."
+                    };
+                    skipped.Add(skip);
+                    continue;
+                }
+
+                var (assignment, errorCode, errorMessage) = await TeacherAssignmentBuilder.BuildAsync(_unitOfWork, teacherId, classSubject, item.ClassSectionId, item.IsClassTeacher, item.TimePeriodId, cancellationToken);
+                if (errorCode != null)
+                {
+                    var skip = new TeacherAssignmentEntrySkipDto
+                    {
+                        ItemIndex = itemIndex,
+                        ClassSubjectId = item.ClassSubjectId,
+                        ClassSectionId = item.ClassSectionId,
+                        Reason = errorMessage
+                    };
+                    skipped.Add(skip);
+                    continue;
+                }
+
+                var sectionKey = assignment.ClassSectionId.HasValue ? assignment.ClassSectionId.Value : Guid.Empty;
+                var stagedKey = (assignment.ClassSubjectId, sectionKey);
+                if (stagedKeys.Contains(stagedKey))
+                {
+                    var skip = new TeacherAssignmentEntrySkipDto
+                    {
+                        ItemIndex = itemIndex,
+                        ClassSubjectId = item.ClassSubjectId,
+                        ClassSectionId = item.ClassSectionId,
+                        Reason = "Duplicate of an earlier item in this same request."
+                    };
+                    skipped.Add(skip);
+                    continue;
+                }
+
+                if (assignment.IsClassTeacher && stagedClassTeacherSections.Contains(assignment.ClassSectionId.Value))
+                {
+                    var skip = new TeacherAssignmentEntrySkipDto
+                    {
+                        ItemIndex = itemIndex,
+                        ClassSubjectId = item.ClassSubjectId,
+                        ClassSectionId = item.ClassSectionId,
+                        Reason = "Another item earlier in this same request already makes this teacher the class teacher for that section."
+                    };
+                    skipped.Add(skip);
+                    continue;
+                }
+
+                if (assignment.IsClassTeacher)
+                {
+                    stagedClassTeacherSections.Add(assignment.ClassSectionId.Value);
+                }
+
+                if (assignment.TimePeriodId.HasValue)
+                {
+                    stagedTimePeriods.Add(assignment.TimePeriodId.Value);
+                }
+
+                stagedKeys.Add(stagedKey);
+                await _unitOfWork.Teachers.AddAssignmentAsync(assignment, cancellationToken);
+                created.Add(TeacherMapper.ToAssignmentDto(assignment));
+            }
+
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            var resultDto = new TeacherAssignmentBulkEntryResultDto
+            {
+                Created = created,
+                Skipped = skipped
+            };
+            var successResponse = CommonResponse<TeacherAssignmentBulkEntryResultDto>.Success(resultDto, created.Count + " assignment(s) created, " + skipped.Count + " skipped.");
             return successResponse;
         }
 

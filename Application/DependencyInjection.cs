@@ -27,6 +27,7 @@ using Application.PayrollRuns;
 using Application.Promotions;
 using Application.Students;
 using Application.Teachers;
+using Application.TimePeriods;
 using FluentValidation;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -64,6 +65,7 @@ namespace Application
             services.AddScoped<IEnrollmentService, EnrollmentService>();
             services.AddScoped<IExamService, ExamService>();
             services.AddScoped<IGradeScaleService, GradeScaleService>();
+            services.AddScoped<ITimePeriodService, TimePeriodService>();
             services.AddScoped<IPromotionService, PromotionService>();
             services.AddScoped<IFeeStructureService, FeeStructureService>();
             services.AddScoped<IFeeRuleService, FeeRuleService>();

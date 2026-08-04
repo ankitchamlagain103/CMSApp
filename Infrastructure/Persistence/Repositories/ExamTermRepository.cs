@@ -67,7 +67,7 @@ namespace Infrastructure.Persistence.Repositories
                 .Include(e => e.ExamTerm)
                 .Include(e => e.ClassSubject)
                     .ThenInclude(cs => cs.AcademicClass)
-                .Include(e => e.InvigilatorEmployee)
+                .Include(e => e.TimePeriod)
                 .FirstOrDefaultAsync(e => e.Id == examId, cancellationToken);
 
             return exam;
@@ -78,7 +78,7 @@ namespace Infrastructure.Persistence.Repositories
             IQueryable<Exam> examsQuery = DbContext.Set<Exam>()
                 .Include(e => e.ClassSubject)
                     .ThenInclude(cs => cs.AcademicClass)
-                .Include(e => e.InvigilatorEmployee);
+                .Include(e => e.TimePeriod);
 
             if (examTermId.HasValue)
             {
@@ -152,7 +152,7 @@ namespace Infrastructure.Persistence.Repositories
             return mark;
         }
 
-        public async Task<IReadOnlyList<StudentExamMark>> GetMarksAsync(Guid? examId, Guid? enrollmentId, CancellationToken cancellationToken = default)
+        public async Task<IReadOnlyList<StudentExamMark>> GetMarksAsync(Guid? examId, Guid? enrollmentId, Guid? classSectionId, CancellationToken cancellationToken = default)
         {
             IQueryable<StudentExamMark> marksQuery = DbContext.Set<StudentExamMark>()
                 .Include(m => m.Exam)
@@ -168,6 +168,11 @@ namespace Infrastructure.Persistence.Repositories
             if (enrollmentId.HasValue)
             {
                 marksQuery = marksQuery.Where(m => m.EnrollmentId == enrollmentId.Value);
+            }
+
+            if (classSectionId.HasValue)
+            {
+                marksQuery = marksQuery.Where(m => m.Enrollment.ClassSectionId == classSectionId.Value);
             }
 
             var marks = await marksQuery.ToListAsync(cancellationToken);

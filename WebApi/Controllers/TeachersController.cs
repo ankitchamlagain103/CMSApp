@@ -102,6 +102,40 @@ namespace WebApi.Controllers
             return Ok(response);
         }
 
+        [HttpPost("{id:guid}/assignments/bulk")]
+        public async Task<ActionResult<CommonResponse<TeacherAssignmentBulkResultDto>>> AssignClassSubjectBulk(Guid id, [FromBody] AssignTeacherBulkCommand command, CancellationToken cancellationToken)
+        {
+            var response = await _teacherService.AssignClassSubjectBulkAsync(id, command, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            if (response.ResponseCode != ResponseCodes.Success)
+            {
+                return BadRequest(response);
+            }
+
+            return Ok(response);
+        }
+
+        [HttpPost("{id:guid}/assignments/bulk-entry")]
+        public async Task<ActionResult<CommonResponse<TeacherAssignmentBulkEntryResultDto>>> AssignClassSubjectBulkEntry(Guid id, [FromBody] AssignTeacherBulkEntryCommand command, CancellationToken cancellationToken)
+        {
+            var response = await _teacherService.AssignClassSubjectBulkEntryAsync(id, command, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            if (response.ResponseCode != ResponseCodes.Success)
+            {
+                return BadRequest(response);
+            }
+
+            return Ok(response);
+        }
+
         [HttpDelete("{id:guid}/assignments/{assignmentId:guid}")]
         public async Task<ActionResult<CommonResponse<bool>>> RemoveAssignment(Guid id, Guid assignmentId, CancellationToken cancellationToken)
         {

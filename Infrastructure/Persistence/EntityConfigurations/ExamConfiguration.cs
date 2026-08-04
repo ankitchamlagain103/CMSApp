@@ -38,9 +38,14 @@ namespace Infrastructure.Persistence.EntityConfigurations
                     .HasColumnName("end_time")
                     .IsRequired();
 
-            builder.Property(e => e.InvigilatorEmployeeId)
-                    .HasColumnName("invigilator_employee_id")
+            builder.Property(e => e.TimePeriodId)
+                    .HasColumnName("time_period_id")
                     .IsRequired(false);
+
+            builder.HasOne(e => e.TimePeriod)
+                    .WithMany()
+                    .HasForeignKey(e => e.TimePeriodId)
+                    .OnDelete(DeleteBehavior.Restrict);
 
             builder.Property(e => e.Remarks)
                     .HasColumnName("remarks")
@@ -64,11 +69,6 @@ namespace Infrastructure.Persistence.EntityConfigurations
             builder.HasOne(e => e.ClassSubject)
                     .WithMany()
                     .HasForeignKey(e => e.ClassSubjectId)
-                    .OnDelete(DeleteBehavior.Restrict);
-
-            builder.HasOne(e => e.InvigilatorEmployee)
-                    .WithMany()
-                    .HasForeignKey(e => e.InvigilatorEmployeeId)
                     .OnDelete(DeleteBehavior.Restrict);
 
             builder.HasIndex(e => e.ExamTermId)

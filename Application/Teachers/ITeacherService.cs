@@ -21,6 +21,17 @@ namespace Application.Teachers
 
         Task<CommonResponse<TeacherAssignmentDto>> AssignClassSubjectAsync(Guid teacherId, AssignTeacherCommand command, CancellationToken cancellationToken = default);
 
+        // Optimized multi-section counterpart -- assigns the same ClassSubject/TimePeriodId to the
+        // teacher across several sections in one call instead of repeating the single-assignment
+        // flow once per section.
+        Task<CommonResponse<TeacherAssignmentBulkResultDto>> AssignClassSubjectBulkAsync(Guid teacherId, AssignTeacherBulkCommand command, CancellationToken cancellationToken = default);
+
+        // General bulk-entry counterpart -- unlike AssignClassSubjectBulkAsync (one ClassSubject,
+        // several sections), each Items row here carries its own ClassSubjectId/ClassSectionId/
+        // TimePeriodId, so a teacher's whole routine can be entered across several different
+        // classes/subjects/sections/periods in one call.
+        Task<CommonResponse<TeacherAssignmentBulkEntryResultDto>> AssignClassSubjectBulkEntryAsync(Guid teacherId, AssignTeacherBulkEntryCommand command, CancellationToken cancellationToken = default);
+
         Task<CommonResponse<bool>> RemoveAssignmentAsync(Guid teacherId, Guid assignmentId, CancellationToken cancellationToken = default);
 
         Task<CommonResponse<List<TeacherAssignmentDto>>> GetAssignmentsAsync(Guid teacherId, CancellationToken cancellationToken = default);

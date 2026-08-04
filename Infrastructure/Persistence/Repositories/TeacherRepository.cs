@@ -129,6 +129,7 @@ namespace Infrastructure.Persistence.Repositories
                     .ThenInclude(cs => cs.AcademicClass)
                         .ThenInclude(c => c.AcademicYear)
                 .Include(assignment => assignment.ClassSection)
+                .Include(assignment => assignment.TimePeriod)
                 .Where(assignment => assignment.TeacherId == teacherId)
                 .OrderBy(assignment => assignment.ClassSubject.AcademicClass.AcademicYear.StartDate)
                 .ThenBy(assignment => assignment.ClassSubject.SubjectCode)
@@ -145,6 +146,29 @@ namespace Infrastructure.Persistence.Repositories
                 .Include(assignment => assignment.Teacher)
                     .ThenInclude(teacher => teacher.Employee)
                 .Where(assignment => classSubjectIds.Contains(assignment.ClassSubjectId))
+                .ToListAsync(cancellationToken);
+
+            return assignments;
+        }
+
+        public async Task<IReadOnlyList<TeacherAssignment>> GetAssignmentsByAcademicClassAsync(Guid academicClassId, Guid? classSectionId, CancellationToken cancellationToken = default)
+        {
+            IQueryable<TeacherAssignment> assignmentsQuery = DbContext.Set<TeacherAssignment>()
+                .Include(assignment => assignment.Teacher)
+                    .ThenInclude(teacher => teacher.Employee)
+                .Include(assignment => assignment.ClassSubject)
+                .Include(assignment => assignment.ClassSection)
+                .Include(assignment => assignment.TimePeriod)
+                .Where(assignment => assignment.ClassSubject.AcademicClassId == academicClassId);
+
+            if (classSectionId.HasValue)
+            {
+                assignmentsQuery = assignmentsQuery.Where(assignment => assignment.ClassSectionId == classSectionId.Value);
+            }
+
+            var assignments = await assignmentsQuery
+                .OrderBy(assignment => assignment.ClassSubject.SubjectCode)
+                .ThenBy(assignment => assignment.Teacher.Employee.FirstName)
                 .ToListAsync(cancellationToken);
 
             return assignments;
@@ -179,6 +203,19 @@ namespace Infrastructure.Persistence.Repositories
                     && assignment.ClassSectionId == classSectionId, cancellationToken);
 
             return classTeacherExists;
+        }
+
+        public async Task<bool> TeacherHasTimePeriodConflictAsync(Guid teacherId, Guid timePeriodId, CancellationToken cancellationToken = default)
+        {
+            // TimePeriod.StartTime/EndTime is a fixed, class-independent definition -- only which
+            // periods apply to which class varies, via ClassTimePeriod -- so two assignments for
+            // the same teacher sharing the same TimePeriod row necessarily share the same
+            // wall-clock slot, regardless of which class/subject/section either one is for.
+            var hasConflict = await DbContext.Set<TeacherAssignment>()
+                .AnyAsync(assignment => assignment.TeacherId == teacherId
+                    && assignment.TimePeriodId == timePeriodId, cancellationToken);
+
+            return hasConflict;
         }
 
         public async Task AddAssignmentAsync(TeacherAssignment assignment, CancellationToken cancellationToken = default)

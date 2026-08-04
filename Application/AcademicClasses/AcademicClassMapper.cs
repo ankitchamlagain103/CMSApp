@@ -21,6 +21,7 @@ namespace Application.AcademicClasses
                 Id = academicClass.Id,
                 AcademicYearId = academicClass.AcademicYearId,
                 GradeCode = academicClass.GradeCode,
+                Order = academicClass.Order,
                 Status = academicClass.Status,
                 Sections = sectionDtos
             };
@@ -68,6 +69,58 @@ namespace Application.AcademicClasses
             };
 
             return classSubjectDto;
+        }
+
+        // Expects the assignment's Teacher->Employee, ClassSubject, ClassSection (when set), and
+        // TimePeriod (when set) navigations to be loaded
+        // (ITeacherRepository.GetAssignmentsByAcademicClassAsync includes them).
+        public static ClassTeacherAssignmentDto ToTeacherAssignmentDto(TeacherAssignment assignment)
+        {
+            var teacher = assignment.Teacher;
+            var employee = teacher != null ? teacher.Employee : null;
+
+            var assignmentDto = new ClassTeacherAssignmentDto
+            {
+                Id = assignment.Id,
+                TeacherId = assignment.TeacherId,
+                TeacherName = employee != null ? BuildFullName(employee.FirstName, employee.MiddleName, employee.LastName) : null,
+                EmployeeCode = employee != null ? employee.EmployeeCode : null,
+                ClassSubjectId = assignment.ClassSubjectId,
+                AcademicClassId = assignment.ClassSubject != null ? assignment.ClassSubject.AcademicClassId : Guid.Empty,
+                SubjectCode = assignment.ClassSubject != null ? assignment.ClassSubject.SubjectCode : null,
+                ClassSectionId = assignment.ClassSectionId,
+                SectionCode = assignment.ClassSection != null ? assignment.ClassSection.SectionCode : null,
+                Scope = assignment.ClassSectionId.HasValue ? SubjectScope.Section : SubjectScope.ClassWide,
+                IsClassTeacher = assignment.IsClassTeacher,
+                TimePeriodId = assignment.TimePeriodId,
+                TimePeriodName = assignment.TimePeriod != null ? assignment.TimePeriod.Name : null
+            };
+
+            return assignmentDto;
+        }
+
+        // Small standalone helper (not shared with TeacherService/TeacherMapper's own copies --
+        // mappers stay self-contained rather than reaching into another feature's class).
+        private static string BuildFullName(string firstName, string middleName, string lastName)
+        {
+            var nameParts = new List<string>();
+            if (!string.IsNullOrWhiteSpace(firstName))
+            {
+                nameParts.Add(firstName);
+            }
+
+            if (!string.IsNullOrWhiteSpace(middleName))
+            {
+                nameParts.Add(middleName);
+            }
+
+            if (!string.IsNullOrWhiteSpace(lastName))
+            {
+                nameParts.Add(lastName);
+            }
+
+            var fullName = string.Join(" ", nameParts);
+            return fullName;
         }
     }
 }

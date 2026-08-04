@@ -890,6 +890,7 @@ Full sub-system for academic years, classes (with sections), subjects, teachers,
 - **No logins for students/teachers** — they're records only; account linkage is a later phase.
 - Deletes of the main records are **soft** (codes/pairs stay reserved → clean `409` on re-create); child links (class subjects, assignments, guardian links, electives) are hard deletes, refused with `409` while dependents exist.
 - **Grading metadata (2026-07-15)**: `ClassSubject` (and `POST`/new `PUT /api/academicclasses/{id}/subjects/{classSubjectId}`) gained optional `creditHours`/`fullMarks`/`passMarks`/`theoryMarks`/`practicalMarks` — see `student_management_implementation_guide.md`.
+- **Class display ordering (2026-07-31)**: `AcademicClass`/`AcademicClassDto` gained `order` (int, default `0`, editable on both `POST`/`PUT /api/academicclasses[/{id}]`) — pure UI sort key, no uniqueness enforced; `GET /api/academicclasses` now sorts by `order` then `gradeCode` instead of `gradeCode` alone. `POST /api/academicyears/{id}/clone-structure` carries the source class's `order` onto the clone.
 
 ---
 
@@ -974,7 +975,7 @@ Full reference in `payroll_fixes_implementation_guide.md`; orientation summary (
 - **`POST /api/payrollruns/{id}/refresh`** (`PAYROLL_RUN_REFRESH`): Draft-only in-place regeneration — picks up compensation-plan edits, tax-slab changes, newly Pending adjustments and newly approved loans made after generation. Preserves Manual slip lines and individually-cancelled slips; adds slips for newly eligible employees; cancels slips of no-longer-payable ones; response = same `{ run, skipped[] }` shape as create. Add a Refresh button on the Run Detail page while `status` is Draft. This is also the remedy when a run seems to use stale tax slabs: runs are immutable snapshots — fix the fiscal year's slabs, then Refresh.
 - **SSF rates catalog 1018** (`GET /api/configs/dropdown/1018`, no grant needed): `EMPLOYEE_SHARE` (11) / `EMPLOYER_SHARE` (20), the percentage in `additionalValue1`, admin-editable. Prefill SSF lines in the Add Salary Revision form from it instead of hardcoding. Correct plan shape: `SSF_CONTRIBUTION` component = employer 20% of Basic (taxable, retirement-flagged); `SSF_DEDUCTION` deduction = employee 11% of Basic (retirement-flagged).
 - **Employer-share payslip offset (round 2)**: a retirement-flagged *component* (the employer SSF/EPF share) now automatically produces an equal deduction line with the same code on payslips/slips/monthly breakdowns — it's fund money, not cash, so it stays in gross but no longer inflates net pay. Render the pair under earnings and deductions as-is.
-- **`POST /api/salarycalculator`** (`SALARY_CALCULATOR`, new sub-menu under Payroll Management, url `/apps/payroll/salary-calculator`): HR structuring tool — fix one monthly figure (`basis`: 1 NetPayment / 2 GrossPayment / 3 Ctc) plus `amount`, optional `fiscalYearId`/`assessmentType`/`includeSsf`, Basic pinned exactly (`basicSalaryAmount`) or as a percent (`basicPercentOfGross`, default 60), plus round-2 knobs `annualBonusAmount` (Dashain/festival bonus — taxed annually, excluded from monthly cash), `monthlyCitAmount` (CIT savings, retirement-flagged), `annualLifeInsurancePremium`/`annualHealthInsurancePremium` (capped per catalog 1015). Returns the solved structure (Basic, Other Allowance, both SSF shares, CIT, monthly TDS via the year's real slabs, net, CTC, annuals incl. bonus, full `taxCalculation` breakdown) plus `suggestedComponents`/`suggestedDeductions`/`suggestedInsurancePremiums` shaped exactly like `POST /api/employees/{id}/salaries` line inputs.
+- **`POST /api/salarycalculator`** (`SALARY_CALCULATOR`, sub-menu under Accounts — originally "Payroll Management," merged 2026-08-03 — url `/apps/payroll/salary-calculator`): HR structuring tool — fix one monthly figure (`basis`: 1 NetPayment / 2 GrossPayment / 3 Ctc) plus `amount`, optional `fiscalYearId`/`assessmentType`/`includeSsf`, Basic pinned exactly (`basicSalaryAmount`) or as a percent (`basicPercentOfGross`, default 60), plus round-2 knobs `annualBonusAmount` (Dashain/festival bonus — taxed annually, excluded from monthly cash), `monthlyCitAmount` (CIT savings, retirement-flagged), `annualLifeInsurancePremium`/`annualHealthInsurancePremium` (capped per catalog 1015). Returns the solved structure (Basic, Other Allowance, both SSF shares, CIT, monthly TDS via the year's real slabs, net, CTC, annuals incl. bonus, full `taxCalculation` breakdown) plus `suggestedComponents`/`suggestedDeductions`/`suggestedInsurancePremiums` shaped exactly like `POST /api/employees/{id}/salaries` line inputs.
 - **`POST /api/salarycalculator/assign`** (`SALARY_CALCULATOR_ASSIGN`, round 2): same body + `employeeId` + `effectiveFromDate` — recomputes server-side and persists the structure as a real salary revision (same conflict/validation path as the manual form). Response: `{ calculation, salary }`.
 - **`POST /api/employees/adjustments/bulk`** (`EMPLOYEE_SALARY_ADJUSTMENT_BULK`, round 2): one Pending salary adjustment per in-scope employee in one call (Dashain allowance/bonus/leave-encashment/deduction for everyone) — scope = explicit `employeeIds`, or all payroll-eligible optionally narrowed by `employeeCategoryCode`. Response: `{ createdCount, adjustments, skipped }`. Same past-Draft `409` guard as the single endpoint; a Draft run picks them up on Refresh.
 - **Verified, not a bug**: identical TDS across FY-SAMPLE and 2084/85 is correct for the current dev data — the employee's taxable income (Rs. 440,000) sits inside the first bracket of both years and both first brackets are 1%; they only diverge above Rs. 500,000. Also both fiscal years currently have `retirementExemptionCapAmount = 0`, which zeroes the retirement exemption — set a real cap (e.g. 500,000) via `PUT /api/fiscalyears/{id}`. Deduction Type catalog 1014 gained `CIT_DEDUCTION`.
@@ -1192,7 +1193,7 @@ migration** — one new nullable column `students.user_id` + its unique partial 
 existing `employees.user_id`); every student `register-account` call and any create with
 `registerUserAccount: true` 500s until applied.
 
-## Exam Management — assessment configuration, exams, marks, results & promotion (2026-07-28, redesigned 2026-07-29 per `Docs/Exam_Module_Design_Revised.md`, room/seat-arrangement subsystem removed 2026-07-30)
+## Exam Management — assessment configuration, exams, marks, results & promotion (2026-07-28, redesigned 2026-07-29 per `Docs/Exam_Module_Design_Revised.md`, room/seat-arrangement subsystem and invigilator removed 2026-07-30)
 
 The full Exam/Result/Promotion design (`Docs/Student_Management_System_Exam_Result_Promotion_Design.md`)
 was implemented, then **redesigned once** (merging "Exam" + "ExamSchedule" into one resource), then
@@ -1208,50 +1209,216 @@ endpoint + marks-configuration defaulting). Orientation summary:
 
 - `ClassSubject`'s existing grading fields (create/update via
   `POST`/`PUT /api/academicclasses/{id}/subjects[/{classSubjectId}]`) are the **only** place
-  Full Marks/Pass Marks are configured for the whole module — `fullMarks`/`passMarks` (overall),
-  `theoryMarks`/`practicalMarks` (per component), `hasTheory`/`hasPractical`, `theoryPassMarks`/
-  `practicalPassMarks` (per-component pass thresholds). A student must clear the overall pass
-  marks *and* each enabled component's own pass mark. **2026-07-30**: when `hasPractical: false`
-  (whole-marks mode, the default), `theoryMarks`/`theoryPassMarks` now default to
-  `fullMarks`/`passMarks` whenever left unset — previously a whole-marks subject with no explicit
-  `theoryMarks` had no per-component cap at all, silently allowing an obtained mark greater than
-  the subject's own full marks.
+  grading is configured for the whole module — **`fullMarks`/`passMarks` are READ-ONLY, computed
+  server-side** (2026-07-30, redesigned same day from an earlier version that accepted them as
+  independent inputs) as `theoryMarks + practicalMarks` / `theoryPassMarks + practicalPassMarks`
+  — never send them on assign/update. `hasTheory`/`hasPractical` pick whole-mode (theory only,
+  the default) vs. divided mode (both required together when both flags are on); the disabled
+  component in whole mode is forced to `0` server-side (the "theory-only fallback" rule), and
+  leaving the enabled component(s) unset keeps the computed totals `null` ("not graded yet") rather
+  than `0`. A student must clear each enabled component's own pass mark individually — passing the
+  combined total alone is not enough if either component fails (unaffected by this round). Full
+  detail: `exam_routine_and_marks_configuration_implementation_guide.md` section 2.
 - `POST/GET/PUT/DELETE /api/examterms` (a macro period like "First Terminal", soft-deleted, unique
   `code`) → `/api/exams` (**one subject's single sitting per term, no section, no name/weightage/
-  isFinal, no room** — date/time/optional invigilator/remarks, hard-deleted, `409` on a duplicate
+  isFinal, no room, no invigilator** — just date/time/remarks, hard-deleted, `409` on a duplicate
   `(examTerm, classSubject)` pair, plus `POST /api/exams/{id}/lock`/`unlock` to close/reopen its
   marks-entry window; there is no `for-class` endpoint anymore — nothing left for it to do once an
-  exam already always covers the whole grade). **2026-07-30: `POST /api/exams/routine`** schedules
-  every subject of one class within one exam term in a single call (per-item date/time/invigilator,
-  skip-list style). **Creating/updating/deleting an exam auto-manages a linked `CalendarEvent`**
-  (`eventType: 5`). `ExamDto` exposes `fullMarks`/`passMarks`/etc. read-only, sourced from the
-  linked subject.
+  exam already always covers the whole grade). **`PUT /api/exams/routine`** is the batch-scheduling
+  workflow — submits a whole class's exam term timetable in one grid and idempotently syncs it
+  (create/update/remove) against whatever's already scheduled, validated as one atomic transaction
+  (term-boundary + time-overlap checks; a removal blocked by recorded marks fails the whole save).
+  **Redesigned 2026-07-30 same day** from an earlier create-only/skip-list `POST` cut — see the
+  companion guide for the full contract. **Creating/updating/deleting an exam auto-manages a linked
+  `CalendarEvent`** (`eventType: 5`). `ExamDto` exposes `fullMarks`/`passMarks`/etc. read-only,
+  sourced from the linked subject. **2026-07-30, class period timing (superseded 2026-08-03, see
+  below)**: `startTime`/`endTime` are now `TimeSpan?` on create/update, and each exam (or routine
+  item) can instead send `timePeriodId` (a real `TimePeriod` id — see the dedicated round entry
+  below) to have the times resolved server-side from the picked period — exactly one of the two
+  paths is required; a `Break`-kind period is rejected, and the period must be mapped to the
+  exam's own class.
 - `/api/gradescales` (percentage-band grading schema, A+/A/B+/.../F with grade points, soft-deleted,
   unique `grade`), `/api/studentexammarks` (+ `POST /api/studentexammarks/bulk` for a whole
-  roster's marks in one call, + `GET .../roster` for a searchable single-student entry worklist),
-  `/api/examresults` (`generate`/`publish/{examTermId}`/`{id}/withhold`/`{id}/lift-withhold` plus
-  the paged list/detail — **every exam in the term now contributes, there is no "final exam only"
-  filter anymore**), and `/api/studentpromotions` (+ `POST /api/studentpromotions/bulk-process`
-  for the pass→promote/fail→retain whole-section workflow) round out the module.
+  roster's marks in one call, + `GET .../roster` for a searchable single-student entry worklist —
+  both `GET .../roster` and the plain `GET /api/studentexammarks` list gained a `classSectionId`
+  filter 2026-07-30, since the same subject can be taught by different teachers in different
+  sections and an `Exam` has no section of its own; + new `GET .../student/{enrollmentId}`,
+  admin's "one student, every subject" entry screen), `/api/examresults`
+  (`generate`/`publish/{examTermId}`/`{id}/withhold`/`{id}/lift-withhold` plus the paged
+  list/detail — **every exam in the term now contributes, there is no "final exam only" filter
+  anymore**), and `/api/studentpromotions` (+ `POST /api/studentpromotions/bulk-process` for the
+  pass→promote/fail→retain whole-section workflow) round out the module.
 - **`/api/examrooms` and `/api/examhallarrangements` no longer exist** (removed 2026-07-30, along
   with `ExamRoom`/`ExamHallArrangement`/`ExamHallArrangementClass`/`ExamSeatAllocation` and
   `Exam.RoomId`/`Room`) — drop any frontend calls to either controller or any `roomId` field on an
-  exam create/update.
-- **Needs a migration.** Exactly what depends on which of `20260728171309_Added initial exam
-  module.cs`/`20260729050427_Added update1 exam module.cs`/`20260729135723_Added update2 exam
-  module.cs` a given database has actually run — see the migration-status callout at the top of
-  `exam_management_implementation_guide.md` for the current, accurate breakdown (it previously
-  described a stale-migration problem that the update1/update2 files already resolve; the
-  remaining pending piece as of 2026-07-30 is dropping the four room/seat-arrangement tables plus
-  `exams.room_id` if update2 was applied).
+  exam create/update. **`Exam.InvigilatorEmployeeId`/`InvigilatorEmployee` are also gone** (same
+  day, follow-up) — drop `invigilatorEmployeeId` from any exam create/update body too.
+- **Migration exists for the room removal, not for the invigilator removal**:
+  `20260730061558_changes in exam module3 update.cs` drops the four room/seat-arrangement
+  tables plus `exams.room_id` — apply it via `dotnet ef database update` if it hasn't run yet.
+  Dropping `dbo.exams.invigilator_employee_id` (and its FK) still needs a further migration —
+  harmless today (EF just never touches that column). See the migration-status callout at the
+  top of `exam_management_implementation_guide.md` for the full chain of migrations this module
+  has been through, including the class-period-timing churn covered in the next two round entries.
+
+**Round (2026-08-03): teacher-assignment period timing + bulk multi-section assign, first cut —
+Config-based, superseded the same day by the next round entry.** `TeacherAssignmentDto`/
+`AssignTeacherCommand` gained a `periodCode` field (a Config catalog code) and
+`POST /api/teachers/{id}/assignments/bulk` was added (`AssignTeacherBulkCommand`:
+`classSubjectId`, `classSectionIds` (non-empty list), `isClassTeacher`, plus the period field) —
+assigns the same subject/period to a teacher across several sections in one call instead of
+repeating `POST /api/teachers/{id}/assignments` once per section. Skip-list style, like every
+other bulk endpoint in this codebase: `{ created: [...], skipped: [{ classSectionId, reason }] }`,
+never an all-or-nothing reject. `isClassTeacher: true` is only valid with exactly one
+`classSectionId` (a class teacher belongs to one section) — that specific combination 400s the
+whole request rather than landing in `skipped`, since it's a malformed request, not a per-item
+business conflict. Nothing stops a teacher from being the class teacher of one section while also
+teaching a subject (via this bulk call or the single endpoint) in a different section — that's
+just two ordinary `TeacherAssignment` rows. **The bulk endpoint's shape is unchanged by the next
+round** — only the period field's type changed.
+
+**Round (2026-08-03, same day): class period timing redesigned onto a real `TimePeriod` table —
+this is the version that ships.** The Config-catalog cut above (and its exam-side twin) turned out
+to be the wrong model: "certain classes run different period structures" is a relationship, which
+a flat Config option list can't express. Replaced with `Domain/Entities/TimePeriod` (a real
+table: `Id`, `Name`, `StartTime`, `EndTime`, `Kind` — `Period`/`Break`, `Order`) and
+`ClassTimePeriod` (the class↔period mapping, bulk-created via `POST /api/timeperiods/map`, taking
+`{ academicClassIds: [...], timePeriodIds: [...] }` and creating the cross-product, skip-list
+style). `Exam.PeriodCode`/`TeacherAssignment.PeriodCode` (both string, Config-code) became
+`Exam.TimePeriodId`/`TeacherAssignment.TimePeriodId` (both `Guid?`, real FKs) — a picked period
+must now (a) not be a `Break`-kind row and (b) be mapped to the exam/assignment's own class via
+`ClassTimePeriod`, a check the Config-based cut had no way to perform at all. `ExamDto`/
+`TeacherAssignmentDto` both expose `timePeriodId` + a server-resolved `timePeriodName`. New
+`TimePeriodsController` (`/api/timeperiods`, standard CRUD) plus the mapping endpoints
+(`POST /map`, `GET /map/{academicClassId}`, `DELETE /map/{academicClassId}/{timePeriodId}`); new
+`TIME_PERIOD_LIST` sub-menu under `SETUP`. `TimePeriodSeeder` seeds one illustrative full day
+(8 periods + a short break + lunch break) but deliberately maps none of it to any class — that's
+an admin decision made via the bulk-map endpoint. Full reference:
+`Docs/time_period_and_class_routine_implementation_guide.md`.
+- **Needs a migration** — supersedes, not adds to, the two `period_code` column migrations from
+  the earlier rounds (`teacher_assignments.period_code` from
+  `20260803083606_update in setup for class assignment.cs`, and `exams.period_code` from
+  `20260730093356_changes in in exams for period code.cs`): new tables `dbo.time_periods` /
+  `dbo.class_time_periods`; on both `dbo.teacher_assignments` and `dbo.exams`, drop `period_code`
+  and add `time_period_id uuid NULL` (FK → `time_periods.id`, Restrict). Until applied, every
+  `TimePeriod`/`ClassTimePeriod` call 500s, and every `Exam`/`TeacherAssignment` create/update
+  500s. Exact statements in the guide's own migration section.
+
+**Round (2026-08-03, same day): Subject catalog gained a `GRADE_CODE` field.** `Config.AdditionalValue2`
+on a `Subject` (TypeCode `1003`) option now names the grades that subject is actually offered to —
+`"ALL"` when every grade offers it, or a comma-separated `Domain/Constants` `GradeCodes` list (e.g.
+`"NINE,TEN,ELEVEN,TWELVE"`) otherwise. `SampleDataSeeder` computes this from the same
+mandatory/optional grade→subject mapping it uses to seed real `ClassSubject` rows, so the two can't
+drift apart. **Informational only** — `AcademicClassService.AssignSubjectAsync` still validates a
+`SubjectCode` against the `Subject` catalog by `Code` alone; it does not cross-check `GRADE_CODE`
+against the class being assigned to, so assigning e.g. `PHYSICS` to a Grade Three class is not
+blocked by this field. A subject created via `POST /api/configs` leaves `additionalValue2` blank
+until set manually. No migration needed — this reuses the existing `Config.AdditionalValue2`
+column; an already-seeded database's existing `Subject` rows keep it blank until re-seeded fresh or
+edited via `PUT /api/configs/{id}`.
+
+**Round (2026-08-04): general-purpose bulk entry for teacher assignments.**
+`POST /api/teachers/{id}/assignments/bulk-entry` (`AssignTeacherBulkEntryCommand`: `items[]`, each
+with its own `classSubjectId`/`classSectionId`/`isClassTeacher`/`timePeriodId`) is a new sibling to
+the existing `POST /api/teachers/{id}/assignments/bulk` — that one fixes one `classSubjectId`/
+`timePeriodId` per call and only varies the section list; this one lets every row be a completely
+different class/subject/section/period, so a teacher's whole routine can be entered in one submit
+instead of one call per row. Still scoped to one teacher (the route id) — no multi-teacher grid,
+same "no logged-in-teacher resolution anywhere in this codebase" reasoning as every other
+teacher-assignment endpoint. Skip-list style response: `{ created: [...], skipped: [{ itemIndex,
+classSubjectId, classSectionId, reason }] }` — a bad row never fails the rest of the batch; two new
+in-request-only guards (on top of every check the single-assignment endpoint already does) catch a
+duplicate `(classSubjectId, section)` pair or two rows both claiming class-teacher of the same
+section **within the same submission**, since those can't be caught by the usual database-existence
+checks before anything's been saved. New permission `TEACHER_ASSIGNMENT_BULK_ENTRY_ADD`. No
+migration needed — creates ordinary `TeacherAssignment` rows through the same repository method the
+other assignment endpoints already use. Full reference:
+`Docs/teacher_assignment_bulk_entry_implementation_guide.md`.
+
+**Round (2026-08-04, same day): class-scoped sibling — bulk entry from the Academic Class side.**
+`POST /api/academicclasses/{id}/teacher-assignments/bulk-entry`
+(`AssignClassTeachersBulkEntryCommand`: `items[]`, each with `teacherId`/`classSubjectId`/
+`classSectionId`/`isClassTeacher`/`timePeriodId`) is the third assignment-bulk endpoint: scoped to
+one **academic class** (the route id) rather than one teacher, and each row names its own teacher
+— built for "who teaches this class," mapping several different teachers across a class's
+subjects/sections/periods in one submission from the class's own page, instead of visiting every
+teacher's profile in turn. Every row is validated the same way the other two assignment endpoints
+validate theirs — `Application/Teachers/TeacherAssignmentBuilder.BuildAsync` was extracted out of
+`TeacherService`'s formerly-private `BuildAssignmentAsync` into a shared static helper specifically
+so `AcademicClassService` could reuse the identical (teacher, subject, section, period) rule set
+rather than duplicating it — plus one check unique to this entry point (a row's `classSubjectId`
+must belong to the route's own academic class) and an in-request duplicate check keyed by
+`(teacherId, classSubjectId, section)` — note `teacherId` is part of that key here, since (unlike
+the teacher-scoped endpoint) the same subject/section pair can validly be taught by two different
+teachers in the same batch; only the same teacher assigned to it twice is a duplicate. New
+permission `CLASS_TEACHER_ASSIGNMENT_BULK_ENTRY_ADD` under `CLASS_LIST`. No migration needed — same
+`AddAssignmentAsync` repository method as the other two. Full reference:
+`Docs/class_teacher_assignment_bulk_entry_implementation_guide.md`.
+
+**Round (2026-08-04, same day): three validation tightenings across every teacher-assignment
+endpoint.** `Application/Teachers/TeacherAssignmentBuilder.BuildAsync` — the one shared place all
+four assignment endpoints' per-row validation goes through (single, both bulk-sections/bulk-entry
+teacher-scoped endpoints, and the class-scoped bulk-entry endpoint) — gained two new rules, plus a
+simplification of a third that was already correct:
+
+1. **`classSectionId` is now required** for a class-wide subject — a single assignment can no
+   longer cover "every section of the class" (previously `null` meant that). A section-scoped
+   subject still derives its section automatically and doesn't need it repeated. `ValidationError`:
+   `"ClassSectionId is required -- a teacher must be assigned to one specific section, not every
+   section of the class at once."` Rows created before this date may still read back with a null
+   `classSectionId`/`sectionCode` (`Scope: ClassWide`) from the old behavior — that's a legacy read
+   shape now, not a creatable one.
+2. **Time-period double-booking is now blocked** — `ITeacherRepository.TeacherHasTimePeriodConflictAsync`
+   (new) checks whether the teacher already has *any other* assignment (any class/subject/section)
+   sharing the same `timePeriodId`; if so, the row is rejected: `"This teacher is already assigned
+   to another class/section during '<period name>'."` Every bulk endpoint also gained an in-request
+   staged-period guard for the same reason the existing duplicate/class-teacher guards exist
+   (nothing is saved until the batch's `SaveChangesAsync`, so two colliding rows in one request
+   wouldn't otherwise see each other) — keyed by `(teacherId, timePeriodId)` on the class-scoped
+   endpoint (two *different* teachers can share a period; only the same teacher twice conflicts) and
+   effectively just `timePeriodId` on the two teacher-scoped endpoints (teacher is constant for the
+   whole request there). One side effect: `POST /api/teachers/{id}/assignments/bulk`'s shared
+   `TimePeriodId` now only ever succeeds for the *first* section in the list when set — assigning a
+   teacher to several different sections during the identical period is exactly the scenario this
+   rule exists to block, so use `.../assignments/bulk-entry` (each row gets its own period) instead
+   when periods need to differ per section.
+3. **"One class teacher per section" is unchanged in substance** (`ClassTeacherExistsForSectionAsync`,
+   unmodified) but its code got simpler — since `classSectionId` is now always present, the old
+   `"ClassSectionId is required when IsClassTeacher is true"` guard is unreachable and was removed.
+
+No migration — no schema change, this is application-layer validation only (`TeacherAssignment.ClassSectionId`
+stays a nullable DB column so legacy class-wide rows keep displaying correctly). Both
+`teacher_assignment_bulk_entry_implementation_guide.md` and
+`class_teacher_assignment_bulk_entry_implementation_guide.md` updated with the new field
+requirements and failure-reason tables.
+
+**Round (2026-08-04, same day): the missing GET — list teachers by class.** Every earlier round
+this same day added a way to *create* `TeacherAssignment` rows in bulk, but there was still no way
+to read them back scoped by class — only `GET /api/teachers/{id}/assignments` (one teacher at a
+time) existed. New **`GET /api/academicclasses/{id}/teacher-assignments`**
+(optional `?classSectionId=` query param to narrow to one section) returns
+`ClassTeacherAssignmentDto[]` — the same core fields as `Application.Teachers.Dtos.TeacherAssignmentDto`
+plus `teacherName`/`employeeCode` (a class-scoped listing needs the teacher's name up front, unlike
+a teacher's own profile page). Backed by new `ITeacherRepository.GetAssignmentsByAcademicClassAsync`
+(`TeacherRepository` — filters on `TeacherAssignment.ClassSubject.AcademicClassId`, `Include`s
+`Teacher.Employee`/`ClassSubject`/`ClassSection`/`TimePeriod`) and
+`AcademicClassMapper.ToTeacherAssignmentDto` (new, own `BuildFullName` helper — mappers stay
+self-contained per this codebase's convention). Unpaged, sorted by subject code then teacher first
+name — a class routine is a small, bounded dataset. New permission `CLASS_TEACHER_ASSIGNMENT_LIST`
+under `CLASS_LIST`. This is the data source the "Class Routine" grid (from the bulk-entry round
+above) loads on page load and re-loads after every submit; removing a row still goes through the
+existing `DELETE /api/teachers/{teacherId}/assignments/{assignmentId}` (no new delete endpoint
+needed — it only needs the assignment's own `id`, which this list returns). No migration —
+read-only over existing data. Full reference:
+`Docs/class_teacher_assignments_list_implementation_guide.md`.
 
 ---
 
 # Seeded data (first run against a migrated DB)
 
 - Roles `SuperAdmin` / `Admin` / `User`, one account per role (credentials from the `Seed` config section). A fourth role, `Student`, is also seeded (2026-07-27) with no seeded account and zero permissions — it's assigned automatically to every student portal account provisioned via `registerUserAccount`/`register-account`.
-- Main menus `DASHBOARD` / `USER_MANAGEMENT` / `CONFIG_MANAGEMENT` / `SETUP` / `STUDENT_MANAGEMENT` / `FEE_MANAGEMENT` / `PAYROLL_MANAGEMENT` / `EMPLOYEE_MANAGEMENT` / `CALENDAR_MANAGEMENT` / `LEAVE_MANAGEMENT` / `LOGS` (2026-07-28 — System Access Logs/Error Logs, moved out of `DASHBOARD`) / `EXAM_MANAGEMENT` (2026-07-28 — Exam Terms/Exams/Grade Scales/Marks Entry/Exam Results/Student Promotions; gained Exam Rooms/Hall Arrangements 2026-07-29) with permission leaves covering every protected endpoint (`ACADEMIC_MANAGEMENT`/`TEACHER_MANAGEMENT` retired 2026-07-16 — their contents live under `SETUP`/`EMPLOYEE_LIST`); **all permissions granted to the SuperAdmin role** — and SuperAdmin-typed accounts additionally bypass the permission check entirely, so the seeded superadmin works everywhere immediately.
-- Config catalogs for student management (`typeCode` 1001–1007) plus discount/scholarship/fee-category types (`1008`/`1009`/`1010`, fee categories carrying their normative `fee_frequency`) plus employee-category/job-position/salary-component/deduction/insurance-type (`1011`–`1015`) plus salary/fee adjustment types (`1016`/`1017`) plus SSF rates (`1018`, employee/employer share percentages in `additionalValue1`) plus branch/province/employee-level (`1019`–`1021`, province seeded with Nepal's 7 federal provinces) plus district/local-level (`1022`/`1023`, all 77 districts and 80 of 753 local levels — see `employee_address_implementation_guide.md` before relying on the local-level list for real addresses); default guardian-relationship, teacher-qualification, document-type (teacher + student), discount/scholarship-type (with default rates), all 11 fee-category options, and all employee-side options (categories, positions, salary components, deductions, insurance types with tax-deduction caps); a baseline of app-config settings (`GENERAL`/`THEME`/`ANNOUNCEMENT`, including `FEE_DUE_DAY_OF_MONTH`); one placeholder `FY-SAMPLE` fiscal year with illustrative Individual/Couple tax slabs and retirement-exemption cap (verify before real payroll use); one default `DocumentTemplate` HTML row per type (Payslip/FeeReceipt/StudentIdCard/TeacherIdCard) so the preview endpoints work out of the box; BS calendar reference data (12 month names + 7 weekday names EN/NP with Saturday as the weekly holiday, and the BS 2000–2090 month-length table) so the dual-calendar endpoints work out of the box; baseline `LeaveType` rows (Annual/Sick/Casual, 18/12/12 days, illustrative — verify against actual policy).
+- Main menus `DASHBOARD` / `USER_MANAGEMENT` / `CONFIG_MANAGEMENT` / `SETUP` / `STUDENT_MANAGEMENT` / `ACCOUNTS` (2026-08-03 — merges the former `FEE_MANAGEMENT`/`PAYROLL_MANAGEMENT` mains; holds Fee Generation, Salary Generation, Salary Calculator) / `EMPLOYEE_MANAGEMENT` / `CALENDAR_MANAGEMENT` / `LEAVE_MANAGEMENT` / `LOGS` (2026-07-28 — System Access Logs/Error Logs, moved out of `DASHBOARD`) / `EXAM_MANAGEMENT` (2026-07-28 — Exam Terms/Exams/Grade Scales/Marks Entry/Exam Results/Student Promotions; gained Exam Rooms/Hall Arrangements 2026-07-29) with permission leaves covering every protected endpoint (`ACADEMIC_MANAGEMENT`/`TEACHER_MANAGEMENT` retired 2026-07-16 — their contents live under `SETUP`/`EMPLOYEE_LIST`; `FEE_MANAGEMENT`/`PAYROLL_MANAGEMENT` retired 2026-08-03 — their contents live under `ACCOUNTS`); **all permissions granted to the SuperAdmin role** — and SuperAdmin-typed accounts additionally bypass the permission check entirely, so the seeded superadmin works everywhere immediately.
+- Config catalogs for student management (`typeCode` 1001–1007) plus discount/scholarship/fee-category types (`1008`/`1009`/`1010`, fee categories carrying their normative `fee_frequency`) plus employee-category/job-position/salary-component/deduction/insurance-type (`1011`–`1015`) plus salary/fee adjustment types (`1016`/`1017`) plus SSF rates (`1018`, employee/employer share percentages in `additionalValue1`) plus branch/province/employee-level (`1019`–`1021`, province seeded with Nepal's 7 federal provinces) plus district/local-level (`1022`/`1023`, all 77 districts and 80 of 753 local levels — see `employee_address_implementation_guide.md` before relying on the local-level list for real addresses); default guardian-relationship, teacher-qualification, document-type (teacher + student), discount/scholarship-type (with default rates), all 11 fee-category options, and all employee-side options (categories, positions, salary components, deductions, insurance types with tax-deduction caps); a baseline of app-config settings (`GENERAL`/`THEME`/`ANNOUNCEMENT`, including `FEE_DUE_DAY_OF_MONTH`); one placeholder `FY-SAMPLE` fiscal year with illustrative Individual/Couple tax slabs and retirement-exemption cap (verify before real payroll use); one default `DocumentTemplate` HTML row per type (Payslip/FeeReceipt/StudentIdCard/TeacherIdCard) so the preview endpoints work out of the box; BS calendar reference data (12 month names + 7 weekday names EN/NP with Saturday as the weekly holiday, and the BS 2000–2090 month-length table) so the dual-calendar endpoints work out of the box; baseline `LeaveType` rows (Annual/Sick/Casual, 18/12/12 days, illustrative — verify against actual policy); one illustrative full school day of `TimePeriod` rows (8 periods + Short Break + Lunch Break, 2026-08-03), **not** mapped to any class — that's an admin decision via `POST /api/timeperiods/map`, see `Docs/time_period_and_class_routine_implementation_guide.md`.
 - `Admin`/`User`/`Student` roles start with **zero** permissions; grant via `POST /api/roles/claims` while signed in as superadmin.
 
 # Error-handling checklist for the UI

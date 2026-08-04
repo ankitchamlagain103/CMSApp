@@ -64,6 +64,10 @@ namespace Infrastructure.Migrations
                         .HasDefaultValue(false)
                         .HasColumnName("is_deleted");
 
+                    b.Property<int>("Order")
+                        .HasColumnType("integer")
+                        .HasColumnName("order");
+
                     b.Property<int>("Status")
                         .HasColumnType("integer")
                         .HasColumnName("status");
@@ -694,6 +698,51 @@ namespace Infrastructure.Migrations
 
                             t.HasCheckConstraint("ck_class_subjects_theory_marks_range", "theory_pass_marks IS NULL OR theory_marks IS NULL OR theory_pass_marks <= theory_marks");
                         });
+                });
+
+            modelBuilder.Entity("Domain.Entities.ClassTimePeriod", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("AcademicClassId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("academic_class_id");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("CreatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_ts");
+
+                    b.Property<Guid>("TimePeriodId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("time_period_id");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateTimeOffset?>("UpdatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_ts");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TimePeriodId");
+
+                    b.HasIndex("AcademicClassId", "TimePeriodId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_class_time_periods_class_period");
+
+                    b.ToTable("class_time_periods", "dbo");
                 });
 
             modelBuilder.Entity("Domain.Entities.Config", b =>
@@ -1885,10 +1934,6 @@ namespace Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("exam_term_id");
 
-                    b.Property<Guid?>("InvigilatorEmployeeId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("invigilator_employee_id");
-
                     b.Property<bool>("MarksLocked")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
@@ -1903,6 +1948,10 @@ namespace Infrastructure.Migrations
                     b.Property<TimeSpan>("StartTime")
                         .HasColumnType("interval")
                         .HasColumnName("start_time");
+
+                    b.Property<Guid?>("TimePeriodId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("time_period_id");
 
                     b.Property<string>("UpdatedBy")
                         .HasMaxLength(50)
@@ -1923,7 +1972,7 @@ namespace Infrastructure.Migrations
                     b.HasIndex("ExamTermId")
                         .HasDatabaseName("ix_exams_exam_term_id");
 
-                    b.HasIndex("InvigilatorEmployeeId");
+                    b.HasIndex("TimePeriodId");
 
                     b.HasIndex("ExamTermId", "ClassSubjectId")
                         .IsUnique()
@@ -5029,6 +5078,10 @@ namespace Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("teacher_id");
 
+                    b.Property<Guid?>("TimePeriodId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("time_period_id");
+
                     b.Property<string>("UpdatedBy")
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)")
@@ -5044,11 +5097,89 @@ namespace Infrastructure.Migrations
 
                     b.HasIndex("ClassSubjectId");
 
+                    b.HasIndex("TimePeriodId");
+
                     b.HasIndex("TeacherId", "ClassSubjectId", "ClassSectionId")
                         .IsUnique()
                         .HasDatabaseName("ix_teacher_assignments_teacher_subject_section");
 
                     b.ToTable("teacher_assignments", "dbo");
+                });
+
+            modelBuilder.Entity("Domain.Entities.TimePeriod", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("CreatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_ts");
+
+                    b.Property<string>("DeletedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("deleted_by");
+
+                    b.Property<DateTimeOffset?>("DeletedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_ts");
+
+                    b.Property<TimeSpan>("EndTime")
+                        .HasColumnType("interval")
+                        .HasColumnName("end_time");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_deleted");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("integer")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("name");
+
+                    b.Property<int>("Order")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0)
+                        .HasColumnName("order");
+
+                    b.Property<TimeSpan>("StartTime")
+                        .HasColumnType("interval")
+                        .HasColumnName("start_time");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateTimeOffset?>("UpdatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_ts");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IsDeleted");
+
+                    b.HasIndex("Name")
+                        .IsUnique()
+                        .HasDatabaseName("ix_time_periods_name");
+
+                    b.ToTable("time_periods", "dbo");
                 });
 
             modelBuilder.Entity("Infrastructure.Identity.ApplicationRole", b =>
@@ -5624,6 +5755,25 @@ namespace Infrastructure.Migrations
                     b.Navigation("ClassSection");
                 });
 
+            modelBuilder.Entity("Domain.Entities.ClassTimePeriod", b =>
+                {
+                    b.HasOne("Domain.Entities.AcademicClass", "AcademicClass")
+                        .WithMany()
+                        .HasForeignKey("AcademicClassId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Domain.Entities.TimePeriod", "TimePeriod")
+                        .WithMany()
+                        .HasForeignKey("TimePeriodId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("AcademicClass");
+
+                    b.Navigation("TimePeriod");
+                });
+
             modelBuilder.Entity("Domain.Entities.Config", b =>
                 {
                     b.HasOne("Domain.Entities.ConfigType", "ConfigType")
@@ -5821,16 +5971,16 @@ namespace Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.HasOne("Domain.Entities.Employee", "InvigilatorEmployee")
+                    b.HasOne("Domain.Entities.TimePeriod", "TimePeriod")
                         .WithMany()
-                        .HasForeignKey("InvigilatorEmployeeId")
+                        .HasForeignKey("TimePeriodId")
                         .OnDelete(DeleteBehavior.Restrict);
 
                     b.Navigation("ClassSubject");
 
                     b.Navigation("ExamTerm");
 
-                    b.Navigation("InvigilatorEmployee");
+                    b.Navigation("TimePeriod");
                 });
 
             modelBuilder.Entity("Domain.Entities.ExamTerm", b =>
@@ -6261,11 +6411,18 @@ namespace Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("Domain.Entities.TimePeriod", "TimePeriod")
+                        .WithMany()
+                        .HasForeignKey("TimePeriodId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.Navigation("ClassSection");
 
                     b.Navigation("ClassSubject");
 
                     b.Navigation("Teacher");
+
+                    b.Navigation("TimePeriod");
                 });
 
             modelBuilder.Entity("Infrastructure.Identity.ApplicationRoleClaim", b =>

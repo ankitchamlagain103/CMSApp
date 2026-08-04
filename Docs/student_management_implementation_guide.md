@@ -57,10 +57,10 @@ A class = **one grade within one academic year** (`(year, gradeCode)` unique); i
 
 | Method/Route | Body / Query | Notes |
 |---|---|---|
-| `POST /api/academicclasses` | `{ "academicYearId": "…", "gradeCode": "GRADE_1", "sections": [ { "sectionCode": "SECTION_A", "capacity": 40 } ] }` | `sections` optional; every code validated against the catalogs; `capacity: 0` = unlimited |
-| `GET /api/academicclasses?page=1&pageSize=20&academicYearId=…&gradeCode=…&status=1` | | Filters optional; every row nests its `sections`. Full filter list: `filters_update.md` |
+| `POST /api/academicclasses` | `{ "academicYearId": "…", "gradeCode": "GRADE_1", "order": 4, "sections": [ { "sectionCode": "SECTION_A", "capacity": 40 } ] }` | `sections` optional; every code validated against the catalogs; `capacity: 0` = unlimited; `order` (2026-07-31) is pure UI display ordering, defaults to `0` |
+| `GET /api/academicclasses?page=1&pageSize=20&academicYearId=…&gradeCode=…&status=1` | | Filters optional; every row nests its `sections`; list is sorted by `order` then `gradeCode`. Full filter list: `filters_update.md` |
 | `GET /api/academicclasses/{id}` | | |
-| `PUT /api/academicclasses/{id}` | `{ "status" }` | **Year/grade immutable** — a class's identity can't move under its enrollments |
+| `PUT /api/academicclasses/{id}` | `{ "order": 4, "status" }` | **Year/grade immutable** — a class's identity can't move under its enrollments; `order` is freely editable (display ordering only) |
 | `DELETE /api/academicclasses/{id}` | | Soft; `409` while it still has sections |
 | `POST /api/academicclasses/{id}/sections` | `{ "sectionCode": "SECTION_B", "capacity": 30 }` | `409` if the section already exists on the class |
 | `GET /api/academicclasses/{id}/sections` | | Ordered by `sectionCode` |
@@ -71,7 +71,7 @@ A class = **one grade within one academic year** (`(year, gradeCode)` unique); i
 | `PUT /api/academicclasses/{id}/subjects/{classSubjectId}` | `{ "displayOrder": 1, "creditHours": 4, "fullMarks": 100, "passMarks": 40, "theoryMarks": 75, "practicalMarks": 25 }` | **New (2026-07-15)**. Only grading metadata + `displayOrder` are editable — `subjectCode`/`isMandatory`/`classSectionId` are identity-like and immutable (re-assign instead) |
 | `DELETE /api/academicclasses/{id}/subjects/{classSubjectId}` | | Hard delete; `409` while teachers are assigned to it or students have elected it |
 
-`AcademicClassDto`: `{ "id", "academicYearId", "gradeCode", "status", "sections": [ { "id", "academicClassId", "sectionCode", "capacity", "status" } ] }`.
+`AcademicClassDto`: `{ "id", "academicYearId", "gradeCode", "order", "status", "sections": [ { "id", "academicClassId", "sectionCode", "capacity", "status" } ] }`. `order` (2026-07-31) is a plain UI-display-ordering integer — no uniqueness enforced, ties break on `gradeCode`.
 `ClassSubjectDto`: `{ "id", "academicClassId", "subjectCode", "isMandatory", "displayOrder", "classSectionId", "sectionCode", "scope", "creditHours", "fullMarks", "passMarks", "theoryMarks", "practicalMarks" }` — **`id` here is the `classSubjectId`** used by teacher assignments and electives; `classSectionId`/`sectionCode` null = offered to all sections. `scope` (2026-07-15) is `0` ClassWide / `1` Section — the same fact as `classSectionId`'s nullability, exposed as an explicit enum so consumers don't have to infer it. Grading fields (2026-07-15) are all nullable — a subject can exist before its marks scheme is finalized. They live on `ClassSubject` rather than the global Subject Config catalog entry because marks schemes commonly vary by grade for the same subject (e.g. Science gains practicals in grade 9-10). See `filters_update.md` for the class/section scoping redesign and `fee_and_payroll_implementation_guide.md` for this addition's rationale.
 
 ## Teachers — `/api/teachers`

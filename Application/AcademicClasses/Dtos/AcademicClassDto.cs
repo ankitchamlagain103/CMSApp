@@ -10,6 +10,7 @@ namespace Application.AcademicClasses.Dtos
         public Guid Id { get; set; }
         public Guid AcademicYearId { get; set; }
         public string GradeCode { get; set; }
+        public int Order { get; set; }
         public RecordStatus Status { get; set; }
         public List<ClassSectionDto> Sections { get; set; } = new List<ClassSectionDto>();
     }

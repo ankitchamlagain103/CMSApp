@@ -19,7 +19,7 @@ namespace Application.Exams
         private readonly UpdateExamTermCommandValidator _updateExamTermValidator;
         private readonly CreateExamCommandValidator _createExamValidator;
         private readonly UpdateExamCommandValidator _updateExamValidator;
-        private readonly CreateExamRoutineCommandValidator _createExamRoutineValidator;
+        private readonly SaveExamRoutineCommandValidator _saveExamRoutineValidator;
         private readonly CreateStudentExamMarkCommandValidator _createMarkValidator;
         private readonly UpdateStudentExamMarkCommandValidator _updateMarkValidator;
         private readonly BulkUpsertStudentExamMarksCommandValidator _bulkUpsertMarksValidator;
@@ -33,7 +33,7 @@ namespace Application.Exams
             UpdateExamTermCommandValidator updateExamTermValidator,
             CreateExamCommandValidator createExamValidator,
             UpdateExamCommandValidator updateExamValidator,
-            CreateExamRoutineCommandValidator createExamRoutineValidator,
+            SaveExamRoutineCommandValidator saveExamRoutineValidator,
             CreateStudentExamMarkCommandValidator createMarkValidator,
             UpdateStudentExamMarkCommandValidator updateMarkValidator,
             BulkUpsertStudentExamMarksCommandValidator bulkUpsertMarksValidator,
@@ -46,7 +46,7 @@ namespace Application.Exams
             _updateExamTermValidator = updateExamTermValidator;
             _createExamValidator = createExamValidator;
             _updateExamValidator = updateExamValidator;
-            _createExamRoutineValidator = createExamRoutineValidator;
+            _saveExamRoutineValidator = saveExamRoutineValidator;
             _createMarkValidator = createMarkValidator;
             _updateMarkValidator = updateMarkValidator;
             _bulkUpsertMarksValidator = bulkUpsertMarksValidator;
@@ -218,22 +218,18 @@ namespace Application.Exams
                 return subjectNotFoundResponse;
             }
 
-            Employee invigilator = null;
-            if (command.InvigilatorEmployeeId.HasValue)
-            {
-                invigilator = await _unitOfWork.Employees.GetByIdAsync(command.InvigilatorEmployeeId.Value, cancellationToken);
-                if (invigilator == null)
-                {
-                    var invigilatorNotFoundResponse = CommonResponse<ExamDto>.Fail(ResponseCodes.NotFound, "Invigilator employee with id '" + command.InvigilatorEmployeeId.Value + "' was not found.");
-                    return invigilatorNotFoundResponse;
-                }
-            }
-
             var alreadyExists = await _unitOfWork.ExamTerms.ExamExistsAsync(command.ExamTermId, command.ClassSubjectId, null, cancellationToken);
             if (alreadyExists)
             {
                 var conflictResponse = CommonResponse<ExamDto>.Fail(ResponseCodes.Conflict, "An exam for this subject already exists within this term.");
                 return conflictResponse;
+            }
+
+            var (resolvedStartTime, resolvedEndTime, resolvedTimePeriod, timeIssue) = await ResolveExamTimesAsync(classSubject.AcademicClassId, command.TimePeriodId, command.StartTime, command.EndTime, cancellationToken);
+            if (timeIssue != null)
+            {
+                var timeIssueResponse = CommonResponse<ExamDto>.Fail(ResponseCodes.ValidationError, timeIssue);
+                return timeIssueResponse;
             }
 
             var examDate = command.ExamDate.Date;
@@ -255,13 +251,13 @@ namespace Application.Exams
                 ExamTermId = command.ExamTermId,
                 ClassSubjectId = command.ClassSubjectId,
                 ExamDate = examDate,
-                StartTime = command.StartTime,
-                EndTime = command.EndTime,
-                InvigilatorEmployeeId = command.InvigilatorEmployeeId,
+                TimePeriodId = command.TimePeriodId,
+                StartTime = resolvedStartTime,
+                EndTime = resolvedEndTime,
                 Remarks = command.Remarks,
                 CalendarEventId = calendarEvent.Id,
                 ClassSubject = classSubject,
-                InvigilatorEmployee = invigilator
+                TimePeriod = resolvedTimePeriod
             };
 
             await _unitOfWork.ExamTerms.AddExamAsync(exam, cancellationToken);
@@ -272,104 +268,275 @@ namespace Application.Exams
             return successResponse;
         }
 
-        public async Task<CommonResponse<CreateExamRoutineResultDto>> CreateExamRoutineAsync(CreateExamRoutineCommand command, CancellationToken cancellationToken = default)
+        public async Task<CommonResponse<SaveExamRoutineResultDto>> SaveExamRoutineAsync(SaveExamRoutineCommand command, CancellationToken cancellationToken = default)
         {
-            var validationResult = _createExamRoutineValidator.Validate(command);
+            var validationResult = _saveExamRoutineValidator.Validate(command);
             if (!validationResult.IsValid)
             {
                 var errorMessage = BuildValidationErrorMessage(validationResult);
-                var validationFailureResponse = CommonResponse<CreateExamRoutineResultDto>.Fail(ResponseCodes.ValidationError, errorMessage);
+                var validationFailureResponse = CommonResponse<SaveExamRoutineResultDto>.Fail(ResponseCodes.ValidationError, errorMessage);
                 return validationFailureResponse;
             }
 
             var examTerm = await _unitOfWork.ExamTerms.GetByIdAsync(command.ExamTermId, cancellationToken);
             if (examTerm == null)
             {
-                var termNotFoundResponse = CommonResponse<CreateExamRoutineResultDto>.Fail(ResponseCodes.NotFound, "Exam term with id '" + command.ExamTermId + "' was not found.");
+                var termNotFoundResponse = CommonResponse<SaveExamRoutineResultDto>.Fail(ResponseCodes.NotFound, "Exam term with id '" + command.ExamTermId + "' was not found.");
                 return termNotFoundResponse;
             }
 
             var academicClass = await _unitOfWork.AcademicClasses.GetByIdAsync(command.AcademicClassId, cancellationToken);
             if (academicClass == null)
             {
-                var classNotFoundResponse = CommonResponse<CreateExamRoutineResultDto>.Fail(ResponseCodes.NotFound, "Class with id '" + command.AcademicClassId + "' was not found.");
+                var classNotFoundResponse = CommonResponse<SaveExamRoutineResultDto>.Fail(ResponseCodes.NotFound, "Class with id '" + command.AcademicClassId + "' was not found.");
                 return classNotFoundResponse;
             }
 
-            var resultDto = new CreateExamRoutineResultDto { ExamTermId = command.ExamTermId, AcademicClassId = command.AcademicClassId };
-            var subjectsSeenThisCall = new HashSet<Guid>();
+            var existingExams = await _unitOfWork.ExamTerms.GetExamsByTermAsync(command.ExamTermId, command.AcademicClassId, cancellationToken);
+            var existingExamsBySubjectId = new Dictionary<Guid, Exam>();
+            foreach (var existingExam in existingExams)
+            {
+                existingExamsBySubjectId[existingExam.ClassSubjectId] = existingExam;
+            }
+
+            // --- Pass 1: validate the complete timetable, collecting every issue before mutating
+            // anything -- the save is all-or-nothing, so a single aggregated error beats failing
+            // fast on the first problem found.
+            var issues = new List<string>();
+            var seenSubjectIds = new HashSet<Guid>();
+            var resolvedItems = new List<(ExamRoutineItemInput Item, ClassSubject ClassSubject, TimeSpan StartTime, TimeSpan EndTime, TimePeriod TimePeriod)>();
 
             foreach (var item in command.Items)
             {
-                if (!subjectsSeenThisCall.Add(item.ClassSubjectId))
+                if (!seenSubjectIds.Add(item.ClassSubjectId))
                 {
-                    resultDto.Skipped.Add(new ExamRoutineSkipDto { ClassSubjectId = item.ClassSubjectId, Reason = "Duplicate subject in this request -- only the first occurrence is used." });
+                    issues.Add("Duplicate subject '" + item.ClassSubjectId + "' in the request.");
                     continue;
                 }
 
                 var classSubject = await _unitOfWork.AcademicClasses.GetClassSubjectByIdAsync(item.ClassSubjectId, cancellationToken);
                 if (classSubject == null || classSubject.AcademicClassId != command.AcademicClassId)
                 {
-                    resultDto.Skipped.Add(new ExamRoutineSkipDto { ClassSubjectId = item.ClassSubjectId, Reason = "This class subject was not found on this class." });
+                    issues.Add("Class subject with id '" + item.ClassSubjectId + "' was not found on this class.");
                     continue;
-                }
-
-                var alreadyExists = await _unitOfWork.ExamTerms.ExamExistsAsync(command.ExamTermId, item.ClassSubjectId, null, cancellationToken);
-                if (alreadyExists)
-                {
-                    resultDto.Skipped.Add(new ExamRoutineSkipDto { ClassSubjectId = item.ClassSubjectId, SubjectCode = classSubject.SubjectCode, Reason = "An exam for this subject already exists within this term." });
-                    continue;
-                }
-
-                Employee invigilator = null;
-                if (item.InvigilatorEmployeeId.HasValue)
-                {
-                    invigilator = await _unitOfWork.Employees.GetByIdAsync(item.InvigilatorEmployeeId.Value, cancellationToken);
-                    if (invigilator == null)
-                    {
-                        resultDto.Skipped.Add(new ExamRoutineSkipDto { ClassSubjectId = item.ClassSubjectId, SubjectCode = classSubject.SubjectCode, Reason = "Invigilator employee with id '" + item.InvigilatorEmployeeId.Value + "' was not found." });
-                        continue;
-                    }
                 }
 
                 var examDate = item.ExamDate.Date;
-                CalendarEvent calendarEvent;
-                try
+                if (examDate < examTerm.StartDate.Date || examDate > examTerm.EndDate.Date)
                 {
-                    calendarEvent = await BuildExamCalendarEventAsync(examTerm.Name, classSubject.SubjectCode, examDate, cancellationToken);
-                }
-                catch (BsCalendarException calendarException)
-                {
-                    resultDto.Skipped.Add(new ExamRoutineSkipDto { ClassSubjectId = item.ClassSubjectId, SubjectCode = classSubject.SubjectCode, Reason = calendarException.Message });
+                    issues.Add("Exam date for subject '" + classSubject.SubjectCode + "' (" + examDate.ToString("yyyy-MM-dd") + ") falls outside the exam term's date range (" + examTerm.StartDate.ToString("yyyy-MM-dd") + " to " + examTerm.EndDate.ToString("yyyy-MM-dd") + ").");
                     continue;
                 }
 
-                await _unitOfWork.CalendarEvents.AddAsync(calendarEvent, cancellationToken);
-
-                var exam = new Exam
+                var (resolvedStartTime, resolvedEndTime, resolvedTimePeriod, timeIssue) = await ResolveExamTimesAsync(command.AcademicClassId, item.TimePeriodId, item.StartTime, item.EndTime, cancellationToken);
+                if (timeIssue != null)
                 {
-                    ExamTermId = command.ExamTermId,
-                    ClassSubjectId = item.ClassSubjectId,
-                    ExamDate = examDate,
-                    StartTime = item.StartTime,
-                    EndTime = item.EndTime,
-                    InvigilatorEmployeeId = item.InvigilatorEmployeeId,
-                    Remarks = item.Remarks,
-                    CalendarEventId = calendarEvent.Id,
-                    ClassSubject = classSubject,
-                    InvigilatorEmployee = invigilator
-                };
+                    issues.Add("Subject '" + classSubject.SubjectCode + "': " + timeIssue);
+                    continue;
+                }
 
-                await _unitOfWork.ExamTerms.AddExamAsync(exam, cancellationToken);
+                try
+                {
+                    await _conversionService.ConvertAdToBsAsync(examDate, cancellationToken);
+                }
+                catch (BsCalendarException calendarException)
+                {
+                    issues.Add("Subject '" + classSubject.SubjectCode + "': " + calendarException.Message);
+                    continue;
+                }
 
-                var examDto = ExamMapper.ToExamDto(exam);
-                resultDto.Created.Add(examDto);
+                resolvedItems.Add((item, classSubject, resolvedStartTime, resolvedEndTime, resolvedTimePeriod));
+            }
+
+            // Student Overlap Check -- a class can't sit two subjects at overlapping times on the
+            // same date. Pairwise, only among items that already passed the checks above.
+            for (var i = 0; i < resolvedItems.Count; i++)
+            {
+                for (var j = i + 1; j < resolvedItems.Count; j++)
+                {
+                    var first = resolvedItems[i];
+                    var second = resolvedItems[j];
+
+                    if (first.Item.ExamDate.Date != second.Item.ExamDate.Date)
+                    {
+                        continue;
+                    }
+
+                    if (TimeRangesOverlap(first.StartTime, first.EndTime, second.StartTime, second.EndTime))
+                    {
+                        issues.Add("Subjects '" + first.ClassSubject.SubjectCode + "' and '" + second.ClassSubject.SubjectCode + "' overlap on " + first.Item.ExamDate.Date.ToString("yyyy-MM-dd") + ".");
+                    }
+                }
+            }
+
+            // An existing exam for this class/term whose subject is no longer in the submitted
+            // routine is a removal -- allowed only while it has no recorded marks (per policy: a
+            // removal that would discard graded work fails the whole save instead).
+            var examsToRemove = new List<Exam>();
+            foreach (var existingExam in existingExams)
+            {
+                if (seenSubjectIds.Contains(existingExam.ClassSubjectId))
+                {
+                    continue;
+                }
+
+                var hasMarks = await _unitOfWork.ExamTerms.HasMarksAsync(existingExam.Id, cancellationToken);
+                if (hasMarks)
+                {
+                    var subjectCode = existingExam.ClassSubject != null ? existingExam.ClassSubject.SubjectCode : existingExam.ClassSubjectId.ToString();
+                    issues.Add("Subject '" + subjectCode + "' is no longer in the submitted routine but already has recorded marks -- remove its marks first, or include it in the routine.");
+                    continue;
+                }
+
+                examsToRemove.Add(existingExam);
+            }
+
+            if (issues.Count > 0)
+            {
+                var combinedIssues = string.Join(" ", issues);
+                var issuesResponse = CommonResponse<SaveExamRoutineResultDto>.Fail(ResponseCodes.ValidationError, combinedIssues);
+                return issuesResponse;
+            }
+
+            // --- Pass 2: every item validated -- mutate and save once, atomically. ---
+            var resultDto = new SaveExamRoutineResultDto { ExamTermId = command.ExamTermId, AcademicClassId = command.AcademicClassId };
+
+            foreach (var resolved in resolvedItems)
+            {
+                var item = resolved.Item;
+                var classSubject = resolved.ClassSubject;
+                var examDate = item.ExamDate.Date;
+
+                if (existingExamsBySubjectId.TryGetValue(item.ClassSubjectId, out var existingExam))
+                {
+                    existingExam.ExamDate = examDate;
+                    existingExam.TimePeriodId = item.TimePeriodId;
+                    existingExam.TimePeriod = resolved.TimePeriod;
+                    existingExam.StartTime = resolved.StartTime;
+                    existingExam.EndTime = resolved.EndTime;
+                    existingExam.Remarks = item.Remarks;
+
+                    if (existingExam.CalendarEventId.HasValue)
+                    {
+                        var calendarEvent = await _unitOfWork.CalendarEvents.GetByIdAsync(existingExam.CalendarEventId.Value, cancellationToken);
+                        if (calendarEvent != null)
+                        {
+                            var (bsYear, bsMonth, bsDay) = await _conversionService.ConvertAdToBsAsync(examDate, cancellationToken);
+                            calendarEvent.Title = BuildExamEventTitle(examTerm.Name, classSubject.SubjectCode);
+                            calendarEvent.AdDate = examDate;
+                            calendarEvent.BsYear = bsYear;
+                            calendarEvent.BsMonth = bsMonth;
+                            calendarEvent.BsDay = bsDay;
+                        }
+                    }
+
+                    resultDto.UpdatedCount++;
+                    resultDto.Items.Add(ExamMapper.ToExamDto(existingExam));
+                }
+                else
+                {
+                    var calendarEvent = await BuildExamCalendarEventAsync(examTerm.Name, classSubject.SubjectCode, examDate, cancellationToken);
+                    await _unitOfWork.CalendarEvents.AddAsync(calendarEvent, cancellationToken);
+
+                    var newExam = new Exam
+                    {
+                        ExamTermId = command.ExamTermId,
+                        ClassSubjectId = item.ClassSubjectId,
+                        ExamDate = examDate,
+                        TimePeriodId = item.TimePeriodId,
+                        StartTime = resolved.StartTime,
+                        EndTime = resolved.EndTime,
+                        Remarks = item.Remarks,
+                        CalendarEventId = calendarEvent.Id,
+                        ClassSubject = classSubject,
+                        TimePeriod = resolved.TimePeriod
+                    };
+
+                    await _unitOfWork.ExamTerms.AddExamAsync(newExam, cancellationToken);
+
+                    resultDto.CreatedCount++;
+                    resultDto.Items.Add(ExamMapper.ToExamDto(newExam));
+                }
+            }
+
+            foreach (var examToRemove in examsToRemove)
+            {
+                if (examToRemove.CalendarEventId.HasValue)
+                {
+                    var calendarEvent = await _unitOfWork.CalendarEvents.GetByIdAsync(examToRemove.CalendarEventId.Value, cancellationToken);
+                    if (calendarEvent != null)
+                    {
+                        _unitOfWork.CalendarEvents.Remove(calendarEvent);
+                    }
+                }
+
+                _unitOfWork.ExamTerms.RemoveExam(examToRemove);
+                resultDto.DeletedCount++;
             }
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            var successResponse = CommonResponse<CreateExamRoutineResultDto>.Success(resultDto, "Exam routine created: " + resultDto.Created.Count + " scheduled, " + resultDto.Skipped.Count + " skipped.");
+            var successMessage = "Exam routine saved: " + resultDto.CreatedCount + " created, " + resultDto.UpdatedCount + " updated, " + resultDto.DeletedCount + " removed.";
+            var successResponse = CommonResponse<SaveExamRoutineResultDto>.Success(resultDto, successMessage);
             return successResponse;
+        }
+
+        private static bool TimeRangesOverlap(TimeSpan startA, TimeSpan endA, TimeSpan startB, TimeSpan endB)
+        {
+            return startA < endB && startB < endA;
+        }
+
+        // Class period timing (2026-07-30, moved off the Config catalog onto a real TimePeriod FK
+        // 2026-08-03 -- see Domain/Entities/TimePeriod's doc comment for why): resolves the
+        // concrete StartTime/EndTime an Exam is stored with, either from a picked TimePeriod (its
+        // own StartTime/EndTime) or from raw times supplied directly. The command-level validator
+        // already guarantees exactly one path was attempted; this is where the period path is
+        // actually looked up. A picked period must (a) not be a Break and (b) be mapped, via
+        // ClassTimePeriod, to the exam's own class -- the same two checks
+        // TeacherService.BuildAssignmentAsync applies for TeacherAssignment.TimePeriodId. Issue is
+        // non-null on any failure -- the caller returns it as a ValidationError without mutating
+        // anything.
+        private async Task<(TimeSpan StartTime, TimeSpan EndTime, TimePeriod TimePeriod, string Issue)> ResolveExamTimesAsync(Guid academicClassId, Guid? timePeriodId, TimeSpan? startTime, TimeSpan? endTime, CancellationToken cancellationToken)
+        {
+            TimeSpan resolvedStartTime;
+            TimeSpan resolvedEndTime;
+            TimePeriod resolvedTimePeriod = null;
+
+            if (timePeriodId.HasValue)
+            {
+                var timePeriod = await _unitOfWork.TimePeriods.GetByIdAsync(timePeriodId.Value, cancellationToken);
+                if (timePeriod == null)
+                {
+                    return (default, default, null, "Time period with id '" + timePeriodId.Value + "' was not found.");
+                }
+
+                if (timePeriod.Kind == PeriodKind.Break)
+                {
+                    return (default, default, null, "'" + timePeriod.Name + "' is a break, not a teaching period.");
+                }
+
+                var isMapped = await _unitOfWork.TimePeriods.IsMappedToClassAsync(academicClassId, timePeriodId.Value, cancellationToken);
+                if (!isMapped)
+                {
+                    return (default, default, null, "'" + timePeriod.Name + "' is not mapped to this class -- map it first via the Time Periods screen.");
+                }
+
+                resolvedStartTime = timePeriod.StartTime;
+                resolvedEndTime = timePeriod.EndTime;
+                resolvedTimePeriod = timePeriod;
+            }
+            else
+            {
+                resolvedStartTime = startTime.Value;
+                resolvedEndTime = endTime.Value;
+            }
+
+            if (resolvedEndTime <= resolvedStartTime)
+            {
+                return (default, default, null, "EndTime must be after StartTime.");
+            }
+
+            return (resolvedStartTime, resolvedEndTime, resolvedTimePeriod, null);
         }
 
         public async Task<CommonResponse<ExamDto>> GetExamByIdAsync(Guid id, CancellationToken cancellationToken = default)
@@ -453,15 +620,11 @@ namespace Application.Exams
                 return notFoundResponse;
             }
 
-            Employee invigilator = null;
-            if (command.InvigilatorEmployeeId.HasValue)
+            var (resolvedStartTime, resolvedEndTime, resolvedTimePeriod, timeIssue) = await ResolveExamTimesAsync(exam.ClassSubject.AcademicClassId, command.TimePeriodId, command.StartTime, command.EndTime, cancellationToken);
+            if (timeIssue != null)
             {
-                invigilator = await _unitOfWork.Employees.GetByIdAsync(command.InvigilatorEmployeeId.Value, cancellationToken);
-                if (invigilator == null)
-                {
-                    var invigilatorNotFoundResponse = CommonResponse<ExamDto>.Fail(ResponseCodes.NotFound, "Invigilator employee with id '" + command.InvigilatorEmployeeId.Value + "' was not found.");
-                    return invigilatorNotFoundResponse;
-                }
+                var timeIssueResponse = CommonResponse<ExamDto>.Fail(ResponseCodes.ValidationError, timeIssue);
+                return timeIssueResponse;
             }
 
             var examDate = command.ExamDate.Date;
@@ -477,10 +640,10 @@ namespace Application.Exams
             }
 
             exam.ExamDate = examDate;
-            exam.StartTime = command.StartTime;
-            exam.EndTime = command.EndTime;
-            exam.InvigilatorEmployeeId = command.InvigilatorEmployeeId;
-            exam.InvigilatorEmployee = invigilator;
+            exam.TimePeriodId = command.TimePeriodId;
+            exam.TimePeriod = resolvedTimePeriod;
+            exam.StartTime = resolvedStartTime;
+            exam.EndTime = resolvedEndTime;
             exam.Remarks = command.Remarks;
 
             if (exam.CalendarEventId.HasValue)
@@ -676,9 +839,9 @@ namespace Application.Exams
             return successResponse;
         }
 
-        public async Task<CommonResponse<List<StudentExamMarkDto>>> GetStudentExamMarksAsync(Guid? examId, Guid? enrollmentId, CancellationToken cancellationToken = default)
+        public async Task<CommonResponse<List<StudentExamMarkDto>>> GetStudentExamMarksAsync(Guid? examId, Guid? enrollmentId, Guid? classSectionId, CancellationToken cancellationToken = default)
         {
-            var marks = await _unitOfWork.ExamTerms.GetMarksAsync(examId, enrollmentId, cancellationToken);
+            var marks = await _unitOfWork.ExamTerms.GetMarksAsync(examId, enrollmentId, classSectionId, cancellationToken);
 
             var markDtos = new List<StudentExamMarkDto>();
             foreach (var mark in marks)
@@ -689,6 +852,92 @@ namespace Application.Exams
 
             var successResponse = CommonResponse<List<StudentExamMarkDto>>.Success(markDtos);
             return successResponse;
+        }
+
+        // Admin, student-wise marks entry -- every exam within one term the enrollment is
+        // eligible for, across every subject, each carrying its existing mark (or null). Reuses
+        // GetExamsByTermAsync (already scoped to the enrollment's own class) and resolves
+        // eligibility per exam exactly like GenerateExamResultsAsync/the roster does, so a subject
+        // this student doesn't actually take (an elective they didn't pick, or a section-scoped
+        // subject for a different section) never appears.
+        public async Task<CommonResponse<List<StudentExamMarkByStudentItemDto>>> GetStudentExamMarksByStudentAsync(Guid enrollmentId, Guid examTermId, CancellationToken cancellationToken = default)
+        {
+            var enrollment = await _unitOfWork.Enrollments.GetWithDetailsAsync(enrollmentId, cancellationToken);
+            if (enrollment == null)
+            {
+                var enrollmentNotFoundResponse = CommonResponse<List<StudentExamMarkByStudentItemDto>>.Fail(ResponseCodes.NotFound, "Enrollment with id '" + enrollmentId + "' was not found.");
+                return enrollmentNotFoundResponse;
+            }
+
+            var examTerm = await _unitOfWork.ExamTerms.GetByIdAsync(examTermId, cancellationToken);
+            if (examTerm == null)
+            {
+                var termNotFoundResponse = CommonResponse<List<StudentExamMarkByStudentItemDto>>.Fail(ResponseCodes.NotFound, "Exam term with id '" + examTermId + "' was not found.");
+                return termNotFoundResponse;
+            }
+
+            var academicClassId = enrollment.ClassSection != null ? enrollment.ClassSection.AcademicClassId : Guid.Empty;
+            var exams = await _unitOfWork.ExamTerms.GetExamsByTermAsync(examTermId, academicClassId, cancellationToken);
+
+            var marks = await _unitOfWork.ExamTerms.GetMarksAsync(null, enrollmentId, null, cancellationToken);
+            var marksByExamId = new Dictionary<Guid, StudentExamMark>();
+            foreach (var mark in marks)
+            {
+                marksByExamId[mark.ExamId] = mark;
+            }
+
+            var items = new List<StudentExamMarkByStudentItemDto>();
+            foreach (var exam in exams)
+            {
+                var eligibleEnrollments = await EligibleEnrollmentResolver.ResolveAsync(_unitOfWork, exam.ClassSubject, examTerm.AcademicYearId, null, cancellationToken);
+                var isEligible = false;
+                foreach (var eligibleEnrollment in eligibleEnrollments)
+                {
+                    if (eligibleEnrollment.Id == enrollmentId)
+                    {
+                        isEligible = true;
+                        break;
+                    }
+                }
+
+                if (!isEligible)
+                {
+                    continue;
+                }
+
+                var classSubject = exam.ClassSubject;
+                marksByExamId.TryGetValue(exam.Id, out var existingMark);
+
+                var item = new StudentExamMarkByStudentItemDto
+                {
+                    ExamId = exam.Id,
+                    ClassSubjectId = exam.ClassSubjectId,
+                    SubjectCode = classSubject != null ? classSubject.SubjectCode : null,
+                    ExamDate = exam.ExamDate,
+                    MarksLocked = exam.MarksLocked,
+                    FullMarks = classSubject != null ? classSubject.FullMarks : null,
+                    PassMarks = classSubject != null ? classSubject.PassMarks : null,
+                    HasTheory = classSubject == null || classSubject.HasTheory,
+                    HasPractical = classSubject != null && classSubject.HasPractical,
+                    TheoryMarks = classSubject != null ? classSubject.TheoryMarks : null,
+                    PracticalMarks = classSubject != null ? classSubject.PracticalMarks : null,
+                    TheoryPassMarks = classSubject != null ? classSubject.TheoryPassMarks : null,
+                    PracticalPassMarks = classSubject != null ? classSubject.PracticalPassMarks : null,
+                    Mark = existingMark != null ? ExamMapper.ToStudentExamMarkDto(existingMark) : null
+                };
+
+                items.Add(item);
+            }
+
+            items.Sort(CompareByStudentItemsBySubjectCode);
+
+            var successResponse = CommonResponse<List<StudentExamMarkByStudentItemDto>>.Success(items);
+            return successResponse;
+        }
+
+        private static int CompareByStudentItemsBySubjectCode(StudentExamMarkByStudentItemDto first, StudentExamMarkByStudentItemDto second)
+        {
+            return string.Compare(first.SubjectCode, second.SubjectCode, StringComparison.OrdinalIgnoreCase);
         }
 
         public async Task<CommonResponse<StudentExamMarkDto>> UpdateStudentExamMarkAsync(Guid id, UpdateStudentExamMarkCommand command, CancellationToken cancellationToken = default)
@@ -856,7 +1105,7 @@ namespace Application.Exams
             return successResponse;
         }
 
-        public async Task<CommonResponse<List<ExamMarkRosterItemDto>>> GetStudentExamMarkRosterAsync(Guid examId, string search, CancellationToken cancellationToken = default)
+        public async Task<CommonResponse<List<ExamMarkRosterItemDto>>> GetStudentExamMarkRosterAsync(Guid examId, string search, Guid? classSectionId, CancellationToken cancellationToken = default)
         {
             var exam = await _unitOfWork.ExamTerms.GetExamByIdAsync(examId, cancellationToken);
             if (exam == null)
@@ -865,8 +1114,8 @@ namespace Application.Exams
                 return notFoundResponse;
             }
 
-            var enrollments = await EligibleEnrollmentResolver.ResolveAsync(_unitOfWork, exam.ClassSubject, exam.ExamTerm.AcademicYearId, null, cancellationToken);
-            var marks = await _unitOfWork.ExamTerms.GetMarksAsync(examId, null, cancellationToken);
+            var enrollments = await EligibleEnrollmentResolver.ResolveAsync(_unitOfWork, exam.ClassSubject, exam.ExamTerm.AcademicYearId, classSectionId, cancellationToken);
+            var marks = await _unitOfWork.ExamTerms.GetMarksAsync(examId, null, classSectionId, cancellationToken);
 
             var marksByEnrollmentId = new Dictionary<Guid, StudentExamMark>();
             foreach (var mark in marks)
@@ -1244,7 +1493,7 @@ namespace Application.Exams
             // Which subjects contributed is answered directly by "does this student have a mark
             // for that exam" -- the same source of truth generation itself used -- rather than
             // re-deriving eligibility a second time.
-            var studentMarks = await _unitOfWork.ExamTerms.GetMarksAsync(null, result.EnrollmentId, cancellationToken);
+            var studentMarks = await _unitOfWork.ExamTerms.GetMarksAsync(null, result.EnrollmentId, null, cancellationToken);
 
             foreach (var mark in studentMarks)
             {

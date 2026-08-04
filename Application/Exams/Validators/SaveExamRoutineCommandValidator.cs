@@ -3,9 +3,9 @@ using FluentValidation;
 
 namespace Application.Exams.Validators
 {
-    public class CreateExamRoutineCommandValidator : AbstractValidator<CreateExamRoutineCommand>
+    public class SaveExamRoutineCommandValidator : AbstractValidator<SaveExamRoutineCommand>
     {
-        public CreateExamRoutineCommandValidator()
+        public SaveExamRoutineCommandValidator()
         {
             RuleFor(command => command.ExamTermId)
                 .NotEmpty();

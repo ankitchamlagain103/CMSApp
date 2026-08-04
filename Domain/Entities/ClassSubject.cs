@@ -17,8 +17,13 @@ namespace Domain.Entities
         // Grading metadata (2026-07-15) -- all nullable: existing rows predate this and a subject
         // may not have grading defined yet. Varies per class (a grade-appropriate marks scheme),
         // which is why these live here rather than on the global Subject Config catalog entry.
-        // FullMarks/PassMarks are the OVERALL totals; TheoryMarks/PracticalMarks are each
-        // component's own full marks.
+        //
+        // Two-tier composite mark structure (2026-07-30): FullMarks/PassMarks are DERIVED,
+        // computed server-side from TheoryMarks+PracticalMarks / TheoryPassMarks+
+        // PracticalPassMarks (AcademicClassService.ResolveCompositeMarks) -- never accepted as
+        // independent input on Assign/UpdateClassSubjectCommand, so they can never drift from the
+        // component figures that define them. Still stored (not computed on every read) because
+        // ExamService reads them directly and often (marks validation, result generation).
         public decimal? CreditHours { get; set; }
         public int? FullMarks { get; set; }
         public int? PassMarks { get; set; }
@@ -32,7 +37,10 @@ namespace Domain.Entities
         // BOTH the overall PassMarks AND each enabled component's own pass mark -- enforced at
         // mark-entry/result time, not here (this entity only stores the configured scheme).
         // Default HasTheory = true / HasPractical = false matches every subject configured before
-        // this round (pure-theory was the overwhelmingly common case).
+        // this round (pure-theory was the overwhelmingly common case). When a component is
+        // disabled, its Marks/PassMarks are forced to 0 (not left null) by ResolveCompositeMarks
+        // -- the "theory-only fallback" rule (PR_Full = PR_Pass = 0.00 when HasPractical = false,
+        // and symmetrically for a practical-only subject).
         public bool HasTheory { get; set; } = true;
         public bool HasPractical { get; set; }
         public int? TheoryPassMarks { get; set; }

@@ -21,6 +21,7 @@ namespace Infrastructure.Persistence
         private IEnrollmentRepository _enrollmentRepository;
         private IExamTermRepository _examTermRepository;
         private IGradeScaleRepository _gradeScaleRepository;
+        private ITimePeriodRepository _timePeriodRepository;
         private IStudentPromotionRepository _studentPromotionRepository;
         private IFeeStructureRepository _feeStructureRepository;
         private IFeeRuleRepository _feeRuleRepository;
@@ -222,6 +223,19 @@ namespace Infrastructure.Persistence
                 }
 
                 return _gradeScaleRepository;
+            }
+        }
+
+        public ITimePeriodRepository TimePeriods
+        {
+            get
+            {
+                if (_timePeriodRepository == null)
+                {
+                    _timePeriodRepository = new TimePeriodRepository(_dbContext);
+                }
+
+                return _timePeriodRepository;
             }
         }
 

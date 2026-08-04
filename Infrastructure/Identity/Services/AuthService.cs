@@ -418,7 +418,7 @@ namespace Infrastructure.Identity.Services
 
             var resetToken = await _userManager.GeneratePasswordResetTokenAsync(user);
             var resetLink = EmailLinkBuilder.BuildResetPasswordLink(_configuration, user.Id, resetToken);
-            var emailBody = "<p>A password reset was requested for your account.</p><p>" + resetLink + "</p><p>This link expires soon -- request a new one if it does.</p>";
+            var emailBody = "<p>A password reset was requested for your account.</p>" + BuildLinkHtml(resetLink) + "<p>This link expires soon -- request a new one if it does.</p>";
             await _emailService.SendEmailAsync(user.Email, "Reset your password", emailBody, cancellationToken);
 
             return genericResponse;
@@ -671,6 +671,21 @@ namespace Infrastructure.Identity.Services
             var tokenValue = Convert.ToBase64String(randomBytes);
             return tokenValue;
         }
+        // EmailLinkBuilder returns a real URL only when App:ClientBaseUrl is configured -- render
+        // that case as an actual clickable <a> instead of relying on the mail client to
+        // auto-linkify plain text. When ClientBaseUrl is unset, the "link" degrades to a bare
+        // "userId=...&token=..." query string (documented in EmailLinkBuilder) that isn't a URL
+        // at all, so it stays plain text rather than an inert/broken anchor.
+        private static string BuildLinkHtml(string link)
+        {
+            if (link.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || link.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            {
+                return "<p><a href=\"" + link + "\">" + link + "</a></p>";
+            }
+
+            return "<p>" + link + "</p>";
+        }
+
         private static string BuildValidationErrorMessage(ValidationResult validationResult)
         {
             var errorMessages = new List<string>();

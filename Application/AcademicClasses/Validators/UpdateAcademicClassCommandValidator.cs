@@ -7,6 +7,9 @@ namespace Application.AcademicClasses.Validators
     {
         public UpdateAcademicClassCommandValidator()
         {
+            RuleFor(command => command.Order)
+                .GreaterThanOrEqualTo(0);
+
             RuleFor(command => command.Status)
                 .IsInEnum();
         }

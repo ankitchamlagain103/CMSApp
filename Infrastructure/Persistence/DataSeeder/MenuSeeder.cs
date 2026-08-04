@@ -138,6 +138,19 @@ namespace Infrastructure.Persistence.DataSeeder
             catalog.Add(Permission("YEAR_LIST", "YEAR_UPDATE", "Update Academic Year", "AcademicYears", "UpdateAcademicYear", 3));
             catalog.Add(Permission("YEAR_LIST", "YEAR_DELETE", "Delete Academic Year", "AcademicYears", "DeleteAcademicYear", 4));
             catalog.Add(Permission("YEAR_LIST", "YEAR_CLONE_STRUCTURE", "Clone Year Structure", "AcademicYears", "CloneStructure", 5));
+
+            catalog.Add(Permission("SETUP", "FISCAL_YEAR_LIST", "Fiscal Years", "FiscalYears", "GetFiscalYears", 5));
+            //catalog.Add(SubMenu("SETUP", "FISCAL_YEAR_LIST", "Fiscal Years", "/apps/fiscal-year/list", null, "FiscalYears", "GetFiscalYears", 5));
+            catalog.Add(Permission("FISCAL_YEAR_LIST", "FISCAL_YEAR_CREATE", "Create Fiscal Year", "FiscalYears", "CreateFiscalYear", 1));
+            catalog.Add(Permission("FISCAL_YEAR_LIST", "FISCAL_YEAR_DETAIL", "View Fiscal Year Detail", "FiscalYears", "GetFiscalYearById", 2));
+            catalog.Add(Permission("FISCAL_YEAR_LIST", "FISCAL_YEAR_UPDATE", "Update Fiscal Year", "FiscalYears", "UpdateFiscalYear", 3));
+            catalog.Add(Permission("FISCAL_YEAR_LIST", "FISCAL_YEAR_DELETE", "Delete Fiscal Year", "FiscalYears", "DeleteFiscalYear", 4));
+            catalog.Add(Permission("FISCAL_YEAR_LIST", "TAX_SLAB_ADD", "Add Tax Slab", "FiscalYears", "AddTaxSlab", 5));
+            catalog.Add(Permission("FISCAL_YEAR_LIST", "TAX_SLAB_LIST", "View Tax Slabs", "FiscalYears", "GetTaxSlabs", 6));
+            catalog.Add(Permission("FISCAL_YEAR_LIST", "TAX_SLAB_UPDATE", "Update Tax Slab", "FiscalYears", "UpdateTaxSlab", 7));
+            catalog.Add(Permission("FISCAL_YEAR_LIST", "TAX_SLAB_DELETE", "Delete Tax Slab", "FiscalYears", "RemoveTaxSlab", 8));
+
+
             catalog.Add(SubMenu("SETUP", "CLASS_LIST", "Classes", "/apps/academic-class/list", null, "AcademicClasses", "GetAcademicClasses", 2));
             catalog.Add(Permission("CLASS_LIST", "CLASS_CREATE", "Create Class", "AcademicClasses", "CreateAcademicClass", 1));
             catalog.Add(Permission("CLASS_LIST", "CLASS_DETAIL", "View Class Detail", "AcademicClasses", "GetAcademicClassById", 2));
@@ -150,6 +163,13 @@ namespace Infrastructure.Persistence.DataSeeder
             catalog.Add(Permission("CLASS_LIST", "CLASS_SECTION_LIST", "View Class Sections", "AcademicClasses", "GetSections", 9));
             catalog.Add(Permission("CLASS_LIST", "CLASS_SECTION_UPDATE", "Update Class Section", "AcademicClasses", "UpdateSection", 10));
             catalog.Add(Permission("CLASS_LIST", "CLASS_SECTION_REMOVE", "Remove Section From Class", "AcademicClasses", "RemoveSection", 11));
+            // Class-scoped counterpart to TEACHER_ASSIGNMENT_BULK_ENTRY_ADD -- one class, several
+            // teachers/subjects/sections/periods in one call, for mapping "who teaches this
+            // class" from the class's own page.
+            catalog.Add(Permission("CLASS_LIST", "CLASS_TEACHER_ASSIGNMENT_BULK_ENTRY_ADD", "Assign Teachers To Class (Bulk Entry)", "AcademicClasses", "AssignTeachersBulkEntry", 12));
+            // Read-side counterpart -- "who teaches this class" (there was previously only the
+            // bulk-create POST above, no GET).
+            catalog.Add(Permission("CLASS_LIST", "CLASS_TEACHER_ASSIGNMENT_LIST", "View Class Teacher Assignments", "AcademicClasses", "GetTeacherAssignments", 13));
 
             // TEACHER_MANAGEMENT retired (2026-07-16): teachers are managed inside Employee
             // Management (the backend was already Employee-based via the shared-PK split; this
@@ -164,6 +184,13 @@ namespace Infrastructure.Persistence.DataSeeder
             catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_UPDATE", "Update Teacher", "Teachers", "UpdateTeacher", 33));
             catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_DELETE", "Delete Teacher", "Teachers", "DeleteTeacher", 34));
             catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_ASSIGNMENT_ADD", "Assign Teacher", "Teachers", "AssignClassSubject", 38));
+            // 2026-08-03: bulk multi-section counterpart -- assigns the same subject to a teacher
+            // across several sections in one call instead of repeating AssignClassSubject per section.
+            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_ASSIGNMENT_BULK_ADD", "Assign Teacher (Bulk Sections)", "Teachers", "AssignClassSubjectBulk", 62));
+            // General bulk-entry counterpart -- unlike the bulk-sections endpoint above (one
+            // ClassSubject, several sections), each row here names its own class/subject/section/
+            // period, so a teacher's whole routine can be entered in one call.
+            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_ASSIGNMENT_BULK_ENTRY_ADD", "Assign Teacher (Bulk Entry)", "Teachers", "AssignClassSubjectBulkEntry", 63));
             catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_ASSIGNMENT_REMOVE", "Remove Teacher Assignment", "Teachers", "RemoveAssignment", 39));
             catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_ASSIGNMENT_LIST", "View Teacher Assignments", "Teachers", "GetAssignments", 40));
             catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_SALARY_ADD", "Add Teacher Salary", "Teachers", "AddSalary", 45));
@@ -241,14 +268,19 @@ namespace Infrastructure.Persistence.DataSeeder
             catalog.Add(Permission("FEE_STRUCTURE_LIST", "FEE_STRUCTURE_ITEM_UPDATE", "Update Fee Structure Item", "FeeStructures", "UpdateItem", 6));
             catalog.Add(Permission("FEE_STRUCTURE_LIST", "FEE_STRUCTURE_ITEM_REMOVE", "Remove Fee Structure Item", "FeeStructures", "RemoveItem", 7));
 
-            catalog.Add(SubMenu("SETUP", "FEE_RULE_LIST", "Fee Rules", "/apps/fee-rule/list", null, "FeeRules", "GetFeeRules", 4));
-            catalog.Add(Permission("FEE_RULE_LIST", "FEE_RULE_CREATE", "Create Fee Rule", "FeeRules", "CreateFeeRule", 1));
-            catalog.Add(Permission("FEE_RULE_LIST", "FEE_RULE_DETAIL", "View Fee Rule Detail", "FeeRules", "GetFeeRuleById", 2));
+            catalog.Add(Permission("SETUP", "FEE_RULE_LIST", "Fee Rules", "FeeRules", "GetFeeRules", 1));
+            catalog.Add(Permission("FEE_RULE_LIST", "FEE_RULE_CREATE", "Create Fee Rule", "FeeRules", "CreateFeeRule", 2));
+            catalog.Add(Permission("FEE_RULE_LIST", "FEE_RULE_DETAIL", "View Fee Rule Detail", "FeeRules", "GetFeeRuleById", 3));
             catalog.Add(Permission("FEE_RULE_LIST", "FEE_RULE_UPDATE", "Update Fee Rule", "FeeRules", "UpdateFeeRule", 3));
             catalog.Add(Permission("FEE_RULE_LIST", "FEE_RULE_DELETE", "Delete Fee Rule", "FeeRules", "DeleteFeeRule", 4));
 
-            catalog.Add(MainMenu("FEE_MANAGEMENT", "Fee Management", "icons.DollarOutlined", 9, null));
-            catalog.Add(SubMenu("FEE_MANAGEMENT", "FEE_INVOICE_LIST", "Fee Generation", "/apps/fee-invoice/list", null, "FeeInvoices", "GetFeeInvoices", 1, isQuickLink: true));
+            // Fee Management and Payroll Management were merged into one generic ACCOUNTS main
+            // menu (2026-08-03), since both only ever held one or two transactional submenus each
+            // -- FEE_MANAGEMENT/PAYROLL_MANAGEMENT are retired below (BuildRetiredMenuCodes); the
+            // submenus themselves (FEE_INVOICE_LIST, PAYROLL_RUN_LIST, SALARY_CALCULATOR) keep
+            // their codes/ids, just re-parented, so existing role grants survive untouched.
+            catalog.Add(MainMenu("ACCOUNTS", "Accounts", "icons.BankOutlined", 9, null));
+            catalog.Add(SubMenu("ACCOUNTS", "FEE_INVOICE_LIST", "Fee Generation", "/apps/fee-invoice/list", null, "FeeInvoices", "GetFeeInvoices", 1, isQuickLink: true));
             catalog.Add(Permission("FEE_INVOICE_LIST", "FEE_INVOICE_GENERATE", "Generate Fee Invoices", "FeeInvoices", "Generate", 1));
             catalog.Add(Permission("FEE_INVOICE_LIST", "FEE_INVOICE_DETAIL", "View Fee Invoice Detail", "FeeInvoices", "GetFeeInvoiceById", 2));
             catalog.Add(Permission("FEE_INVOICE_LIST", "FEE_INVOICE_UPDATE", "Update Fee Invoice", "FeeInvoices", "UpdateFeeInvoice", 3));
@@ -294,18 +326,30 @@ namespace Infrastructure.Persistence.DataSeeder
 
             // Fiscal years/tax slabs live under SETUP (moved 2026-07-16, code/Id unchanged);
             // PAYROLL_MANAGEMENT below keeps only the transactional side (salary generation).
-            catalog.Add(SubMenu("SETUP", "FISCAL_YEAR_LIST", "Fiscal Years", "/apps/fiscal-year/list", null, "FiscalYears", "GetFiscalYears", 5));
-            catalog.Add(Permission("FISCAL_YEAR_LIST", "FISCAL_YEAR_CREATE", "Create Fiscal Year", "FiscalYears", "CreateFiscalYear", 1));
-            catalog.Add(Permission("FISCAL_YEAR_LIST", "FISCAL_YEAR_DETAIL", "View Fiscal Year Detail", "FiscalYears", "GetFiscalYearById", 2));
-            catalog.Add(Permission("FISCAL_YEAR_LIST", "FISCAL_YEAR_UPDATE", "Update Fiscal Year", "FiscalYears", "UpdateFiscalYear", 3));
-            catalog.Add(Permission("FISCAL_YEAR_LIST", "FISCAL_YEAR_DELETE", "Delete Fiscal Year", "FiscalYears", "DeleteFiscalYear", 4));
-            catalog.Add(Permission("FISCAL_YEAR_LIST", "TAX_SLAB_ADD", "Add Tax Slab", "FiscalYears", "AddTaxSlab", 5));
-            catalog.Add(Permission("FISCAL_YEAR_LIST", "TAX_SLAB_LIST", "View Tax Slabs", "FiscalYears", "GetTaxSlabs", 6));
-            catalog.Add(Permission("FISCAL_YEAR_LIST", "TAX_SLAB_UPDATE", "Update Tax Slab", "FiscalYears", "UpdateTaxSlab", 7));
-            catalog.Add(Permission("FISCAL_YEAR_LIST", "TAX_SLAB_DELETE", "Delete Tax Slab", "FiscalYears", "RemoveTaxSlab", 8));
 
-            catalog.Add(MainMenu("PAYROLL_MANAGEMENT", "Payroll Management", "icons.BankOutlined", 10, null));
-            catalog.Add(SubMenu("PAYROLL_MANAGEMENT", "PAYROLL_RUN_LIST", "Salary Generation", "/apps/payroll-run/list", null, "PayrollRuns", "GetPayrollRuns", 1));
+            catalog.Add(SubMenu("SETUP", "LEAVE_TYPE_LIST", "Leave Types", "/apps/leave-type/list", null, "LeaveTypes", "GetLeaveTypes", 1));
+            catalog.Add(Permission("LEAVE_TYPE_LIST", "LEAVE_TYPE_CREATE", "Create Leave Type", "LeaveTypes", "CreateLeaveType", 1));
+            catalog.Add(Permission("LEAVE_TYPE_LIST", "LEAVE_TYPE_DETAIL", "View Leave Type Detail", "LeaveTypes", "GetLeaveTypeById", 2));
+            catalog.Add(Permission("LEAVE_TYPE_LIST", "LEAVE_TYPE_UPDATE", "Update Leave Type", "LeaveTypes", "UpdateLeaveType", 3));
+            catalog.Add(Permission("LEAVE_TYPE_LIST", "LEAVE_TYPE_DELETE", "Delete Leave Type", "LeaveTypes", "DeleteLeaveType", 4));
+
+            // Time Periods (2026-08-03) -- the school's daily routine catalog (periods + breaks)
+            // and its per-class mapping, replacing the short-lived ConfigTypeCodes.ClassPeriod
+            // catalog with real tables (Domain/Entities/TimePeriod + ClassTimePeriod) since
+            // "certain classes run different period structures" is a relationship, not a flat
+            // option list. See Docs/time_period_and_class_routine_implementation_guide.md.
+            //catalog.Add(SubMenu("SETUP", "TIME_PERIOD_LIST", "Time Periods", "/apps/time-period/list", null, "TimePeriods", "GetTimePeriods", 7));
+            catalog.Add(Permission("SETUP", "TIME_PERIOD_LIST", "Time Periods", "TimePeriods", "GetTimePeriods", 7));
+            catalog.Add(Permission("TIME_PERIOD_LIST", "TIME_PERIOD_CREATE", "Create Time Period", "TimePeriods", "CreateTimePeriod", 1));
+            catalog.Add(Permission("TIME_PERIOD_LIST", "TIME_PERIOD_DETAIL", "View Time Period Detail", "TimePeriods", "GetTimePeriodById", 2));
+            catalog.Add(Permission("TIME_PERIOD_LIST", "TIME_PERIOD_UPDATE", "Update Time Period", "TimePeriods", "UpdateTimePeriod", 3));
+            catalog.Add(Permission("TIME_PERIOD_LIST", "TIME_PERIOD_DELETE", "Delete Time Period", "TimePeriods", "DeleteTimePeriod", 4));
+            catalog.Add(Permission("TIME_PERIOD_LIST", "TIME_PERIOD_MAP", "Map Time Periods To Classes (Bulk)", "TimePeriods", "MapClassTimePeriods", 5));
+            catalog.Add(Permission("TIME_PERIOD_LIST", "TIME_PERIOD_CLASS_LIST", "View Class Time Periods", "TimePeriods", "GetClassTimePeriods", 6));
+            catalog.Add(Permission("TIME_PERIOD_LIST", "TIME_PERIOD_UNMAP", "Unmap Time Period From Class", "TimePeriods", "UnmapClassTimePeriod", 7));
+
+
+            catalog.Add(SubMenu("ACCOUNTS", "PAYROLL_RUN_LIST", "Salary Generation", "/apps/payroll-run/list", null, "PayrollRuns", "GetPayrollRuns", 2));
             catalog.Add(Permission("PAYROLL_RUN_LIST", "PAYROLL_RUN_CREATE", "Generate Payroll Run", "PayrollRuns", "CreatePayrollRun", 1));
             catalog.Add(Permission("PAYROLL_RUN_LIST", "PAYROLL_RUN_DETAIL", "View Payroll Run Detail", "PayrollRuns", "GetPayrollRunById", 2));
             catalog.Add(Permission("PAYROLL_RUN_LIST", "PAYROLL_RUN_APPROVE", "Approve Payroll Run", "PayrollRuns", "ApproveRun", 3));
@@ -320,7 +364,7 @@ namespace Infrastructure.Persistence.DataSeeder
             // 2026-07-22: individual (per-slip, not whole-run) approve + regenerate.
             catalog.Add(Permission("PAYROLL_RUN_LIST", "SALARY_SLIP_APPROVE", "Approve Salary Slip", "PayrollRuns", "ApproveSlip", 12));
             catalog.Add(Permission("PAYROLL_RUN_LIST", "SALARY_SLIP_REGENERATE", "Regenerate Salary Slip", "PayrollRuns", "RegenerateSlip", 13));
-            catalog.Add(SubMenu("PAYROLL_MANAGEMENT", "SALARY_CALCULATOR", "Salary Calculator", "/apps/payroll/salary-calculator", null, "SalaryCalculator", "CalculateSalaryStructure", 2));
+            catalog.Add(SubMenu("ACCOUNTS", "SALARY_CALCULATOR", "Salary Calculator", "/apps/payroll/salary-calculator", null, "SalaryCalculator", "CalculateSalaryStructure", 3));
             catalog.Add(Permission("SALARY_CALCULATOR", "SALARY_CALCULATOR_ASSIGN", "Assign Calculated Salary To Employee", "SalaryCalculator", "AssignSalaryStructure", 1));
 
             // Calendar configuration (BS month lengths, localization, weekly holidays) lives
@@ -430,13 +474,6 @@ namespace Infrastructure.Persistence.DataSeeder
             // gates the field on CreateEmployeeCommand implicitly, since that's just EMPLOYEE_CREATE.
             catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_REGISTER_ACCOUNT", "Register Employee Portal Account", "Employees", "RegisterUserAccount", 61));
 
-            catalog.Add(MainMenu("LEAVE_MANAGEMENT", "Leave Management", "icons.CalendarOutlined", 13, null));
-            catalog.Add(SubMenu("LEAVE_MANAGEMENT", "LEAVE_TYPE_LIST", "Leave Types", "/apps/leave-type/list", null, "LeaveTypes", "GetLeaveTypes", 1));
-            catalog.Add(Permission("LEAVE_TYPE_LIST", "LEAVE_TYPE_CREATE", "Create Leave Type", "LeaveTypes", "CreateLeaveType", 1));
-            catalog.Add(Permission("LEAVE_TYPE_LIST", "LEAVE_TYPE_DETAIL", "View Leave Type Detail", "LeaveTypes", "GetLeaveTypeById", 2));
-            catalog.Add(Permission("LEAVE_TYPE_LIST", "LEAVE_TYPE_UPDATE", "Update Leave Type", "LeaveTypes", "UpdateLeaveType", 3));
-            catalog.Add(Permission("LEAVE_TYPE_LIST", "LEAVE_TYPE_DELETE", "Delete Leave Type", "LeaveTypes", "DeleteLeaveType", 4));
-
             // Exam Management (2026-07-28) -- assessment configuration lives on ClassSubject
             // itself (extended in place, see AcademicClasses' CLASS_SUBJECT_ASSIGN/UPDATE
             // permissions above -- no new endpoint), so this main menu only covers the new
@@ -463,10 +500,12 @@ namespace Infrastructure.Persistence.DataSeeder
             catalog.Add(Permission("EXAM_LIST", "EXAM_DELETE", "Delete Exam", "Exams", "DeleteExam", 4));
             catalog.Add(Permission("EXAM_LIST", "EXAM_LOCK", "Lock Exam Marks", "Exams", "LockExam", 5));
             catalog.Add(Permission("EXAM_LIST", "EXAM_UNLOCK", "Unlock Exam Marks", "Exams", "UnlockExam", 6));
-            // 2026-07-30: schedule every subject of one class in one call -- the "set the whole
-            // routine at once" flow, replacing the earlier (Round 2, later removed) for-class
-            // convenience with a per-item date/time/invigilator shape.
-            catalog.Add(Permission("EXAM_LIST", "EXAM_CREATE_ROUTINE", "Create Exam Routine For Class", "Exams", "CreateExamRoutine", 7));
+            // 2026-07-30, redesigned same day: schedule every subject of one class in one call --
+            // the "set the whole routine at once" batch-scheduling workflow. Evolved from a
+            // create-only/skip-list endpoint (EXAM_CREATE_ROUTINE, retired below) into a full
+            // idempotent sync (create/update/remove) with term-boundary and overlap validation,
+            // renamed to reflect that it's no longer just a create.
+            catalog.Add(Permission("EXAM_LIST", "EXAM_SAVE_ROUTINE", "Save Exam Routine For Class", "Exams", "SaveExamRoutine", 7));
             catalog.Add(SubMenu("EXAM_MANAGEMENT", "GRADE_SCALE_LIST", "Grade Scales", "/apps/grade-scale/list", null, "GradeScales", "GetGradeScales", 4));
             catalog.Add(Permission("GRADE_SCALE_LIST", "GRADE_SCALE_CREATE", "Create Grade Scale", "GradeScales", "CreateGradeScale", 1));
             catalog.Add(Permission("GRADE_SCALE_LIST", "GRADE_SCALE_DETAIL", "View Grade Scale Detail", "GradeScales", "GetGradeScaleById", 2));
@@ -479,6 +518,9 @@ namespace Infrastructure.Persistence.DataSeeder
             catalog.Add(Permission("STUDENT_EXAM_MARK_LIST", "STUDENT_EXAM_MARK_DELETE", "Delete Student Exam Mark", "StudentExamMarks", "DeleteStudentExamMark", 4));
             catalog.Add(Permission("STUDENT_EXAM_MARK_LIST", "STUDENT_EXAM_MARK_BULK_UPSERT", "Bulk Upsert Student Exam Marks", "StudentExamMarks", "BulkUpsertStudentExamMarks", 5));
             catalog.Add(Permission("STUDENT_EXAM_MARK_LIST", "STUDENT_EXAM_MARK_ROSTER", "View Student Exam Mark Roster", "StudentExamMarks", "GetStudentExamMarkRoster", 6));
+            // 2026-07-30: admin, student-wise marks entry -- the "one student, every subject"
+            // counterpart to the teacher-wise roster above.
+            catalog.Add(Permission("STUDENT_EXAM_MARK_LIST", "STUDENT_EXAM_MARK_BY_STUDENT", "View Student Exam Marks By Student", "StudentExamMarks", "GetStudentExamMarksByStudent", 7));
             catalog.Add(SubMenu("EXAM_MANAGEMENT", "EXAM_RESULT_LIST", "Exam Results", "/apps/exam-result/list", null, "ExamResults", "GetStudentResults", 6));
             catalog.Add(Permission("EXAM_RESULT_LIST", "EXAM_RESULT_GENERATE", "Generate Exam Results", "ExamResults", "GenerateExamResults", 1));
             catalog.Add(Permission("EXAM_RESULT_LIST", "EXAM_RESULT_PUBLISH", "Publish Exam Results", "ExamResults", "PublishExamResults", 2));
@@ -559,7 +601,19 @@ namespace Infrastructure.Persistence.DataSeeder
                 "EXAM_HALL_ARRANGEMENT_LOCK",
                 "EXAM_HALL_ARRANGEMENT_PUBLISH",
                 "EXAM_HALL_ARRANGEMENT_MARK_ATTENDANCE",
-                "EXAM_HALL_ARRANGEMENT_LIST"
+                "EXAM_HALL_ARRANGEMENT_LIST",
+
+                // Retired 2026-07-30, same day: EXAM_CREATE_ROUTINE (POST, create-only/skip-list)
+                // replaced by EXAM_SAVE_ROUTINE (PUT, full idempotent sync) -- any role holding
+                // the old grant needs EXAM_SAVE_ROUTINE granted instead.
+                "EXAM_CREATE_ROUTINE",
+
+                // Retired 2026-08-03: FEE_MANAGEMENT and PAYROLL_MANAGEMENT merged into one
+                // generic ACCOUNTS main menu. FEE_INVOICE_LIST/PAYROLL_RUN_LIST/SALARY_CALCULATOR
+                // kept their codes/ids, just re-parented under ACCOUNTS -- existing role grants
+                // on those three survive untouched.
+                "FEE_MANAGEMENT",
+                "PAYROLL_MANAGEMENT"
             };
 
             return retiredCodes;

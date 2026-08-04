@@ -9,14 +9,13 @@ hall/seat-allocation engine (rooms, hall arrangements, automatic seating, exam r
 attendance) **removed entirely** (2026-07-30, per instruction — the module only needs simple
 subject/date/time scheduling). This guide supersedes the previous version of itself — every section
 below reflects the **current** backend. See "What changed, and when" near the end for the full
-history if you need to reconcile against an older frontend build. The "set the whole routine at
-once" batch-schedule endpoint and the whole-vs-divided marks-configuration defaulting added in the
+history if you need to reconcile against an older frontend build. The batch-scheduling workflow
+(`PUT /api/exams/routine`) and the whole-vs-divided marks-configuration defaulting added in the
 same round have their own focused companion guide:
 `Docs/exam_routine_and_marks_configuration_implementation_guide.md`.
 
 > ⚠️ **Migration status — read before touching this module.** `dbo.exams` and its dependents have
-> been through several shapes; the exact statements a given database needs depend on which
-> migrations it has actually run:
+> been through several shapes:
 >
 > - `20260728171309_Added initial exam module.cs` — original shape (`class_section_id`, free-text
 >   `room`, `name`, `weightage_percent`, `is_final_exam`; no `remarks`).
@@ -24,13 +23,33 @@ same round have their own focused companion guide:
 >   — the two follow-ups that drop the original columns, rename `description` → `remarks`, and
 >   (update2) add `room_id` (FK → `exam_rooms`) plus create `exam_rooms`/`exam_hall_arrangements`/
 >   `exam_hall_arrangement_classes`/`exam_seat_allocations` for the (now-removed) seating engine.
-> - **A further migration is needed on top of whichever of the above has run** to reflect this
->   round's removal: drop `dbo.exam_rooms`, `dbo.exam_hall_arrangements`,
->   `dbo.exam_hall_arrangement_classes`, `dbo.exam_seat_allocations`, and `dbo.exams.room_id` (with
->   its FK/index) if update2 was applied; if only the initial migration (or update1) has run, those
->   tables/column never existed and there's nothing to drop for this round specifically — just the
->   pre-existing gap those two files already cover. **Check the actual schema before writing the
->   drop migration** rather than assuming a specific starting point.
+> - **`20260730061558_changes in exam module3 update.cs`** — drops `dbo.exam_rooms`,
+>   `dbo.exam_hall_arrangements`, `dbo.exam_hall_arrangement_classes`, `dbo.exam_seat_allocations`,
+>   and `dbo.exams.room_id` (FK + index), reflecting the Room/seat-arrangement removal. This
+>   migration already exists in `Infrastructure/Migrations/`. Apply it with
+>   `dotnet ef database update` if your database hasn't run it yet.
+> - **Still pending, not yet written**: `Exam.InvigilatorEmployeeId`/`InvigilatorEmployee` were
+>   also removed from the entity (same round, follow-up instruction) — `dbo.exams.remarks` is now
+>   genuinely the last column, but `dbo.exams.invigilator_employee_id` (and its FK to `employees`)
+>   is still in the schema per the migration above, unmapped by the current entity. A further
+>   migration is needed: `ALTER TABLE dbo.exams DROP CONSTRAINT "FK_exams_employees_invigilator_employee_id"; DROP INDEX "IX_exams_invigilator_employee_id"; ALTER TABLE dbo.exams DROP COLUMN invigilator_employee_id;`
+>   (exact constraint/index names may differ — check the actual schema). Every `SELECT`/`INSERT`
+>   against `Exam` still works today regardless (EF just never reads/writes that column), so this
+>   is a cleanup gap, not a runtime error, unlike the `remarks` gap the update1/update2 pair fixed.
+> - **`20260730093356_changes in in exams for period code.cs`** — added
+>   `dbo.exams.period_code varchar(100) NULL` for the original (string, Config-code) class period
+>   timing cut. Already applied.
+> - **Superseded the same day (2026-08-03)**: `Exam.PeriodCode` (string) was replaced by
+>   `Exam.TimePeriodId` (`Guid?`, a real FK into the new `dbo.time_periods` table) — see
+>   `Docs/time_period_and_class_routine_implementation_guide.md`. A further migration is needed:
+>   drop `dbo.exams.period_code` (added by the migration above), add
+>   `dbo.exams.time_period_id uuid NULL` with an FK to `time_periods.id`, plus create
+>   `dbo.time_periods`/`dbo.class_time_periods` and make the matching change on
+>   `dbo.teacher_assignments` (its own `period_code` column, added by
+>   `20260803083606_update in setup for class assignment.cs`, is superseded the same way). **This
+>   is a runtime error until applied** — `TimePeriodId` is a mapped property EF selects on every
+>   read, so any `Exam`/`TeacherAssignment`/`SaveExamRoutine` query fails until the column exists.
+>   See the new guide's migration section for the exact statements.
 
 ---
 
@@ -47,8 +66,6 @@ this is the **only** place Full Marks/Pass Marks are entered anywhere in the exa
   "isMandatory": true,
   "displayOrder": 3,
   "creditHours": 4.0,
-  "fullMarks": 100,
-  "passMarks": 37,
   "theoryMarks": 75,
   "practicalMarks": 25,
   "hasTheory": true,
@@ -58,14 +75,38 @@ this is the **only** place Full Marks/Pass Marks are entered anywhere in the exa
 }
 ```
 
-- `fullMarks`/`passMarks` are the subject's **overall** totals — this is what every exam for the
-  subject is graded out of, and what marks-entry validation and result generation both read.
-- `theoryMarks`/`practicalMarks` are each component's own full marks; `theoryPassMarks`/
-  `practicalPassMarks` are each component's own pass threshold. A student must clear the overall
-  `passMarks` **and** each enabled component's own pass mark.
+**Two-tier composite mark structure (2026-07-30): `fullMarks`/`passMarks` are NOT request fields
+anymore.** They're computed server-side and returned read-only on `ClassSubjectDto`:
+
+| Metric | Sub-component | Formula |
+|---|---|---|
+| Full Marks | Theory (`theoryMarks`) | Admin-entered — max score in the written exam |
+| Full Marks | Practical (`practicalMarks`) | Admin-entered — max score in lab/project/skill assessment |
+| Full Marks | **Total (`fullMarks`)** | `theoryMarks + practicalMarks` — computed, never sent |
+| Pass Marks | Theory (`theoryPassMarks`) | Admin-entered — minimum to pass the theory component |
+| Pass Marks | Practical (`practicalPassMarks`) | Admin-entered — minimum to pass the practical component |
+| Pass Marks | **Total (`passMarks`)** | `theoryPassMarks + practicalPassMarks` — computed, never sent |
+
+This means the request above (Theory 75 + Practical 25) comes back with `fullMarks: 100` and
+`passMarks: 37` on the response — computed, not something you also had to type in and keep in
+sync. `theoryMarks`/`practicalMarks` are each component's own full marks; `theoryPassMarks`/
+`practicalPassMarks` are each component's own pass threshold. Per the **independent component
+passing rule**, a student must clear **each enabled component's own pass mark individually** —
+passing the combined total alone is not sufficient if either component fails (already enforced at
+marks-entry/result time, see sections 5–6; unaffected by this round).
+
 - `hasTheory`/`hasPractical` say which components exist for this subject at all (default
   `hasTheory: true`, `hasPractical: false` — pure-theory is the common case). Marks entry (section
   5 below) rejects submitting a component the subject doesn't have.
+- **Theory-only fallback**: when `hasPractical: false`, the backend automatically forces
+  `practicalMarks`/`practicalPassMarks` to `0` (not `null`) — sending them yourself is rejected
+  (see the validation table). `fullMarks` then reduces to exactly `theoryMarks` (`theoryMarks + 0`)
+  and `passMarks` to exactly `theoryPassMarks` — the "theory-only fallback" rule. The mirror case
+  (`hasTheory: false`, a practical-only subject) works the same way with the roles swapped.
+- **Ungraded stays ungraded**: if the subject's marks scheme isn't configured yet, leave
+  `theoryMarks`/`theoryPassMarks` (and, in divided mode, `practicalMarks`/`practicalPassMarks`)
+  unset — `fullMarks`/`passMarks` come back `null`, not `0`, so "not graded yet" and "graded with
+  zero marks" are never confused. Grading is still optional at exam-creation time (section 3).
 - **Grade-wise and section-wise mapping**: `ClassSubject` is already keyed by `AcademicClassId`
   (the grade) with an optional `ClassSectionId` override — a class-wide row applies to every
   section of that grade; a section-scoped row (same subject code, non-null `ClassSectionId`)
@@ -81,9 +122,13 @@ this is the **only** place Full Marks/Pass Marks are entered anywhere in the exa
 | `hasPractical: false` ⇒ `practicalMarks`/`practicalPassMarks` must be omitted | "PracticalMarks/PracticalPassMarks cannot be set when HasPractical is false." |
 | `theoryPassMarks` ≤ `theoryMarks` (when both given) | "TheoryPassMarks cannot exceed TheoryMarks." |
 | `practicalPassMarks` ≤ `practicalMarks` (when both given) | "PracticalPassMarks cannot exceed PracticalMarks." |
-| `passMarks` ≤ `fullMarks`, `theoryMarks + practicalMarks == fullMarks` when all given | — |
+| Both `hasTheory` and `hasPractical` enabled ⇒ `theoryMarks`/`practicalMarks` must be supplied together (both set, or both left unset) | "When both HasTheory and HasPractical are enabled, TheoryMarks and PracticalMarks must be provided together..." |
 
-`ClassSubjectDto` (returned by every subject read) carries all of the above.
+`passMarks` ≤ `fullMarks` is no longer a separate rule to violate — since both are now sums of the
+same Theory/Practical pairs, `theoryPassMarks ≤ theoryMarks` and `practicalPassMarks ≤
+practicalMarks` together already guarantee it. `ClassSubjectDto` (returned by every subject read)
+carries `fullMarks`/`passMarks`/`theoryMarks`/`practicalMarks`/`theoryPassMarks`/
+`practicalPassMarks`, all of the above.
 
 ---
 
@@ -170,17 +215,28 @@ POST /api/exams
 {
   "examTermId": "…",
   "classSubjectId": "…",
-  "examDate": "2026-08-03",
-  "startTime": "10:00:00",
-  "endTime": "12:00:00",
-  "invigilatorEmployeeId": "…",
+  "examDate": "2026-08-10",
+  "timePeriodId": "<Period 3 id>",
+  "startTime": null,
+  "endTime": null,
   "remarks": "Bring your own calculator"
 }
 ```
 
-`startTime`/`endTime` are `HH:mm:ss` (TimeSpan). `invigilatorEmployeeId` is optional — the plain
-"assign subject, date, time, invigilator" flow doesn't need anything else; there is no room concept
-at all in this module (the room/seat-arrangement engine was removed 2026-07-30).
+`startTime`/`endTime` are `HH:mm:ss` (`TimeSpan?`). There is no room and no invigilator concept at
+all in this module (both removed 2026-07-30) — an `Exam` is just subject + date/time + remarks.
+
+**Class period timing (2026-07-30, moved off a Config catalog onto a real `TimePeriod` table
+2026-08-03 — see `Docs/time_period_and_class_routine_implementation_guide.md`)**: send **either**
+`timePeriodId` (a `TimePeriod` id — must not be a `Break`-kind row, and must be mapped to this
+exam's class via `POST /api/timeperiods/map` first; list a class's mapped periods via
+`GET /api/timeperiods/map/{academicClassId}`) and leave `startTime`/`endTime` `null` — the backend
+resolves the concrete times from the period's own start/end — **or** send `startTime`/`endTime`
+directly and leave `timePeriodId` `null`. Exactly one of the two is required; sending both is fine
+too (the period wins, raw times are ignored) but there's no reason to. The response's `ExamDto`
+always carries concrete `startTime`/`endTime` either way, plus `timePeriodId`/`timePeriodName`
+(both `null` if raw times were used) — `timePeriodName` is resolved server-side, no second lookup
+needed.
 
 **Creating, updating, or deleting an exam automatically creates/updates/removes a linked
 `CalendarEvent`** (`eventType: 5` / `CalendarEventType.Exam`) so it shows up on the existing
@@ -188,51 +244,58 @@ at all in this module (the room/seat-arrangement engine was removed 2026-07-30).
 
 | HTTP / code | Cause |
 |---|---|
-| `404 NOT_FOUND` | Unknown `examTermId`, `classSubjectId`, or `invigilatorEmployeeId` |
-| `400 VALIDATION_ERROR` | `endTime` not after `startTime` |
+| `404 NOT_FOUND` | Unknown `examTermId` or `classSubjectId` |
+| `400 VALIDATION_ERROR` | Neither `timePeriodId` nor both `startTime`/`endTime` given; `timePeriodId` not a known period, a `Break`-kind row, or not mapped to this class; the resolved `endTime` not after `startTime` |
 | `409 CONFLICT` | An exam already exists for this subject within this term |
 
-### Schedule a whole class's routine in one call — `POST /api/exams/routine`
+### Batch-schedule a whole class's routine in one call — `PUT /api/exams/routine`
 
-The "set every subject's date/time for one class at once" flow, instead of one `POST /api/exams`
-per subject. Full details, request/response shapes, and validation table live in the companion
-guide, `Docs/exam_routine_and_marks_configuration_implementation_guide.md` (section 1) — summary:
+The batch-scheduling workflow: build a whole class's timetable for one exam term and save it in
+one atomic, idempotent call, instead of one `POST`/`PUT /api/exams` per subject. Full details
+(sync semantics, term-boundary/overlap validation, response shape) live in the companion guide,
+`Docs/exam_routine_and_marks_configuration_implementation_guide.md` (section 1) — summary:
 
 ```
-POST /api/exams/routine
+PUT /api/exams/routine
 {
   "examTermId": "…",
   "academicClassId": "…",
   "items": [
-    { "classSubjectId": "…", "examDate": "2026-08-03", "startTime": "10:00:00", "endTime": "12:00:00", "invigilatorEmployeeId": null, "remarks": null },
-    { "classSubjectId": "…", "examDate": "2026-08-04", "startTime": "10:00:00", "endTime": "12:00:00" }
+    { "classSubjectId": "…", "examDate": "2026-08-10", "timePeriodId": "<Period 1 id>", "startTime": null, "endTime": null, "remarks": null },
+    { "classSubjectId": "…", "examDate": "2026-08-11", "timePeriodId": null, "startTime": "10:00:00", "endTime": "12:00:00" }
   ]
 }
 ```
 
-Skip-list style, same convention as `POST /api/studentexammarks/bulk` — a bad item (unknown
-subject, subject already scheduled this term, unknown invigilator, duplicate subject in the same
-request) is reported in the response's `skipped` array instead of failing the whole call.
+Each item independently picks `timePeriodId` or raw `startTime`/`endTime` — same either/or rule as
+`POST /api/exams` above, validated per item.
+
+`items` is the **complete** set of exams this class/term should have after saving — a subject
+already scheduled gets updated in place, a new subject gets created, and a previously-scheduled
+subject missing from `items` gets removed (unless it already has recorded marks, which fails the
+whole save instead of silently discarding them). The whole request is validated as one atomic unit
+— any term-boundary violation, time overlap, or blocked removal fails the entire call, nothing is
+partially saved.
 
 ### Full endpoint table
 
 | Method/Route | Body | Notes |
 |---|---|---|
 | `POST /api/exams` | see above | |
-| `POST /api/exams/routine` | see above | Whole-class batch create |
+| `PUT /api/exams/routine` | see above | Whole-class batch save (idempotent sync) |
 | `GET /api/exams?examTermId=…&classSubjectId=…&teacherId=…` | | All three filters optional/combinable; ordered by date then start time. `teacherId` narrows the list to exams for subjects that teacher is actually assigned (`TeacherAssignment.ClassSubjectId` match — an assignment scoped to one section still counts, since grading now happens at the whole-exam level) — the "which exams do I need to grade" worklist |
 | `GET /api/exams/{id}` | | |
-| `PUT /api/exams/{id}` | `{ examDate, startTime, endTime, invigilatorEmployeeId, remarks }` | `examTermId`/`classSubjectId` immutable — re-targeting means creating a new exam; the linked calendar event is updated in place |
+| `PUT /api/exams/{id}` | `{ examDate, timePeriodId, startTime, endTime, remarks }` | `examTermId`/`classSubjectId` immutable — re-targeting means creating a new exam; the linked calendar event is updated in place |
 | `DELETE /api/exams/{id}` | | Hard; `409` while it still has recorded marks (delete those first); also removes the linked calendar event |
 | `POST /api/exams/{id}/lock` | | Closes the marks-entry window |
 | `POST /api/exams/{id}/unlock` | | Reopens it |
 
 `ExamDto`: `id`, `examTermId`, `classSubjectId`, `subjectCode`, `gradeCode` (from the linked
-subject's class — there is no `sectionCode`/`classSectionId` anymore), `examDate`, `startTime`,
-`endTime`, `invigilatorEmployeeId`, `invigilatorName`, `remarks`, `marksLocked`, and — **read-only,
-sourced from the linked `ClassSubject`, never settable here** — `fullMarks`, `passMarks`,
-`hasTheory`, `hasPractical`, `theoryMarks`, `practicalMarks`, `theoryPassMarks`,
-`practicalPassMarks`.
+subject's class — there is no `sectionCode`/`classSectionId` anymore), `examDate`,
+`timePeriodId`/`timePeriodName`, `startTime`, `endTime`, `remarks`, `marksLocked`, and —
+**read-only, sourced from the linked
+`ClassSubject`, never settable here** — `fullMarks`, `passMarks`, `hasTheory`, `hasPractical`,
+`theoryMarks`, `practicalMarks`, `theoryPassMarks`, `practicalPassMarks`.
 
 While `marksLocked: true`, every marks-entry endpoint (section 5) rejects for that exam, and result
 generation (section 6) requires every exam contributing to a student's result to be locked before
@@ -241,7 +304,7 @@ it will compute that student.
 **There is no `POST /api/exams/for-class` anymore.** The earlier (Round 2) "leave Section on 'All
 sections'" convenience existed only because an exam used to be scoped to one section; now that an
 exam already always covers the whole grade by construction, that endpoint has nothing left to do.
-The new `POST /api/exams/routine` above answers a different question — "schedule every subject of
+The new `PUT /api/exams/routine` above answers a different question — "schedule every subject of
 one class," not "clone one subject across sections."
 
 ---
@@ -340,7 +403,7 @@ was marked absent.
 | Method/Route | Body | Notes |
 |---|---|---|
 | `POST /api/studentexammarks` | see above | |
-| `GET /api/studentexammarks?examId=…&enrollmentId=…` | | Both filters optional/combinable |
+| `GET /api/studentexammarks?examId=…&enrollmentId=…&classSectionId=…` | | All three filters optional/combinable. `classSectionId` (2026-07-30) narrows to marks whose enrollment belongs to that section — since an `Exam` always covers the whole grade, this is what keeps a teacher-wise list scoped to just the section that teacher actually teaches (see section 5's roster note below for the full "same subject, different teachers per section" rationale) |
 | `GET /api/studentexammarks/{id}` | | |
 | `PUT /api/studentexammarks/{id}` | same body minus `examId`/`enrollmentId` (immutable) | `400 VALIDATION_ERROR` if the exam is locked |
 | `DELETE /api/studentexammarks/{id}` | | `400 VALIDATION_ERROR` while the exam is locked |
@@ -391,13 +454,23 @@ exam's eligible enrollments and enter/edit their marks — without a separate ca
 students and a second one to check whether they're already marked.
 
 ```
-GET /api/studentexammarks/roster?examId=…&search=aarav
+GET /api/studentexammarks/roster?examId=…&search=aarav&classSectionId=…
 ```
 
 `search` is optional — omit it for the full eligible list; when given, it matches (case-
 insensitive, substring) against the student's name **or** admission number. Returns one row per
 enrollment eligible for the exam's subject (whole grade, electors only, or one section's electors
-— per section 3's resolution rule), ordered by roll number:
+— per section 3's resolution rule), ordered by roll number.
+
+**`classSectionId` (2026-07-30, optional)**: since an `Exam` always covers the whole grade, the
+roster for a grade-wide subject would otherwise include *every* section's students — wrong when
+**the same subject is taught by different teachers in different sections**. Pass the calling
+teacher's own section for this subject to scope the roster down to just their students. There's no
+"who is the logged-in teacher" resolution in this codebase yet (same gap `GET /api/exams?teacherId=`
+already documents) — resolve it client-side: call `GET /api/teachers/{teacherId}` and read
+`serviceHistory` for this `classSubjectId`'s `ClassSectionId` (`null` in the response means that
+particular assignment already covers every section, so omit `classSectionId` here too), then pass
+it through. Omitting `classSectionId` entirely (the admin case) keeps the full whole-grade roster.
 
 ```json
 {
@@ -431,6 +504,71 @@ on save instead. This is a **read-only worklist**, not a new way to submit marks
 | HTTP / code | Cause |
 |---|---|
 | `404 NOT_FOUND` | Unknown `examId` |
+
+### Admin, student-wise marks entry — `GET /api/studentexammarks/student/{enrollmentId}`
+
+The counterpart to the roster above: instead of "one subject, every student," this is "one
+student, every subject" — pick a student, see and enter every one of their subjects' marks for a
+term in a single screen. This is the intended **admin** flow (an office/admin user reviewing or
+completing one student's whole term); teachers still use the roster above, scoped to their own
+subject/section.
+
+```
+GET /api/studentexammarks/student/{enrollmentId}?examTermId=…
+```
+
+Returns one row per `Exam` within `examTermId` the enrollment is actually eligible for (resolved
+the same way result generation resolves it — mandatory class-wide subjects, electives the student
+picked, and section-scoped subjects only when they match the student's own section), each row
+carrying the same read-only grading fields `ExamDto` exposes plus the student's existing mark (or
+`null`):
+
+```json
+{
+  "responseCode": "SUCCESS",
+  "data": [
+    {
+      "examId": "…",
+      "classSubjectId": "…",
+      "subjectCode": "MATH",
+      "examDate": "2026-08-03T00:00:00",
+      "marksLocked": false,
+      "fullMarks": 100,
+      "passMarks": 35,
+      "hasTheory": true,
+      "hasPractical": false,
+      "theoryMarks": 100,
+      "practicalMarks": null,
+      "theoryPassMarks": 35,
+      "practicalPassMarks": null,
+      "mark": null
+    },
+    {
+      "examId": "…",
+      "classSubjectId": "…",
+      "subjectCode": "SCIENCE",
+      "examDate": "2026-08-05T00:00:00",
+      "marksLocked": false,
+      "fullMarks": 100,
+      "passMarks": 37,
+      "hasTheory": true,
+      "hasPractical": true,
+      "theoryMarks": 75,
+      "practicalMarks": 25,
+      "theoryPassMarks": 27,
+      "practicalPassMarks": 10,
+      "mark": { "id": "…", "examId": "…", "totalMarks": 82, "grade": null, "...": "..." }
+    }
+  ]
+}
+```
+
+Same "`mark: null` → `POST`, `mark` non-null → `PUT /api/studentexammarks/{mark.id}`" rule as the
+roster — this is also a **read-only worklist**, not a new submission path. Ordered by `subjectCode`.
+
+| HTTP / code | Cause |
+|---|---|
+| `404 NOT_FOUND` | Unknown `enrollmentId` or `examTermId` |
 
 ---
 
@@ -636,9 +774,9 @@ One `EXAM_MANAGEMENT` main menu:
 | Code | Endpoint |
 |---|---|
 | `EXAM_TERM_LIST` (visible) + `EXAM_TERM_CREATE`/`_DETAIL`/`_UPDATE`/`_DELETE` | `ExamTerms` controller |
-| `EXAM_LIST` (visible) + `EXAM_CREATE`/`_DETAIL`/`_UPDATE`/`_DELETE`/`_LOCK`/`_UNLOCK`/`_CREATE_ROUTINE` | `Exams` controller |
+| `EXAM_LIST` (visible) + `EXAM_CREATE`/`_DETAIL`/`_UPDATE`/`_DELETE`/`_LOCK`/`_UNLOCK`/`_SAVE_ROUTINE` | `Exams` controller |
 | `GRADE_SCALE_LIST` (visible) + `GRADE_SCALE_CREATE`/`_DETAIL`/`_UPDATE`/`_DELETE` | `GradeScales` controller |
-| `STUDENT_EXAM_MARK_LIST` (visible) + `STUDENT_EXAM_MARK_CREATE`/`_DETAIL`/`_UPDATE`/`_DELETE`/`_BULK_UPSERT`/`_ROSTER` | `StudentExamMarks` controller |
+| `STUDENT_EXAM_MARK_LIST` (visible) + `STUDENT_EXAM_MARK_CREATE`/`_DETAIL`/`_UPDATE`/`_DELETE`/`_BULK_UPSERT`/`_ROSTER`/`_BY_STUDENT` | `StudentExamMarks` controller |
 | `EXAM_RESULT_LIST` (visible) + `EXAM_RESULT_GENERATE`/`_PUBLISH`/`_DETAIL`/`_WITHHOLD`/`_LIFT_WITHHOLD` | `ExamResults` controller |
 | `STUDENT_PROMOTION_LIST` (visible) + `STUDENT_PROMOTION_CREATE`/`_DETAIL`/`_BULK_PROCESS` | `StudentPromotions` controller |
 
@@ -646,7 +784,8 @@ One `EXAM_MANAGEMENT` main menu:
 endpoint it gated was removed (section 3). `EXAM_ROOM_LIST`/`EXAM_HALL_ARRANGEMENT_LIST` and their
 children **also no longer exist** (2026-07-30) — the whole room/seat-arrangement subsystem was
 removed; those codes are retired via `MenuSeeder.BuildRetiredMenuCodes`, so any role that had them
-granted loses them on next boot.
+granted loses them on next boot. **`EXAM_CREATE_ROUTINE` was retired the same day too** (the
+routine endpoint's first, create-only cut) — replaced by `EXAM_SAVE_ROUTINE` above.
 
 ---
 
@@ -668,18 +807,56 @@ granted loses them on next boot.
    (nothing left for it to do). A full Exam Rooms + Hall Arrangement/Seat Allocation engine was
    added. Every "final exam" reference in result generation (section 6) was dropped along with
    `IsFinalExam` — every exam now contributes.
-4. **Current (2026-07-30)**: the Exam Rooms + Hall Arrangement/Seat Allocation engine from step 3
-   is **removed entirely**, per instruction — `Exam.RoomId`/`Room` are gone (`InvigilatorEmployeeId`
-   stays, it's a real `Employee`). New: `POST /api/exams/routine` (schedule every subject of one
-   class in one call — a different convenience than the removed `for-class`, which cloned one
-   subject across sections rather than covering every subject of a class) and whole-vs-divided
-   `TheoryMarks`/`TheoryPassMarks` defaulting on `ClassSubject` (section 1). See
-   `Docs/exam_routine_and_marks_configuration_implementation_guide.md` for both.
+4. **2026-07-30, first pass**: the Exam Rooms + Hall Arrangement/Seat Allocation engine from step 3
+   is **removed entirely**, per instruction — `Exam.RoomId`/`Room` are gone. New:
+   `POST /api/exams/routine` (create-only, skip-list style — schedule every subject of one class in
+   one call, a different convenience than the removed `for-class`, which cloned one subject across
+   sections rather than covering every subject of a class) and whole-vs-divided
+   `TheoryMarks`/`TheoryPassMarks` defaulting on `ClassSubject` (section 1).
+5. **2026-07-30, same day, follow-up**: `Exam.InvigilatorEmployeeId`/`InvigilatorEmployee` are also
+   removed, per instruction — an `Exam` is now just subject + date/time + remarks, nothing else.
+   `CreateExamCommand`/`UpdateExamCommand`/`ExamRoutineItemInput`/`ExamDto` all lost the field.
+6. **2026-07-30, same day, redesigned per a formal batch-scheduling spec**: the routine
+   endpoint from step 4 is redesigned from create-only/skip-list into a full idempotent sync —
+   `PUT /api/exams/routine` (`SaveExamRoutineCommand`/`SaveExamRoutineAsync`) now creates, updates,
+   and removes exams for a `(examTerm, class)` pair in one atomic call, validated for term-boundary
+   and time-overlap conflicts up front (Room Double-Booking/Invigilator Collision from the spec
+   were explicitly declined — see the companion guide). `EXAM_CREATE_ROUTINE` is retired, replaced
+   by `EXAM_SAVE_ROUTINE`. See
+   `Docs/exam_routine_and_marks_configuration_implementation_guide.md` for the full sync/validation
+   contract.
+7. **Current (2026-07-30, same day, formalized two-tier composite mark structure)**: `fullMarks`/
+   `passMarks` on `AssignClassSubjectCommand`/`UpdateClassSubjectCommand` (section 1) are
+   **removed as inputs** — they're now always computed server-side as
+   `theoryMarks + practicalMarks` / `theoryPassMarks + practicalPassMarks`
+   (`AcademicClassService.ResolveCompositeMarks`, replacing the narrower `ResolveTheoryDefaults`
+   from step 4), which is what "optimizing" the whole-vs-divided flow meant here: the two totals
+   can no longer drift from their own component figures, and the disabled component in theory-only
+   (or practical-only) mode is forced to `0` rather than left `null`. `passMarks <= fullMarks` is
+   now guaranteed by construction instead of separately validated.
+8. **2026-07-30, same day: section-aware marks entry + class period timing + admin
+   student-wise marks entry**. `GET /api/studentexammarks`/`GET /api/studentexammarks/roster`
+   gained `classSectionId` (a section-taught teacher's marks list/roster now stays scoped to their
+   own section instead of the whole grade). `POST`/`PUT /api/exams` and
+   `PUT /api/exams/routine`'s items gained `periodCode` as an alternative to raw
+   `startTime`/`endTime`, originally resolved from a Config catalog. New
+   `GET /api/studentexammarks/student/{enrollmentId}` — admin, student-wise marks entry.
+9. **Current (2026-08-03, same day, superseding step 8's period field): class period timing moved
+   off the Config catalog onto a real `TimePeriod` table** — `periodCode` (string) became
+   `timePeriodId` (`Guid?`, a real FK), now also shared with `TeacherAssignment.TimePeriodId`, and
+   a picked period must be mapped to the exam's own class via the new `ClassTimePeriod` table
+   (`POST /api/timeperiods/map`) — a check the Config-based cut had no way to express. See
+   `Docs/time_period_and_class_routine_implementation_guide.md` for the full reference and
+   `Docs/exam_routine_and_marks_configuration_implementation_guide.md` for the marks-entry/period
+   detail together.
 
 If you're reconciling an older frontend build against this guide, anywhere it sends
-`roomId`/`classSectionId`/`name`/`weightagePercent`/`isFinalExam` on an exam create/update, calls
-`/api/exams/for-class` or any `/api/examrooms`/`/api/examhallarrangements` endpoint, it needs
-updating to match this version.
+`roomId`/`invigilatorEmployeeId`/`classSectionId`/`name`/`weightagePercent`/`isFinalExam` on an
+exam create/update, calls `/api/exams/for-class`, `POST /api/exams/routine` (now `PUT`, and now a
+sync rather than create-only), any `/api/examrooms`/`/api/examhallarrangements` endpoint, sends
+`fullMarks`/`passMarks` on a subject assign/update call, or sends raw `startTime`/`endTime` as
+non-nullable on an exam create/update (they're `TimeSpan?` now), it needs updating to match this
+version.
 
 ## Deviations from the source design docs (deliberate, not oversights)
 

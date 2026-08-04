@@ -40,9 +40,25 @@ namespace WebApi.Controllers
         }
 
         [HttpGet]
-        public async Task<ActionResult<CommonResponse<List<StudentExamMarkDto>>>> GetStudentExamMarks([FromQuery] Guid? examId, [FromQuery] Guid? enrollmentId, CancellationToken cancellationToken = default)
+        public async Task<ActionResult<CommonResponse<List<StudentExamMarkDto>>>> GetStudentExamMarks([FromQuery] Guid? examId, [FromQuery] Guid? enrollmentId, [FromQuery] Guid? classSectionId, CancellationToken cancellationToken = default)
         {
-            var response = await _examService.GetStudentExamMarksAsync(examId, enrollmentId, cancellationToken);
+            var response = await _examService.GetStudentExamMarksAsync(examId, enrollmentId, classSectionId, cancellationToken);
+            return Ok(response);
+        }
+
+        // Admin, student-wise marks entry: every subject/exam within one term the given
+        // enrollment is eligible for, each carrying its existing mark (or null) -- pick a student,
+        // enter every subject's marks in one screen. Complements the roster below, which is the
+        // teacher-wise "one subject, every student" flow.
+        [HttpGet("student/{enrollmentId:guid}")]
+        public async Task<ActionResult<CommonResponse<List<StudentExamMarkByStudentItemDto>>>> GetStudentExamMarksByStudent(Guid enrollmentId, [FromQuery] Guid examTermId, CancellationToken cancellationToken)
+        {
+            var response = await _examService.GetStudentExamMarksByStudentAsync(enrollmentId, examTermId, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
             return Ok(response);
         }
 
@@ -92,13 +108,15 @@ namespace WebApi.Controllers
             return Ok(response);
         }
 
-        // Search-and-select worklist: every enrolled student in the exam's section, each row
-        // carrying its existing mark (or null) -- the "search a student, then enter their marks"
-        // flow.
+        // Search-and-select worklist: every enrolled student eligible for the exam's subject, each
+        // row carrying its existing mark (or null) -- the "search a student, then enter their
+        // marks" flow. classSectionId (optional) narrows to one section -- pass the calling
+        // teacher's own assigned section for this subject so a teacher-wise entry screen only
+        // ever shows their own section's students, even though the Exam itself spans the grade.
         [HttpGet("roster")]
-        public async Task<ActionResult<CommonResponse<List<ExamMarkRosterItemDto>>>> GetStudentExamMarkRoster([FromQuery] Guid examId, [FromQuery] string search, CancellationToken cancellationToken)
+        public async Task<ActionResult<CommonResponse<List<ExamMarkRosterItemDto>>>> GetStudentExamMarkRoster([FromQuery] Guid examId, [FromQuery] string search, [FromQuery] Guid? classSectionId, CancellationToken cancellationToken)
         {
-            var response = await _examService.GetStudentExamMarkRosterAsync(examId, search, cancellationToken);
+            var response = await _examService.GetStudentExamMarkRosterAsync(examId, search, classSectionId, cancellationToken);
             if (response.ResponseCode == ResponseCodes.NotFound)
             {
                 return NotFound(response);

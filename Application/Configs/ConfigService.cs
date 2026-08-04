@@ -79,7 +79,7 @@ namespace Application.Configs
 
             var paginatedResponse = new PaginatedResponse<ConfigTypeDto>
             {
-                Items = configTypeDtos,
+                Items = configTypeDtos.OrderBy(x => x.TypeCode),
                 Page = query.Page,
                 PageSize = query.PageSize,
                 TotalCount = pagedConfigTypes.TotalCount

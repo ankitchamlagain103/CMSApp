@@ -38,7 +38,11 @@ namespace Domain.Interfaces
 
         Task<StudentExamMark> GetMarkByExamAndEnrollmentAsync(Guid examId, Guid enrollmentId, CancellationToken cancellationToken = default);
 
-        Task<IReadOnlyList<StudentExamMark>> GetMarksAsync(Guid? examId, Guid? enrollmentId, CancellationToken cancellationToken = default);
+        // classSectionId narrows to marks whose Enrollment.ClassSectionId matches -- since an Exam
+        // always covers the whole grade (no section of its own), this is what lets a section-taught
+        // teacher's marks list/roster stay scoped to just their own section's students, per the
+        // "same subject taught by different teachers in different sections" case.
+        Task<IReadOnlyList<StudentExamMark>> GetMarksAsync(Guid? examId, Guid? enrollmentId, Guid? classSectionId, CancellationToken cancellationToken = default);
 
         // Batched lookup for result generation -- every mark across a whole term's final-exam
         // rows in one query, same "avoid N+1 across enrollments" convention as

@@ -32,5 +32,18 @@ namespace Application.AcademicClasses
         Task<CommonResponse<bool>> RemoveSubjectAsync(Guid academicClassId, Guid classSubjectId, CancellationToken cancellationToken = default);
 
         Task<CommonResponse<List<ClassSubjectDto>>> GetClassSubjectsAsync(Guid academicClassId, Guid? classSectionId, CancellationToken cancellationToken = default);
+
+        // Class-scoped counterpart to ITeacherService.AssignClassSubjectBulkEntryAsync -- that one
+        // is scoped to one teacher and lets each row name its own class/subject/section/period;
+        // this one is scoped to one AcademicClass (the id here) and lets each row name its own
+        // teacher, so "who teaches this class" can be mapped in a single submission from the
+        // class's own page instead of visiting every teacher's profile in turn.
+        Task<CommonResponse<ClassTeacherAssignmentBulkEntryResultDto>> AssignTeachersBulkEntryAsync(Guid academicClassId, AssignClassTeachersBulkEntryCommand command, CancellationToken cancellationToken = default);
+
+        // Read-side counterpart to AssignTeachersBulkEntryAsync -- "who teaches this class,"
+        // listing every existing TeacherAssignment row for the class (optionally narrowed to one
+        // section) instead of creating new ones. There was previously no GET endpoint for this --
+        // only the bulk-create POST existed.
+        Task<CommonResponse<List<ClassTeacherAssignmentDto>>> GetTeacherAssignmentsAsync(Guid academicClassId, Guid? classSectionId, CancellationToken cancellationToken = default);
     }
 }

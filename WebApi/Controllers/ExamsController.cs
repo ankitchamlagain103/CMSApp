@@ -43,14 +43,16 @@ namespace WebApi.Controllers
             return Ok(response);
         }
 
-        // Schedules an Exam for every listed subject of one class within one exam term, in one
-        // call -- the "set the whole routine at once" flow. Always 200 on a found term/class (per-
-        // item failures live in the result's Skipped list, same convention as other bulk endpoints
-        // like BulkUpsertStudentExamMarks/GenerateExamResults).
-        [HttpPost("routine")]
-        public async Task<ActionResult<CommonResponse<CreateExamRoutineResultDto>>> CreateExamRoutine([FromBody] CreateExamRoutineCommand command, CancellationToken cancellationToken)
+        // The batch-scheduling workflow: syncs every Exam for one class within one exam term
+        // against the submitted routine grid in a single atomic save (create/update/remove as
+        // needed) -- the "set the whole routine at once" flow. Idempotent (PUT, not POST): the
+        // whole request fails on any validation issue (term-boundary, overlap, or a removal that
+        // would discard recorded marks) instead of partially applying it -- see
+        // SaveExamRoutineCommand's own doc comment.
+        [HttpPut("routine")]
+        public async Task<ActionResult<CommonResponse<SaveExamRoutineResultDto>>> SaveExamRoutine([FromBody] SaveExamRoutineCommand command, CancellationToken cancellationToken)
         {
-            var response = await _examService.CreateExamRoutineAsync(command, cancellationToken);
+            var response = await _examService.SaveExamRoutineAsync(command, cancellationToken);
             if (response.ResponseCode == ResponseCodes.NotFound)
             {
                 return NotFound(response);

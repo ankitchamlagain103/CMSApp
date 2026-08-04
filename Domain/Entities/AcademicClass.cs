@@ -12,6 +12,7 @@ namespace Domain.Entities
         public Guid Id { get; set; }
         public Guid AcademicYearId { get; set; }
         public string GradeCode { get; set; }
+        public int Order { get; set; }
         public RecordStatus Status { get; set; }
         public virtual AcademicYear AcademicYear { get; set; }
         public virtual ICollection<ClassSection> Sections { get; set; } = new List<ClassSection>();

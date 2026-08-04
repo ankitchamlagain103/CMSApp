@@ -45,5 +45,15 @@ namespace Domain.Constants
         // like Province, so both get seeded default option rows by ConfigCatalogSeeder.
         public const int District = 1022;
         public const int LocalLevel = 1023;
+
+        // ConfigTypeCodes.ClassPeriod (1024, "Exam Period" then "Class Period") existed briefly
+        // 2026-07-30..2026-08-03 and was removed the same day it was renamed: a flat Config
+        // option list can't express "certain classes run different period structures," a real
+        // relationship. Replaced by the Domain/Entities/TimePeriod + ClassTimePeriod tables (see
+        // TimePeriod's doc comment) -- Exam.TimePeriodId/TeacherAssignment.TimePeriodId are real
+        // FKs now, not Config codes. Do not reintroduce 1024 for anything else; an already-seeded
+        // database's old ClassPeriod Config rows are simply orphaned (harmless, same "leftover
+        // from a removed feature" precedent as the AppConfig rows dropped alongside the exam
+        // seat-arrangement removal).
     }
 }

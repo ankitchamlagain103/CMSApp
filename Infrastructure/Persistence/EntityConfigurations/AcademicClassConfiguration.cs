@@ -29,6 +29,12 @@ namespace Infrastructure.Persistence.EntityConfigurations
                     .IsRequired()
                     .HasMaxLength(100);
 
+            // Pure UI-display ordering (which grade row to show first) -- not part of the class's
+            // identity/uniqueness, unlike GradeCode.
+            builder.Property(c => c.Order)
+                    .HasColumnName("order")
+                    .IsRequired();
+
             builder.Property(c => c.Status)
                     .HasColumnName("status")
                     .IsRequired();

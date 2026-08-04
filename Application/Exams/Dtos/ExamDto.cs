@@ -1,6 +1,6 @@
 namespace Application.Exams.Dtos
 {
-    // SubjectCode/InvigilatorName are flattened in from navigations (same convention as
+    // SubjectCode is flattened in from a navigation (same convention as
     // EnrollmentDto's flattened GradeCode/SectionCode). No ClassSectionId/SectionCode -- an Exam
     // always covers the whole grade now (see the Exam entity's doc comment); GradeCode is
     // included instead, for display, sourced from the linked ClassSubject's AcademicClass.
@@ -16,10 +16,10 @@ namespace Application.Exams.Dtos
         public string SubjectCode { get; set; }
         public string GradeCode { get; set; }
         public DateTime ExamDate { get; set; }
+        public Guid? TimePeriodId { get; set; }
+        public string TimePeriodName { get; set; }
         public TimeSpan StartTime { get; set; }
         public TimeSpan EndTime { get; set; }
-        public Guid? InvigilatorEmployeeId { get; set; }
-        public string InvigilatorName { get; set; }
         public string Remarks { get; set; }
         public bool MarksLocked { get; set; }
         public int? FullMarks { get; set; }

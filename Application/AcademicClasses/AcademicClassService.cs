@@ -4,6 +4,8 @@ using Application.AcademicClasses.Queries;
 using Application.AcademicClasses.Validators;
 using Application.Common.Interfaces;
 using Application.Common.Models;
+using Application.Teachers;
+using Application.Teachers.Dtos;
 using Domain.Common.Filters;
 using Domain.Constants;
 using Domain.Entities;
@@ -100,6 +102,7 @@ namespace Application.AcademicClasses
             {
                 AcademicYearId = command.AcademicYearId,
                 GradeCode = gradeCode,
+                Order = command.Order,
                 Status = RecordStatus.Active
             };
 
@@ -183,6 +186,7 @@ namespace Application.AcademicClasses
                 return notFoundResponse;
             }
 
+            academicClass.Order = command.Order;
             academicClass.Status = command.Status;
 
             _unitOfWork.AcademicClasses.Update(academicClass);
@@ -429,7 +433,7 @@ namespace Application.AcademicClasses
                 return conflictResponse;
             }
 
-            var theoryDefaults = ResolveTheoryDefaults(command.HasPractical, command.FullMarks, command.PassMarks, command.TheoryMarks, command.TheoryPassMarks);
+            var compositeMarks = ResolveCompositeMarks(command.HasTheory, command.HasPractical, command.TheoryMarks, command.TheoryPassMarks, command.PracticalMarks, command.PracticalPassMarks);
 
             var classSubject = new ClassSubject
             {
@@ -440,14 +444,14 @@ namespace Application.AcademicClasses
                 DisplayOrder = command.DisplayOrder,
                 ClassSection = scopedSection,
                 CreditHours = command.CreditHours,
-                FullMarks = command.FullMarks,
-                PassMarks = command.PassMarks,
-                TheoryMarks = theoryDefaults.TheoryMarks,
-                PracticalMarks = command.PracticalMarks,
+                FullMarks = compositeMarks.FullMarks,
+                PassMarks = compositeMarks.PassMarks,
+                TheoryMarks = compositeMarks.TheoryMarks,
+                PracticalMarks = compositeMarks.PracticalMarks,
                 HasTheory = command.HasTheory,
                 HasPractical = command.HasPractical,
-                TheoryPassMarks = theoryDefaults.TheoryPassMarks,
-                PracticalPassMarks = command.PracticalPassMarks
+                TheoryPassMarks = compositeMarks.TheoryPassMarks,
+                PracticalPassMarks = compositeMarks.PracticalPassMarks
             };
 
             await _unitOfWork.AcademicClasses.AddClassSubjectAsync(classSubject, cancellationToken);
@@ -475,20 +479,20 @@ namespace Application.AcademicClasses
                 return notFoundResponse;
             }
 
-            var theoryDefaults = ResolveTheoryDefaults(command.HasPractical, command.FullMarks, command.PassMarks, command.TheoryMarks, command.TheoryPassMarks);
+            var compositeMarks = ResolveCompositeMarks(command.HasTheory, command.HasPractical, command.TheoryMarks, command.TheoryPassMarks, command.PracticalMarks, command.PracticalPassMarks);
 
             // SubjectCode/IsMandatory/ClassSectionId are identity-like and stay immutable -- only
             // grading metadata and display order can change here.
             classSubject.DisplayOrder = command.DisplayOrder;
             classSubject.CreditHours = command.CreditHours;
-            classSubject.FullMarks = command.FullMarks;
-            classSubject.PassMarks = command.PassMarks;
-            classSubject.TheoryMarks = theoryDefaults.TheoryMarks;
-            classSubject.PracticalMarks = command.PracticalMarks;
+            classSubject.FullMarks = compositeMarks.FullMarks;
+            classSubject.PassMarks = compositeMarks.PassMarks;
+            classSubject.TheoryMarks = compositeMarks.TheoryMarks;
+            classSubject.PracticalMarks = compositeMarks.PracticalMarks;
             classSubject.HasTheory = command.HasTheory;
             classSubject.HasPractical = command.HasPractical;
-            classSubject.TheoryPassMarks = theoryDefaults.TheoryPassMarks;
-            classSubject.PracticalPassMarks = command.PracticalPassMarks;
+            classSubject.TheoryPassMarks = compositeMarks.TheoryPassMarks;
+            classSubject.PracticalPassMarks = compositeMarks.PracticalPassMarks;
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
@@ -546,24 +550,296 @@ namespace Application.AcademicClasses
             return successResponse;
         }
 
-        // Whole-vs-divided assessment configuration (2026-07-30): when a subject has no practical
-        // component (HasPractical = false, the "whole marks" case), Theory IS the subject's only
-        // component -- so its full/pass marks default to the subject's overall FullMarks/PassMarks
-        // whenever the caller doesn't split them out explicitly. This is what makes the
-        // ValidateMarkAgainstSubject/IsSubjectPassed per-component caps in ExamService actually
-        // enforce the overall marks in whole mode, instead of silently leaving them uncapped.
-        // When HasPractical is true (divided mode), TheoryMarks/TheoryPassMarks are left exactly
-        // as submitted -- both components must be entered explicitly.
-        private static (int? TheoryMarks, int? TheoryPassMarks) ResolveTheoryDefaults(bool hasPractical, int? fullMarks, int? passMarks, int? theoryMarks, int? theoryPassMarks)
+        // Class-scoped counterpart to ITeacherService.AssignClassSubjectBulkEntryAsync -- that one
+        // is scoped to one teacher (route id) and lets each row name its own class/subject/
+        // section/period; this one is scoped to one AcademicClass (route id) and lets each row
+        // name its own TeacherId, so an admin working from a class's page can map every teacher
+        // who teaches that class -- across its subjects, sections and time periods -- in one
+        // submission instead of visiting each teacher's profile in turn. Reuses
+        // TeacherAssignmentBuilder.BuildAsync, the exact same per-row validation
+        // ITeacherService's own assignment endpoints run, so a row succeeds or fails identically
+        // regardless of which side of the relationship it was submitted from.
+        public async Task<CommonResponse<ClassTeacherAssignmentBulkEntryResultDto>> AssignTeachersBulkEntryAsync(Guid academicClassId, AssignClassTeachersBulkEntryCommand command, CancellationToken cancellationToken = default)
         {
-            if (hasPractical)
+            var academicClass = await _unitOfWork.AcademicClasses.GetByIdAsync(academicClassId, cancellationToken);
+            if (academicClass == null)
             {
-                return (theoryMarks, theoryPassMarks);
+                var notFoundResponse = CommonResponse<ClassTeacherAssignmentBulkEntryResultDto>.Fail(ResponseCodes.NotFound, "Class with id '" + academicClassId + "' was not found.");
+                return notFoundResponse;
             }
 
-            var resolvedTheoryMarks = theoryMarks ?? fullMarks;
-            var resolvedTheoryPassMarks = theoryPassMarks ?? passMarks;
-            return (resolvedTheoryMarks, resolvedTheoryPassMarks);
+            if (command.Items == null || command.Items.Count == 0)
+            {
+                var noItemsResponse = CommonResponse<ClassTeacherAssignmentBulkEntryResultDto>.Fail(ResponseCodes.ValidationError, "At least one item is required.");
+                return noItemsResponse;
+            }
+
+            var created = new List<TeacherAssignmentDto>();
+            var skipped = new List<ClassTeacherAssignmentEntrySkipDto>();
+            var teacherCache = new Dictionary<Guid, Teacher>();
+            var classSubjectCache = new Dictionary<Guid, ClassSubject>();
+
+            // Tracks what's already been staged earlier in this same request, same reasoning as
+            // AssignClassSubjectBulkEntryAsync -- nothing is saved until the loop finishes, so two
+            // colliding rows in the same batch would otherwise both pass the database-existence
+            // checks inside TeacherAssignmentBuilder.BuildAsync. TeacherId is part of the key here
+            // (unlike the teacher-scoped endpoint, where it's constant for the whole request) --
+            // the same subject/section pair can validly be taught by two different teachers, only
+            // the same teacher assigned to it twice is a duplicate.
+            var stagedKeys = new HashSet<(Guid TeacherId, Guid ClassSubjectId, Guid ClassSectionKey)>();
+            var stagedClassTeacherSections = new HashSet<Guid>();
+
+            // Same reasoning as stagedKeys above -- TeacherHasTimePeriodConflictAsync (called
+            // from TeacherAssignmentBuilder.BuildAsync) only sees rows already committed to the
+            // database. Keyed by (TeacherId, TimePeriodId), unlike the teacher-scoped endpoint's
+            // version of this guard (where TeacherId is implicit/constant) -- two DIFFERENT
+            // teachers can share the same period without conflict, only the SAME teacher named
+            // twice for one period in this batch is the problem.
+            var stagedTeacherTimePeriods = new HashSet<(Guid TeacherId, Guid TimePeriodId)>();
+
+            for (var itemIndex = 0; itemIndex < command.Items.Count; itemIndex++)
+            {
+                var item = command.Items[itemIndex];
+
+                if (item.TeacherId == Guid.Empty || item.ClassSubjectId == Guid.Empty)
+                {
+                    var skip = new ClassTeacherAssignmentEntrySkipDto
+                    {
+                        ItemIndex = itemIndex,
+                        TeacherId = item.TeacherId,
+                        ClassSubjectId = item.ClassSubjectId,
+                        ClassSectionId = item.ClassSectionId,
+                        Reason = "TeacherId and ClassSubjectId are required."
+                    };
+                    skipped.Add(skip);
+                    continue;
+                }
+
+                if (!teacherCache.TryGetValue(item.TeacherId, out var teacher))
+                {
+                    teacher = await _unitOfWork.Teachers.GetByIdAsync(item.TeacherId, cancellationToken);
+                    teacherCache[item.TeacherId] = teacher;
+                }
+
+                if (teacher == null)
+                {
+                    var skip = new ClassTeacherAssignmentEntrySkipDto
+                    {
+                        ItemIndex = itemIndex,
+                        TeacherId = item.TeacherId,
+                        ClassSubjectId = item.ClassSubjectId,
+                        ClassSectionId = item.ClassSectionId,
+                        Reason = "Teacher with id '" + item.TeacherId + "' was not found."
+                    };
+                    skipped.Add(skip);
+                    continue;
+                }
+
+                if (!classSubjectCache.TryGetValue(item.ClassSubjectId, out var classSubject))
+                {
+                    classSubject = await _unitOfWork.AcademicClasses.GetClassSubjectByIdAsync(item.ClassSubjectId, cancellationToken);
+                    classSubjectCache[item.ClassSubjectId] = classSubject;
+                }
+
+                if (classSubject == null)
+                {
+                    var skip = new ClassTeacherAssignmentEntrySkipDto
+                    {
+                        ItemIndex = itemIndex,
+                        TeacherId = item.TeacherId,
+                        ClassSubjectId = item.ClassSubjectId,
+                        ClassSectionId = item.ClassSectionId,
+                        Reason = "Class subject with id '" + item.ClassSubjectId + "' was not found."
+                    };
+                    skipped.Add(skip);
+                    continue;
+                }
+
+                // Scope guard unique to this class-scoped entry point -- ITeacherService's own
+                // bulk-entry endpoint has no "this must belong to a specific class" constraint,
+                // but this one is reached from one class's own page, so a row naming a subject
+                // that belongs to a different class is a request mistake, not a valid cross-class
+                // assignment.
+                if (classSubject.AcademicClassId != academicClassId)
+                {
+                    var skip = new ClassTeacherAssignmentEntrySkipDto
+                    {
+                        ItemIndex = itemIndex,
+                        TeacherId = item.TeacherId,
+                        ClassSubjectId = item.ClassSubjectId,
+                        ClassSectionId = item.ClassSectionId,
+                        Reason = "That class subject does not belong to this academic class."
+                    };
+                    skipped.Add(skip);
+                    continue;
+                }
+
+                if (item.TimePeriodId.HasValue && stagedTeacherTimePeriods.Contains((item.TeacherId, item.TimePeriodId.Value)))
+                {
+                    var skip = new ClassTeacherAssignmentEntrySkipDto
+                    {
+                        ItemIndex = itemIndex,
+                        TeacherId = item.TeacherId,
+                        ClassSubjectId = item.ClassSubjectId,
+                        ClassSectionId = item.ClassSectionId,
+                        Reason = "Another item earlier in this same request already assigns this teacher to that time period."
+                    };
+                    skipped.Add(skip);
+                    continue;
+                }
+
+                var (assignment, errorCode, errorMessage) = await TeacherAssignmentBuilder.BuildAsync(_unitOfWork, item.TeacherId, classSubject, item.ClassSectionId, item.IsClassTeacher, item.TimePeriodId, cancellationToken);
+                if (errorCode != null)
+                {
+                    var skip = new ClassTeacherAssignmentEntrySkipDto
+                    {
+                        ItemIndex = itemIndex,
+                        TeacherId = item.TeacherId,
+                        ClassSubjectId = item.ClassSubjectId,
+                        ClassSectionId = item.ClassSectionId,
+                        Reason = errorMessage
+                    };
+                    skipped.Add(skip);
+                    continue;
+                }
+
+                var sectionKey = assignment.ClassSectionId.HasValue ? assignment.ClassSectionId.Value : Guid.Empty;
+                var stagedKey = (item.TeacherId, assignment.ClassSubjectId, sectionKey);
+                if (stagedKeys.Contains(stagedKey))
+                {
+                    var skip = new ClassTeacherAssignmentEntrySkipDto
+                    {
+                        ItemIndex = itemIndex,
+                        TeacherId = item.TeacherId,
+                        ClassSubjectId = item.ClassSubjectId,
+                        ClassSectionId = item.ClassSectionId,
+                        Reason = "Duplicate of an earlier item in this same request."
+                    };
+                    skipped.Add(skip);
+                    continue;
+                }
+
+                // Unlike stagedKeys, this guard is NOT keyed by TeacherId -- a section has at
+                // most one class teacher regardless of who, so two rows naming different
+                // teachers as class teacher of the same section conflict just as much as two
+                // rows naming the same teacher would.
+                if (assignment.IsClassTeacher && stagedClassTeacherSections.Contains(assignment.ClassSectionId.Value))
+                {
+                    var skip = new ClassTeacherAssignmentEntrySkipDto
+                    {
+                        ItemIndex = itemIndex,
+                        TeacherId = item.TeacherId,
+                        ClassSubjectId = item.ClassSubjectId,
+                        ClassSectionId = item.ClassSectionId,
+                        Reason = "Another item earlier in this same request already makes a teacher the class teacher for that section."
+                    };
+                    skipped.Add(skip);
+                    continue;
+                }
+
+                if (assignment.IsClassTeacher)
+                {
+                    stagedClassTeacherSections.Add(assignment.ClassSectionId.Value);
+                }
+
+                if (assignment.TimePeriodId.HasValue)
+                {
+                    stagedTeacherTimePeriods.Add((item.TeacherId, assignment.TimePeriodId.Value));
+                }
+
+                stagedKeys.Add(stagedKey);
+                await _unitOfWork.Teachers.AddAssignmentAsync(assignment, cancellationToken);
+                created.Add(TeacherMapper.ToAssignmentDto(assignment));
+            }
+
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            var resultDto = new ClassTeacherAssignmentBulkEntryResultDto
+            {
+                Created = created,
+                Skipped = skipped
+            };
+            var successResponse = CommonResponse<ClassTeacherAssignmentBulkEntryResultDto>.Success(resultDto, created.Count + " assignment(s) created, " + skipped.Count + " skipped.");
+            return successResponse;
+        }
+
+        // Read-side counterpart to AssignTeachersBulkEntryAsync -- "who teaches this class,"
+        // listing every existing TeacherAssignment row for the class (optionally narrowed to one
+        // section) instead of creating new ones. There was previously no GET endpoint for this --
+        // only the bulk-create POST existed.
+        public async Task<CommonResponse<List<ClassTeacherAssignmentDto>>> GetTeacherAssignmentsAsync(Guid academicClassId, Guid? classSectionId, CancellationToken cancellationToken = default)
+        {
+            var academicClass = await _unitOfWork.AcademicClasses.GetByIdAsync(academicClassId, cancellationToken);
+            if (academicClass == null)
+            {
+                var notFoundResponse = CommonResponse<List<ClassTeacherAssignmentDto>>.Fail(ResponseCodes.NotFound, "Class with id '" + academicClassId + "' was not found.");
+                return notFoundResponse;
+            }
+
+            if (classSectionId.HasValue)
+            {
+                var classSection = await _unitOfWork.AcademicClasses.GetSectionByIdAsync(classSectionId.Value, cancellationToken);
+                if (classSection == null || classSection.AcademicClassId != academicClassId)
+                {
+                    var sectionNotFoundResponse = CommonResponse<List<ClassTeacherAssignmentDto>>.Fail(ResponseCodes.NotFound, "Section was not found on this class.");
+                    return sectionNotFoundResponse;
+                }
+            }
+
+            var assignments = await _unitOfWork.Teachers.GetAssignmentsByAcademicClassAsync(academicClassId, classSectionId, cancellationToken);
+
+            var assignmentDtos = new List<ClassTeacherAssignmentDto>();
+            foreach (var assignment in assignments)
+            {
+                var assignmentDto = AcademicClassMapper.ToTeacherAssignmentDto(assignment);
+                assignmentDtos.Add(assignmentDto);
+            }
+
+            var successListResponse = CommonResponse<List<ClassTeacherAssignmentDto>>.Success(assignmentDtos);
+            return successListResponse;
+        }
+
+        // Two-tier composite mark structure (2026-07-30): FullMarks/PassMarks are no longer
+        // caller-supplied -- they're computed here as TheoryMarks+PracticalMarks /
+        // TheoryPassMarks+PracticalPassMarks, so they can never drift from the component figures
+        // that actually define them (this also means PassMarks <= FullMarks no longer needs its
+        // own validator check -- TheoryPassMarks <= TheoryMarks and PracticalPassMarks <=
+        // PracticalMarks together already guarantee it, since summing two component-wise
+        // inequalities preserves the total inequality).
+        //
+        // Theory-only fallback rule (and its practical-only mirror): a disabled component's
+        // Marks/PassMarks are forced to 0 -- not left null -- so the sum always reduces to
+        // exactly the enabled component's own figures (e.g. HasPractical = false gives
+        // PracticalMarks = PracticalPassMarks = 0, so FullMarks = TheoryMarks + 0 = TheoryMarks).
+        // A component's sum is only computed once BOTH sides have a value -- if the enabled
+        // component itself hasn't been graded yet, the total stays null ("not configured yet"),
+        // never a partial/misleading number.
+        private static (int? FullMarks, int? PassMarks, int? TheoryMarks, int? TheoryPassMarks, int? PracticalMarks, int? PracticalPassMarks) ResolveCompositeMarks(
+            bool hasTheory,
+            bool hasPractical,
+            int? theoryMarks,
+            int? theoryPassMarks,
+            int? practicalMarks,
+            int? practicalPassMarks)
+        {
+            var resolvedTheoryMarks = hasTheory ? theoryMarks : 0;
+            var resolvedTheoryPassMarks = hasTheory ? theoryPassMarks : 0;
+            var resolvedPracticalMarks = hasPractical ? practicalMarks : 0;
+            var resolvedPracticalPassMarks = hasPractical ? practicalPassMarks : 0;
+
+            int? fullMarks = null;
+            if (resolvedTheoryMarks.HasValue && resolvedPracticalMarks.HasValue)
+            {
+                fullMarks = resolvedTheoryMarks.Value + resolvedPracticalMarks.Value;
+            }
+
+            int? passMarks = null;
+            if (resolvedTheoryPassMarks.HasValue && resolvedPracticalPassMarks.HasValue)
+            {
+                passMarks = resolvedTheoryPassMarks.Value + resolvedPracticalPassMarks.Value;
+            }
+
+            return (fullMarks, passMarks, resolvedTheoryMarks, resolvedTheoryPassMarks, resolvedPracticalMarks, resolvedPracticalPassMarks);
         }
 
         private static string BuildValidationErrorMessage(ValidationResult validationResult)

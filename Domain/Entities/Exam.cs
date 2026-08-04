@@ -17,9 +17,9 @@ namespace Domain.Entities
     //
     // No Room/seat-arrangement concept (removed 2026-07-30, per instruction -- the dedicated
     // ExamRoom/ExamHallArrangement/ExamSeatAllocation subsystem was dropped entirely; a room isn't
-    // needed for the simple "assign subject, date, time, invigilator" scheduling flow this
-    // module actually needs). InvigilatorEmployeeId stays optional -- it's a real Employee, not a
-    // dedicated table, so nothing to remove there.
+    // needed for the simple "assign subject, date, time" scheduling flow this module actually
+    // needs). No invigilator concept either (removed same day, per instruction) -- Exam is just
+    // subject + date/time.
     public class Exam : AuditableEntity
     {
         public Guid Id { get; set; }
@@ -28,7 +28,16 @@ namespace Domain.Entities
         public DateTime ExamDate { get; set; }
         public TimeSpan StartTime { get; set; }
         public TimeSpan EndTime { get; set; }
-        public Guid? InvigilatorEmployeeId { get; set; }
+
+        // Class period (2026-07-30, moved off the Config catalog onto a real FK 2026-08-03 -- see
+        // TimePeriod's doc comment for why: different classes can run different period
+        // structures, which a flat Config option list can't express). Optional: when set,
+        // StartTime/EndTime are RESOLVED from the period's own StartTime/EndTime at create/update
+        // time (see ExamService.ResolveExamTimesAsync) rather than entered raw -- StartTime/EndTime
+        // always end up populated either way, this is just an alternate, TimePeriod-driven input
+        // path. A Break-typed period is rejected (an exam can't sit during lunch), and the picked
+        // period must be mapped (via ClassTimePeriod) to the exam's own class.
+        public Guid? TimePeriodId { get; set; }
         public string Remarks { get; set; }
 
         // Design doc step 6, "Lock Marks: Once entry window closes, administrator locks entries
@@ -41,7 +50,7 @@ namespace Domain.Entities
 
         public virtual ExamTerm ExamTerm { get; set; }
         public virtual ClassSubject ClassSubject { get; set; }
-        public virtual Employee InvigilatorEmployee { get; set; }
+        public virtual TimePeriod TimePeriod { get; set; }
         public virtual ICollection<StudentExamMark> Marks { get; set; } = new List<StudentExamMark>();
     }
 }

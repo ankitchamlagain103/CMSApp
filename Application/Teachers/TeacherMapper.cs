@@ -64,8 +64,8 @@ namespace Application.Teachers
             return historyDto;
         }
 
-        // Expects the assignment's ClassSubject (and ClassSection, when set) navigations to be
-        // loaded (the repository includes them).
+        // Expects the assignment's ClassSubject (and ClassSection/TimePeriod, when set)
+        // navigations to be loaded (the repository includes them).
         public static TeacherAssignmentDto ToAssignmentDto(TeacherAssignment assignment)
         {
             var assignmentDto = new TeacherAssignmentDto
@@ -78,7 +78,9 @@ namespace Application.Teachers
                 ClassSectionId = assignment.ClassSectionId,
                 SectionCode = assignment.ClassSection != null ? assignment.ClassSection.SectionCode : null,
                 Scope = assignment.ClassSectionId.HasValue ? SubjectScope.Section : SubjectScope.ClassWide,
-                IsClassTeacher = assignment.IsClassTeacher
+                IsClassTeacher = assignment.IsClassTeacher,
+                TimePeriodId = assignment.TimePeriodId,
+                TimePeriodName = assignment.TimePeriod != null ? assignment.TimePeriod.Name : null
             };
 
             return assignmentDto;

@@ -34,6 +34,15 @@ namespace Infrastructure.Persistence.EntityConfigurations
                     .HasColumnName("is_class_teacher")
                     .HasDefaultValue(false);
 
+            builder.Property(a => a.TimePeriodId)
+                    .HasColumnName("time_period_id")
+                    .IsRequired(false);
+
+            builder.HasOne(a => a.TimePeriod)
+                    .WithMany()
+                    .HasForeignKey(a => a.TimePeriodId)
+                    .OnDelete(DeleteBehavior.Restrict);
+
             builder.HasOne(a => a.Teacher)
                     .WithMany(t => t.Assignments)
                     .HasForeignKey(a => a.TeacherId)

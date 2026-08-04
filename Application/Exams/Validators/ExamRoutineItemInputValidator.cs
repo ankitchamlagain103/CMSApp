@@ -14,7 +14,9 @@ namespace Application.Exams.Validators
                 .MaximumLength(500);
 
             RuleFor(item => item)
-                .Must(item => item.EndTime > item.StartTime)
+                .Must(item => item.TimePeriodId.HasValue || (item.StartTime.HasValue && item.EndTime.HasValue))
+                    .WithMessage("Either TimePeriodId or both StartTime and EndTime must be provided.")
+                .Must(item => !item.StartTime.HasValue || !item.EndTime.HasValue || item.EndTime.Value > item.StartTime.Value)
                     .WithMessage("EndTime must be after StartTime.");
         }
     }

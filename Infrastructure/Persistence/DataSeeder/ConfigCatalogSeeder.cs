@@ -20,7 +20,16 @@ namespace Infrastructure.Persistence.DataSeeder
 
             await EnsureConfigTypeAsync(dbContext, ConfigTypeCodes.Grade, "Grade", "School grade/level catalog (student management)");
             await EnsureConfigTypeAsync(dbContext, ConfigTypeCodes.Section, "Section", "Class section catalog (student management)");
-            await EnsureConfigTypeAsync(dbContext, ConfigTypeCodes.Subject, "Subject", "Subject catalog (student management); AdditionalValue1 = short name, AdditionalValue2 = credit, AdditionalValue3 = category");
+            // AdditionalValue2 = GRADE_CODE (2026-08-03): "ALL" when the subject is offered to
+            // every grade, or a comma-separated Domain/Constants GradeCodes list when it's only
+            // offered to certain grades -- e.g. "NINE,TEN,ELEVEN,TWELVE" for Computer Science.
+            // Informational for the admin catalog screen; ClassSubject assignment itself is
+            // unaffected (AcademicClassService.AssignSubjectAsync still validates SubjectCode
+            // against this catalog by Code alone, it doesn't cross-check GRADE_CODE against the
+            // class being assigned to). SampleDataSeeder computes this value from the same
+            // grade->subject mapping it uses to actually seed ClassSubject rows, so the two can't
+            // drift; a subject created via POST /api/configs leaves it blank until set manually.
+            await EnsureConfigTypeAsync(dbContext, ConfigTypeCodes.Subject, "Subject", "Subject catalog (student management); AdditionalValue1 = short name, AdditionalValue2 = GRADE_CODE (\"ALL\" or comma-separated grade codes the subject applies to), AdditionalValue3 = category");
             await EnsureConfigTypeAsync(dbContext, ConfigTypeCodes.GuardianRelationship, "Guardian Relationship", "Student-guardian relationship catalog");
             await EnsureConfigTypeAsync(dbContext, ConfigTypeCodes.EmployeeQualification, "Employee Qualification", "Employee qualification level catalog (2026-07-23: renamed from 'Teacher Qualification' -- generic to every staff member, not teaching-specific)");
             await EnsureConfigTypeAsync(dbContext, ConfigTypeCodes.DocumentType, "Document Type", "Identity/verification document catalog (employee documents); AdditionalValue1 = 'Y' when the document typically has an expiry (license/report)");
@@ -52,6 +61,12 @@ namespace Infrastructure.Persistence.DataSeeder
             // AdditionalValue3 on LocalLevel is its type (Domain/Constants/LocalLevelTypeCodes).
             await EnsureConfigTypeAsync(dbContext, ConfigTypeCodes.District, "District", "Nepal district catalog (employee address); AdditionalValue1 = its ProvinceCode");
             await EnsureConfigTypeAsync(dbContext, ConfigTypeCodes.LocalLevel, "Local Level", "Nepal local-level (municipality/rural municipality/metropolitan/sub-metropolitan city) catalog (employee address); AdditionalValue1 = its DistrictCode, AdditionalValue2 = its ProvinceCode, AdditionalValue3 = its type (Domain/Constants/LocalLevelTypeCodes)");
+
+            // Class period timing lived here briefly (2026-07-30..2026-08-03, "Exam Period" then
+            // "Class Period") and was removed the same day it was renamed -- moved to the real
+            // Domain/Entities/TimePeriod + ClassTimePeriod tables instead, since "certain classes
+            // run different period structures" is a relationship a flat Config option list can't
+            // express. See TimePeriodSeeder and Docs/time_period_and_class_routine_implementation_guide.md.
 
             await EnsureConfigAsync(dbContext, ConfigTypeCodes.GuardianRelationship, "FATHER", "Father", 1);
             await EnsureConfigAsync(dbContext, ConfigTypeCodes.GuardianRelationship, "MOTHER", "Mother", 2);
@@ -261,6 +276,10 @@ namespace Infrastructure.Persistence.DataSeeder
             await EnsureConfigAsync(dbContext, ConfigTypeCodes.EmployeeLevel, "SENIOR", "Senior", 3);
             await EnsureConfigAsync(dbContext, ConfigTypeCodes.EmployeeLevel, "LEAD", "Lead", 4);
             await EnsureConfigAsync(dbContext, ConfigTypeCodes.EmployeeLevel, "EXECUTIVE", "Executive", 5);
+
+            // Illustrative class periods + breaks used to be seeded here as Config options --
+            // moved to TimePeriodSeeder (real TimePeriod rows) 2026-08-03, see that seeder and
+            // Docs/time_period_and_class_routine_implementation_guide.md.
 
             await SeedNepalDistrictsAndLocalLevelsAsync(dbContext);
         }

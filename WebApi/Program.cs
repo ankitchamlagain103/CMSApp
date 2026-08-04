@@ -43,6 +43,8 @@ try
     await PayrollSeeder.SeedAsync(app.Services);
     // Baseline Annual/Sick/Casual leave types -- illustrative, verify against actual policy before real use.
     await LeaveTypeSeeder.SeedAsync(app.Services);
+    // Illustrative daily class periods + breaks -- verify against the school's real bell schedule; class mapping is admin-driven (POST /api/timeperiods/map), not seeded.
+    await TimePeriodSeeder.SeedAsync(app.Services);
     // Development/demo data (school structure, teachers, students) -- remove for production.
     await SampleDataSeeder.SeedAsync(app.Services);
 }
