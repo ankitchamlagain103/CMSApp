@@ -15,7 +15,6 @@ namespace Infrastructure.Persistence
         private IAppConfigRepository _appConfigRepository;
         private IAcademicYearRepository _academicYearRepository;
         private IAcademicClassRepository _academicClassRepository;
-        private ITeacherRepository _teacherRepository;
         private IGuardianRepository _guardianRepository;
         private IStudentRepository _studentRepository;
         private IEnrollmentRepository _enrollmentRepository;
@@ -145,19 +144,6 @@ namespace Infrastructure.Persistence
                 }
 
                 return _academicClassRepository;
-            }
-        }
-
-        public ITeacherRepository Teachers
-        {
-            get
-            {
-                if (_teacherRepository == null)
-                {
-                    _teacherRepository = new TeacherRepository(_dbContext);
-                }
-
-                return _teacherRepository;
             }
         }
 

@@ -46,7 +46,10 @@ try
     // Illustrative daily class periods + breaks -- verify against the school's real bell schedule; class mapping is admin-driven (POST /api/timeperiods/map), not seeded.
     await TimePeriodSeeder.SeedAsync(app.Services);
     // Development/demo data (school structure, teachers, students) -- remove for production.
-    await SampleDataSeeder.SeedAsync(app.Services);
+    // Temporarily disabled: the dev DB was intentionally wiped and repopulated with a fresh,
+    // hand-curated Nursery/LKG/UKG dataset (2026-08-05) -- re-enable if the full 100-student demo
+    // set is needed again.
+    // await SampleDataSeeder.SeedAsync(app.Services);
 }
 catch (Exception seedException)
 {

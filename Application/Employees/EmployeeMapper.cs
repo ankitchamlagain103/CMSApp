@@ -9,10 +9,11 @@ namespace Application.Employees
 {
     public static class EmployeeMapper
     {
-        // HasTeacherProfile is only meaningful when the Teacher navigation was loaded
-        // (GetByIdWithTeacherAsync); the plain paged list leaves it false rather than issuing a
-        // per-row lookup.
-        public static EmployeeDto ToDto(Employee employee, bool hasTeacherProfile = false)
+        // orgLabelsByCode (2026-08-05) resolves EmployeeCategory/JobPosition/Branch/Province/
+        // EmployeeLevel/District/LocalLevel codes -- see EmployeeService.LoadOrgLabelMapAsync;
+        // null/omitted leaves every XxxLabel field null (same graceful-degradation the
+        // SalaryComponent/Deduction mappers already established).
+        public static EmployeeDto ToDto(Employee employee, IReadOnlyDictionary<string, string> orgLabelsByCode = null)
         {
             var employeeDto = new EmployeeDto
             {
@@ -28,7 +29,9 @@ namespace Application.Employees
                 Phone = employee.Phone,
                 JoinDate = employee.JoinDate,
                 EmployeeCategoryCode = employee.EmployeeCategoryCode,
+                EmployeeCategoryLabel = ConfigLabelHelper.Resolve(orgLabelsByCode, employee.EmployeeCategoryCode),
                 JobPositionCode = employee.JobPositionCode,
+                JobPositionLabel = ConfigLabelHelper.Resolve(orgLabelsByCode, employee.JobPositionCode),
                 EmploymentStatus = employee.EmploymentStatus,
                 BankName = employee.BankName,
                 BankAccountNumber = employee.BankAccountNumber,
@@ -39,15 +42,23 @@ namespace Application.Employees
                 CitNumber = employee.CitNumber,
                 GratuityNumber = employee.GratuityNumber,
                 BranchCode = employee.BranchCode,
+                BranchLabel = ConfigLabelHelper.Resolve(orgLabelsByCode, employee.BranchCode),
                 ProvinceCode = employee.ProvinceCode,
+                ProvinceLabel = ConfigLabelHelper.Resolve(orgLabelsByCode, employee.ProvinceCode),
                 LevelCode = employee.LevelCode,
+                LevelLabel = ConfigLabelHelper.Resolve(orgLabelsByCode, employee.LevelCode),
                 ManagerId = employee.ManagerId,
                 DistrictCode = employee.DistrictCode,
+                DistrictLabel = ConfigLabelHelper.Resolve(orgLabelsByCode, employee.DistrictCode),
                 LocalLevelCode = employee.LocalLevelCode,
+                LocalLevelLabel = ConfigLabelHelper.Resolve(orgLabelsByCode, employee.LocalLevelCode),
                 WardNo = employee.WardNo,
                 ManagerName = employee.Manager != null ? BuildFullName(employee.Manager.FirstName, employee.Manager.MiddleName, employee.Manager.LastName) : null,
                 HasPhoto = !string.IsNullOrWhiteSpace(employee.PhotoPath),
-                HasTeacherProfile = hasTeacherProfile || employee.Teacher != null,
+                TeachingLicenseNo = employee.TeachingLicenseNo,
+                ExperienceYears = employee.ExperienceYears,
+                Specialization = employee.Specialization,
+                IsTeachingStaff = EmployeeRoleHelper.IsTeachingStaff(employee.EmployeeCategoryCode, employee.JobPositionCode),
                 CreatedBy = employee.CreatedBy,
                 CreatedTs = employee.CreatedTs,
                 UpdatedBy = employee.UpdatedBy,
@@ -55,19 +66,6 @@ namespace Application.Employees
             };
 
             return employeeDto;
-        }
-
-        public static TeacherProfileDto ToTeacherProfileDto(Teacher teacher)
-        {
-            var teacherProfileDto = new TeacherProfileDto
-            {
-                EmployeeId = teacher.Id,
-                TeachingLicenseNo = teacher.TeachingLicenseNo,
-                ExperienceYears = teacher.ExperienceYears,
-                Specialization = teacher.Specialization
-            };
-
-            return teacherProfileDto;
         }
 
         // Expects the salary's Components/Deductions/InsurancePremiums navigations to be loaded.
@@ -178,37 +176,47 @@ namespace Application.Employees
 
         // Qualifications and Documents (2026-07-23, moved here from TeacherMapper -- neither
         // concept is teaching-specific).
-        public static EmployeeQualificationDto ToQualificationDto(EmployeeQualification qualification)
+        public static EmployeeQualificationDto ToQualificationDto(EmployeeQualification qualification, IReadOnlyDictionary<string, string> labelsByCode = null)
         {
             var qualificationDto = new EmployeeQualificationDto
             {
                 Id = qualification.Id,
                 EmployeeId = qualification.EmployeeId,
                 QualificationCode = qualification.QualificationCode,
+                QualificationLabel = ConfigLabelHelper.Resolve(labelsByCode, qualification.QualificationCode),
                 CourseName = qualification.CourseName,
                 Institution = qualification.Institution,
                 CompletionYear = qualification.CompletionYear,
                 Score = qualification.Score,
-                Remarks = qualification.Remarks
+                Remarks = qualification.Remarks,
+                VerificationStatus = qualification.VerificationStatus,
+                VerificationRemarks = qualification.VerificationRemarks,
+                VerifiedTs = qualification.VerifiedTs,
+                VerifiedBy = qualification.VerifiedBy
             };
 
             return qualificationDto;
         }
 
-        public static EmployeeDocumentDto ToDocumentDto(EmployeeDocument document)
+        public static EmployeeDocumentDto ToDocumentDto(EmployeeDocument document, IReadOnlyDictionary<string, string> labelsByCode = null)
         {
             var documentDto = new EmployeeDocumentDto
             {
                 Id = document.Id,
                 EmployeeId = document.EmployeeId,
                 DocumentTypeCode = document.DocumentTypeCode,
+                DocumentTypeLabel = ConfigLabelHelper.Resolve(labelsByCode, document.DocumentTypeCode),
                 DocumentName = document.DocumentName,
                 FileName = document.FileName,
                 ContentType = document.ContentType,
                 FileSizeBytes = document.FileSizeBytes,
                 ValidUntil = document.ValidUntil,
                 Remarks = document.Remarks,
-                UploadedTs = document.CreatedTs
+                UploadedTs = document.CreatedTs,
+                VerificationStatus = document.VerificationStatus,
+                VerificationRemarks = document.VerificationRemarks,
+                VerifiedTs = document.VerifiedTs,
+                VerifiedBy = document.VerifiedBy
             };
 
             return documentDto;

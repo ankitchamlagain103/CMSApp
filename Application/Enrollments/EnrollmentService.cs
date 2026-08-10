@@ -176,7 +176,8 @@ namespace Application.Enrollments
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            var enrollmentDto = EnrollmentMapper.ToDto(enrollment);
+            var classLabels = await LoadClassLabelMapAsync(cancellationToken);
+            var enrollmentDto = EnrollmentMapper.ToDto(enrollment, classLabels);
             var successResponse = CommonResponse<EnrollmentDto>.Success(enrollmentDto, "Student enrolled successfully.");
             return successResponse;
         }
@@ -190,7 +191,8 @@ namespace Application.Enrollments
                 return notFoundResponse;
             }
 
-            var enrollmentDto = EnrollmentMapper.ToDto(enrollment);
+            var classLabels = await LoadClassLabelMapAsync(cancellationToken);
+            var enrollmentDto = EnrollmentMapper.ToDto(enrollment, classLabels);
             var successResponse = CommonResponse<EnrollmentDto>.Success(enrollmentDto);
             return successResponse;
         }
@@ -210,11 +212,12 @@ namespace Application.Enrollments
             };
 
             var pagedEnrollments = await _unitOfWork.Enrollments.GetPagedByFilterAsync(filter, query.Page, query.PageSize, cancellationToken);
+            var classLabels = await LoadClassLabelMapAsync(cancellationToken);
 
             var enrollmentDtos = new List<EnrollmentDto>();
             foreach (var enrollment in pagedEnrollments.Items)
             {
-                var enrollmentDto = EnrollmentMapper.ToDto(enrollment);
+                var enrollmentDto = EnrollmentMapper.ToDto(enrollment, classLabels);
                 enrollmentDtos.Add(enrollmentDto);
             }
 
@@ -378,7 +381,8 @@ namespace Application.Enrollments
             _unitOfWork.Enrollments.Update(enrollment);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            var enrollmentDto = EnrollmentMapper.ToDto(enrollment);
+            var classLabels = await LoadClassLabelMapAsync(cancellationToken);
+            var enrollmentDto = EnrollmentMapper.ToDto(enrollment, classLabels);
             var successResponse = CommonResponse<EnrollmentDto>.Success(enrollmentDto, "Enrollment updated successfully.");
             return successResponse;
         }
@@ -454,7 +458,8 @@ namespace Application.Enrollments
             await _unitOfWork.Enrollments.AddElectiveSubjectAsync(electiveSubject, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            var electiveSubjectDto = EnrollmentMapper.ToElectiveSubjectDto(electiveSubject);
+            var classLabels = await LoadClassLabelMapAsync(cancellationToken);
+            var electiveSubjectDto = EnrollmentMapper.ToElectiveSubjectDto(electiveSubject, classLabels);
             var successResponse = CommonResponse<EnrollmentSubjectDto>.Success(electiveSubjectDto, "Elective subject added successfully.");
             return successResponse;
         }
@@ -485,11 +490,12 @@ namespace Application.Enrollments
             }
 
             var electiveSubjects = await _unitOfWork.Enrollments.GetElectiveSubjectsAsync(enrollmentId, cancellationToken);
+            var classLabels = await LoadClassLabelMapAsync(cancellationToken);
 
             var electiveSubjectDtos = new List<EnrollmentSubjectDto>();
             foreach (var electiveSubject in electiveSubjects)
             {
-                var electiveSubjectDto = EnrollmentMapper.ToElectiveSubjectDto(electiveSubject);
+                var electiveSubjectDto = EnrollmentMapper.ToElectiveSubjectDto(electiveSubject, classLabels);
                 electiveSubjectDtos.Add(electiveSubjectDto);
             }
 
@@ -605,11 +611,12 @@ namespace Application.Enrollments
         public async Task<CommonResponse<List<AwardSummaryDto>>> GetDiscountSummaryAsync(Guid? academicYearId, string discountTypeCode, CancellationToken cancellationToken = default)
         {
             var summaryItems = await _unitOfWork.Enrollments.GetDiscountSummaryAsync(academicYearId, discountTypeCode, cancellationToken);
+            var discountTypeLabels = await LoadDiscountLabelMapAsync(cancellationToken);
 
             var summaryDtos = new List<AwardSummaryDto>();
             foreach (var summaryItem in summaryItems)
             {
-                var summaryDto = EnrollmentMapper.ToAwardSummaryDto(summaryItem);
+                var summaryDto = EnrollmentMapper.ToAwardSummaryDto(summaryItem, discountTypeLabels);
                 summaryDtos.Add(summaryDto);
             }
 
@@ -725,11 +732,12 @@ namespace Application.Enrollments
         public async Task<CommonResponse<List<AwardSummaryDto>>> GetScholarshipSummaryAsync(Guid? academicYearId, string scholarshipTypeCode, CancellationToken cancellationToken = default)
         {
             var summaryItems = await _unitOfWork.Enrollments.GetScholarshipSummaryAsync(academicYearId, scholarshipTypeCode, cancellationToken);
+            var scholarshipTypeLabels = await LoadScholarshipLabelMapAsync(cancellationToken);
 
             var summaryDtos = new List<AwardSummaryDto>();
             foreach (var summaryItem in summaryItems)
             {
-                var summaryDto = EnrollmentMapper.ToAwardSummaryDto(summaryItem);
+                var summaryDto = EnrollmentMapper.ToAwardSummaryDto(summaryItem, scholarshipTypeLabels);
                 summaryDtos.Add(summaryDto);
             }
 
@@ -902,12 +910,15 @@ namespace Application.Enrollments
 
             var summary = BuildFeeStructureSummary(feeItemDtos, discounts, scholarships);
 
+            var gradeLabels = ConfigLabelHelper.BuildLabelMap(await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.Grade, cancellationToken));
+
             var feeStructureDto = new EnrollmentFeeStructureDto
             {
                 EnrollmentId = enrollmentId,
                 AcademicYearId = academicClass.AcademicYearId,
                 AcademicClassId = academicClass.Id,
                 GradeCode = academicClass.GradeCode,
+                GradeLabel = ConfigLabelHelper.Resolve(gradeLabels, academicClass.GradeCode),
                 FeeItems = feeItemDtos,
                 Discounts = discountDtos,
                 Scholarships = scholarshipDtos,
@@ -1121,6 +1132,30 @@ namespace Application.Enrollments
             }
 
             return (valueType, value);
+        }
+
+        // Merged Grade+Section+Subject label map (2026-08-05, part of the application-wide
+        // Config label-resolution sweep -- see Docs/config_label_resolution_implementation_guide.md).
+        // Their code namespaces are distinct by convention, same reasoning every other merged
+        // label loader in this codebase relies on.
+        private async Task<Dictionary<string, string>> LoadClassLabelMapAsync(CancellationToken cancellationToken)
+        {
+            var labelsByCode = ConfigLabelHelper.BuildLabelMap(await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.Grade, cancellationToken));
+            ConfigLabelHelper.MergeLabelMap(labelsByCode, await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.Section, cancellationToken));
+            ConfigLabelHelper.MergeLabelMap(labelsByCode, await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.Subject, cancellationToken));
+            return labelsByCode;
+        }
+
+        private async Task<Dictionary<string, string>> LoadDiscountLabelMapAsync(CancellationToken cancellationToken)
+        {
+            var labelsByCode = ConfigLabelHelper.BuildLabelMap(await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.DiscountType, cancellationToken));
+            return labelsByCode;
+        }
+
+        private async Task<Dictionary<string, string>> LoadScholarshipLabelMapAsync(CancellationToken cancellationToken)
+        {
+            var labelsByCode = ConfigLabelHelper.BuildLabelMap(await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.ScholarshipType, cancellationToken));
+            return labelsByCode;
         }
 
         private static string BuildValidationErrorMessage(ValidationResult validationResult)

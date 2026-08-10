@@ -1,9 +1,11 @@
 using Application.Calendars;
+using Application.Common.Helpers;
 using Application.Common.Interfaces;
 using Application.Common.Models;
 using Application.Exams.Commands;
 using Application.Exams.Dtos;
 using Application.Exams.Validators;
+using Application.GradeScales;
 using Domain.Constants;
 using Domain.Entities;
 using Domain.Enums;
@@ -15,6 +17,7 @@ namespace Application.Exams
     {
         private readonly IUnitOfWork _unitOfWork;
         private readonly IBsAdConversionService _conversionService;
+        private readonly ICurrentUserService _currentUserService;
         private readonly CreateExamTermCommandValidator _createExamTermValidator;
         private readonly UpdateExamTermCommandValidator _updateExamTermValidator;
         private readonly CreateExamCommandValidator _createExamValidator;
@@ -29,6 +32,7 @@ namespace Application.Exams
         public ExamService(
             IUnitOfWork unitOfWork,
             IBsAdConversionService conversionService,
+            ICurrentUserService currentUserService,
             CreateExamTermCommandValidator createExamTermValidator,
             UpdateExamTermCommandValidator updateExamTermValidator,
             CreateExamCommandValidator createExamValidator,
@@ -42,6 +46,7 @@ namespace Application.Exams
         {
             _unitOfWork = unitOfWork;
             _conversionService = conversionService;
+            _currentUserService = currentUserService;
             _createExamTermValidator = createExamTermValidator;
             _updateExamTermValidator = updateExamTermValidator;
             _createExamValidator = createExamValidator;
@@ -263,7 +268,8 @@ namespace Application.Exams
             await _unitOfWork.ExamTerms.AddExamAsync(exam, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            var examDto = ExamMapper.ToExamDto(exam);
+            var createExamLabels = await LoadClassLabelMapAsync(cancellationToken);
+            var examDto = ExamMapper.ToExamDto(exam, createExamLabels);
             var successResponse = CommonResponse<ExamDto>.Success(examDto, "Exam created successfully.");
             return successResponse;
         }
@@ -400,6 +406,7 @@ namespace Application.Exams
 
             // --- Pass 2: every item validated -- mutate and save once, atomically. ---
             var resultDto = new SaveExamRoutineResultDto { ExamTermId = command.ExamTermId, AcademicClassId = command.AcademicClassId };
+            var routineLabels = await LoadClassLabelMapAsync(cancellationToken);
 
             foreach (var resolved in resolvedItems)
             {
@@ -431,7 +438,7 @@ namespace Application.Exams
                     }
 
                     resultDto.UpdatedCount++;
-                    resultDto.Items.Add(ExamMapper.ToExamDto(existingExam));
+                    resultDto.Items.Add(ExamMapper.ToExamDto(existingExam, routineLabels));
                 }
                 else
                 {
@@ -455,7 +462,7 @@ namespace Application.Exams
                     await _unitOfWork.ExamTerms.AddExamAsync(newExam, cancellationToken);
 
                     resultDto.CreatedCount++;
-                    resultDto.Items.Add(ExamMapper.ToExamDto(newExam));
+                    resultDto.Items.Add(ExamMapper.ToExamDto(newExam, routineLabels));
                 }
             }
 
@@ -493,7 +500,7 @@ namespace Application.Exams
         // already guarantees exactly one path was attempted; this is where the period path is
         // actually looked up. A picked period must (a) not be a Break and (b) be mapped, via
         // ClassTimePeriod, to the exam's own class -- the same two checks
-        // TeacherService.BuildAssignmentAsync applies for TeacherAssignment.TimePeriodId. Issue is
+        // TeacherAssignmentBuilder.BuildAsync applies for TeacherAssignment.TimePeriodId. Issue is
         // non-null on any failure -- the caller returns it as a ValidationError without mutating
         // anything.
         private async Task<(TimeSpan StartTime, TimeSpan EndTime, TimePeriod TimePeriod, string Issue)> ResolveExamTimesAsync(Guid academicClassId, Guid? timePeriodId, TimeSpan? startTime, TimeSpan? endTime, CancellationToken cancellationToken)
@@ -548,7 +555,8 @@ namespace Application.Exams
                 return notFoundResponse;
             }
 
-            var examDto = ExamMapper.ToExamDto(exam);
+            var getExamLabels = await LoadClassLabelMapAsync(cancellationToken);
+            var examDto = ExamMapper.ToExamDto(exam, getExamLabels);
             var successResponse = CommonResponse<ExamDto>.Success(examDto);
             return successResponse;
         }
@@ -558,7 +566,7 @@ namespace Application.Exams
             List<TeacherAssignment> teacherAssignments = null;
             if (teacherId.HasValue)
             {
-                var assignments = await _unitOfWork.Teachers.GetAssignmentsAsync(teacherId.Value, cancellationToken);
+                var assignments = await _unitOfWork.Employees.GetAssignmentsAsync(teacherId.Value, cancellationToken);
                 teacherAssignments = new List<TeacherAssignment>(assignments);
 
                 if (teacherAssignments.Count == 0)
@@ -570,6 +578,7 @@ namespace Application.Exams
 
             var exams = await _unitOfWork.ExamTerms.GetExamsAsync(examTermId, classSubjectId, cancellationToken);
 
+            var listLabels = await LoadClassLabelMapAsync(cancellationToken);
             var examDtos = new List<ExamDto>();
             foreach (var exam in exams)
             {
@@ -578,7 +587,7 @@ namespace Application.Exams
                     continue;
                 }
 
-                var examDto = ExamMapper.ToExamDto(exam);
+                var examDto = ExamMapper.ToExamDto(exam, listLabels);
                 examDtos.Add(examDto);
             }
 
@@ -601,6 +610,188 @@ namespace Application.Exams
             }
 
             return false;
+        }
+
+        // Self-service marks entry (2026-08-07) -- "show them only the subject(s) he or she
+        // teaches": every method below resolves the caller's own Employee from the JWT (same
+        // ResolveCurrentEmployeeIdAsync pattern as EmployeeService's "Me" endpoints) and either
+        // narrows the result (GetMyExamsAsync, via the existing teacherId parameter) or refuses
+        // with Forbidden when the target exam's subject isn't one of the caller's own
+        // TeacherAssignment rows (roster/marks read and write). Each thin wrapper delegates to
+        // the existing employeeId/examId-taking method afterward -- one implementation of the
+        // actual logic, not a parallel copy.
+
+        private async Task<(Guid? EmployeeId, string ErrorMessage)> ResolveCurrentEmployeeIdAsync(CancellationToken cancellationToken)
+        {
+            var userId = _currentUserService.UserId;
+            if (!userId.HasValue)
+            {
+                return (null, "No authenticated user.");
+            }
+
+            var employee = await _unitOfWork.Employees.GetByUserIdAsync(userId.Value, cancellationToken);
+            if (employee == null)
+            {
+                return (null, "Your account is not linked to an employee record.");
+            }
+
+            return (employee.Id, null);
+        }
+
+        private async Task<bool> IsTeacherAssignedToClassSubjectAsync(Guid teacherId, Guid classSubjectId, CancellationToken cancellationToken)
+        {
+            var assignments = await _unitOfWork.Employees.GetAssignmentsAsync(teacherId, cancellationToken);
+            foreach (var assignment in assignments)
+            {
+                if (assignment.ClassSubjectId == classSubjectId)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        public async Task<CommonResponse<List<ExamDto>>> GetMyExamsAsync(Guid? examTermId, Guid? classSubjectId, CancellationToken cancellationToken = default)
+        {
+            var (employeeId, errorMessage) = await ResolveCurrentEmployeeIdAsync(cancellationToken);
+            if (!employeeId.HasValue)
+            {
+                var notFoundResponse = CommonResponse<List<ExamDto>>.Fail(ResponseCodes.NotFound, errorMessage);
+                return notFoundResponse;
+            }
+
+            return await GetExamsAsync(examTermId, classSubjectId, employeeId.Value, cancellationToken);
+        }
+
+        public async Task<CommonResponse<List<ExamMarkRosterItemDto>>> GetMyStudentExamMarkRosterAsync(Guid examId, string search, Guid? classSectionId, CancellationToken cancellationToken = default)
+        {
+            var (employeeId, errorMessage) = await ResolveCurrentEmployeeIdAsync(cancellationToken);
+            if (!employeeId.HasValue)
+            {
+                var notFoundResponse = CommonResponse<List<ExamMarkRosterItemDto>>.Fail(ResponseCodes.NotFound, errorMessage);
+                return notFoundResponse;
+            }
+
+            var exam = await _unitOfWork.ExamTerms.GetExamByIdAsync(examId, cancellationToken);
+            if (exam == null)
+            {
+                var examNotFoundResponse = CommonResponse<List<ExamMarkRosterItemDto>>.Fail(ResponseCodes.NotFound, "Exam with id '" + examId + "' was not found.");
+                return examNotFoundResponse;
+            }
+
+            var isAssigned = await IsTeacherAssignedToClassSubjectAsync(employeeId.Value, exam.ClassSubjectId, cancellationToken);
+            if (!isAssigned)
+            {
+                var forbiddenResponse = CommonResponse<List<ExamMarkRosterItemDto>>.Fail(ResponseCodes.Forbidden, "You are not assigned to teach this subject.");
+                return forbiddenResponse;
+            }
+
+            return await GetStudentExamMarkRosterAsync(examId, search, classSectionId, cancellationToken);
+        }
+
+        public async Task<CommonResponse<List<StudentExamMarkDto>>> GetMyStudentExamMarksAsync(Guid examId, Guid? enrollmentId, Guid? classSectionId, CancellationToken cancellationToken = default)
+        {
+            var (employeeId, errorMessage) = await ResolveCurrentEmployeeIdAsync(cancellationToken);
+            if (!employeeId.HasValue)
+            {
+                var notFoundResponse = CommonResponse<List<StudentExamMarkDto>>.Fail(ResponseCodes.NotFound, errorMessage);
+                return notFoundResponse;
+            }
+
+            var exam = await _unitOfWork.ExamTerms.GetExamByIdAsync(examId, cancellationToken);
+            if (exam == null)
+            {
+                var examNotFoundResponse = CommonResponse<List<StudentExamMarkDto>>.Fail(ResponseCodes.NotFound, "Exam with id '" + examId + "' was not found.");
+                return examNotFoundResponse;
+            }
+
+            var isAssigned = await IsTeacherAssignedToClassSubjectAsync(employeeId.Value, exam.ClassSubjectId, cancellationToken);
+            if (!isAssigned)
+            {
+                var forbiddenResponse = CommonResponse<List<StudentExamMarkDto>>.Fail(ResponseCodes.Forbidden, "You are not assigned to teach this subject.");
+                return forbiddenResponse;
+            }
+
+            return await GetStudentExamMarksAsync(examId, enrollmentId, classSectionId, cancellationToken);
+        }
+
+        public async Task<CommonResponse<StudentExamMarkDto>> CreateMyStudentExamMarkAsync(CreateStudentExamMarkCommand command, CancellationToken cancellationToken = default)
+        {
+            var (employeeId, errorMessage) = await ResolveCurrentEmployeeIdAsync(cancellationToken);
+            if (!employeeId.HasValue)
+            {
+                var notFoundResponse = CommonResponse<StudentExamMarkDto>.Fail(ResponseCodes.NotFound, errorMessage);
+                return notFoundResponse;
+            }
+
+            var exam = await _unitOfWork.ExamTerms.GetExamByIdAsync(command.ExamId, cancellationToken);
+            if (exam == null)
+            {
+                var examNotFoundResponse = CommonResponse<StudentExamMarkDto>.Fail(ResponseCodes.NotFound, "Exam with id '" + command.ExamId + "' was not found.");
+                return examNotFoundResponse;
+            }
+
+            var isAssigned = await IsTeacherAssignedToClassSubjectAsync(employeeId.Value, exam.ClassSubjectId, cancellationToken);
+            if (!isAssigned)
+            {
+                var forbiddenResponse = CommonResponse<StudentExamMarkDto>.Fail(ResponseCodes.Forbidden, "You are not assigned to teach this subject.");
+                return forbiddenResponse;
+            }
+
+            return await CreateStudentExamMarkAsync(command, cancellationToken);
+        }
+
+        public async Task<CommonResponse<StudentExamMarkDto>> UpdateMyStudentExamMarkAsync(Guid id, UpdateStudentExamMarkCommand command, CancellationToken cancellationToken = default)
+        {
+            var (employeeId, errorMessage) = await ResolveCurrentEmployeeIdAsync(cancellationToken);
+            if (!employeeId.HasValue)
+            {
+                var notFoundResponse = CommonResponse<StudentExamMarkDto>.Fail(ResponseCodes.NotFound, errorMessage);
+                return notFoundResponse;
+            }
+
+            var mark = await _unitOfWork.ExamTerms.GetMarkByIdAsync(id, cancellationToken);
+            if (mark == null)
+            {
+                var markNotFoundResponse = CommonResponse<StudentExamMarkDto>.Fail(ResponseCodes.NotFound, "Student exam mark with id '" + id + "' was not found.");
+                return markNotFoundResponse;
+            }
+
+            var isAssigned = await IsTeacherAssignedToClassSubjectAsync(employeeId.Value, mark.Exam.ClassSubjectId, cancellationToken);
+            if (!isAssigned)
+            {
+                var forbiddenResponse = CommonResponse<StudentExamMarkDto>.Fail(ResponseCodes.Forbidden, "You are not assigned to teach this subject.");
+                return forbiddenResponse;
+            }
+
+            return await UpdateStudentExamMarkAsync(id, command, cancellationToken);
+        }
+
+        public async Task<CommonResponse<BulkUpsertStudentExamMarksResultDto>> BulkUpsertMyStudentExamMarksAsync(BulkUpsertStudentExamMarksCommand command, CancellationToken cancellationToken = default)
+        {
+            var (employeeId, errorMessage) = await ResolveCurrentEmployeeIdAsync(cancellationToken);
+            if (!employeeId.HasValue)
+            {
+                var notFoundResponse = CommonResponse<BulkUpsertStudentExamMarksResultDto>.Fail(ResponseCodes.NotFound, errorMessage);
+                return notFoundResponse;
+            }
+
+            var exam = await _unitOfWork.ExamTerms.GetExamByIdAsync(command.ExamId, cancellationToken);
+            if (exam == null)
+            {
+                var examNotFoundResponse = CommonResponse<BulkUpsertStudentExamMarksResultDto>.Fail(ResponseCodes.NotFound, "Exam with id '" + command.ExamId + "' was not found.");
+                return examNotFoundResponse;
+            }
+
+            var isAssigned = await IsTeacherAssignedToClassSubjectAsync(employeeId.Value, exam.ClassSubjectId, cancellationToken);
+            if (!isAssigned)
+            {
+                var forbiddenResponse = CommonResponse<BulkUpsertStudentExamMarksResultDto>.Fail(ResponseCodes.Forbidden, "You are not assigned to teach this subject.");
+                return forbiddenResponse;
+            }
+
+            return await BulkUpsertStudentExamMarksAsync(command, cancellationToken);
         }
 
         public async Task<CommonResponse<ExamDto>> UpdateExamAsync(Guid id, UpdateExamCommand command, CancellationToken cancellationToken = default)
@@ -663,7 +854,8 @@ namespace Application.Exams
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            var examDto = ExamMapper.ToExamDto(exam);
+            var updateExamLabels = await LoadClassLabelMapAsync(cancellationToken);
+            var examDto = ExamMapper.ToExamDto(exam, updateExamLabels);
             var successResponse = CommonResponse<ExamDto>.Success(examDto, "Exam updated successfully.");
             return successResponse;
         }
@@ -712,7 +904,8 @@ namespace Application.Exams
             exam.MarksLocked = true;
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            var examDto = ExamMapper.ToExamDto(exam);
+            var lockExamLabels = await LoadClassLabelMapAsync(cancellationToken);
+            var examDto = ExamMapper.ToExamDto(exam, lockExamLabels);
             var successResponse = CommonResponse<ExamDto>.Success(examDto, "Exam locked; marks entry is now closed.");
             return successResponse;
         }
@@ -729,7 +922,8 @@ namespace Application.Exams
             exam.MarksLocked = false;
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            var examDto = ExamMapper.ToExamDto(exam);
+            var unlockExamLabels = await LoadClassLabelMapAsync(cancellationToken);
+            var examDto = ExamMapper.ToExamDto(exam, unlockExamLabels);
             var successResponse = CommonResponse<ExamDto>.Success(examDto, "Exam unlocked; marks entry is open again.");
             return successResponse;
         }
@@ -820,7 +1014,8 @@ namespace Application.Exams
             await _unitOfWork.ExamTerms.AddMarkAsync(mark, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            var markDto = ExamMapper.ToStudentExamMarkDto(mark);
+            var createMarkLabels = await LoadClassLabelMapAsync(cancellationToken);
+            var markDto = ExamMapper.ToStudentExamMarkDto(mark, createMarkLabels);
             var successResponse = CommonResponse<StudentExamMarkDto>.Success(markDto, "Student exam mark recorded successfully.");
             return successResponse;
         }
@@ -834,7 +1029,8 @@ namespace Application.Exams
                 return notFoundResponse;
             }
 
-            var markDto = ExamMapper.ToStudentExamMarkDto(mark);
+            var getMarkLabels = await LoadClassLabelMapAsync(cancellationToken);
+            var markDto = ExamMapper.ToStudentExamMarkDto(mark, getMarkLabels);
             var successResponse = CommonResponse<StudentExamMarkDto>.Success(markDto);
             return successResponse;
         }
@@ -843,10 +1039,11 @@ namespace Application.Exams
         {
             var marks = await _unitOfWork.ExamTerms.GetMarksAsync(examId, enrollmentId, classSectionId, cancellationToken);
 
+            var markListLabels = await LoadClassLabelMapAsync(cancellationToken);
             var markDtos = new List<StudentExamMarkDto>();
             foreach (var mark in marks)
             {
-                var markDto = ExamMapper.ToStudentExamMarkDto(mark);
+                var markDto = ExamMapper.ToStudentExamMarkDto(mark, markListLabels);
                 markDtos.Add(markDto);
             }
 
@@ -886,6 +1083,7 @@ namespace Application.Exams
                 marksByExamId[mark.ExamId] = mark;
             }
 
+            var byStudentLabels = await LoadClassLabelMapAsync(cancellationToken);
             var items = new List<StudentExamMarkByStudentItemDto>();
             foreach (var exam in exams)
             {
@@ -908,11 +1106,13 @@ namespace Application.Exams
                 var classSubject = exam.ClassSubject;
                 marksByExamId.TryGetValue(exam.Id, out var existingMark);
 
+                var itemSubjectCode = classSubject != null ? classSubject.SubjectCode : null;
                 var item = new StudentExamMarkByStudentItemDto
                 {
                     ExamId = exam.Id,
                     ClassSubjectId = exam.ClassSubjectId,
-                    SubjectCode = classSubject != null ? classSubject.SubjectCode : null,
+                    SubjectCode = itemSubjectCode,
+                    SubjectLabel = ConfigLabelHelper.Resolve(byStudentLabels, itemSubjectCode),
                     ExamDate = exam.ExamDate,
                     MarksLocked = exam.MarksLocked,
                     FullMarks = classSubject != null ? classSubject.FullMarks : null,
@@ -923,7 +1123,7 @@ namespace Application.Exams
                     PracticalMarks = classSubject != null ? classSubject.PracticalMarks : null,
                     TheoryPassMarks = classSubject != null ? classSubject.TheoryPassMarks : null,
                     PracticalPassMarks = classSubject != null ? classSubject.PracticalPassMarks : null,
-                    Mark = existingMark != null ? ExamMapper.ToStudentExamMarkDto(existingMark) : null
+                    Mark = existingMark != null ? ExamMapper.ToStudentExamMarkDto(existingMark, byStudentLabels) : null
                 };
 
                 items.Add(item);
@@ -985,7 +1185,8 @@ namespace Application.Exams
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            var markDto = ExamMapper.ToStudentExamMarkDto(mark);
+            var updateMarkLabels = await LoadClassLabelMapAsync(cancellationToken);
+            var markDto = ExamMapper.ToStudentExamMarkDto(mark, updateMarkLabels);
             var successResponse = CommonResponse<StudentExamMarkDto>.Success(markDto, "Student exam mark updated successfully.");
             return successResponse;
         }
@@ -1125,6 +1326,7 @@ namespace Application.Exams
 
             var trimmedSearch = string.IsNullOrWhiteSpace(search) ? null : search.Trim();
 
+            var rosterLabels = await LoadClassLabelMapAsync(cancellationToken);
             var roster = new List<ExamMarkRosterItemDto>();
             foreach (var enrollment in enrollments)
             {
@@ -1150,7 +1352,7 @@ namespace Application.Exams
                     AdmissionNo = admissionNo,
                     StudentName = studentName,
                     RollNumber = enrollment.RollNumber,
-                    Mark = existingMark != null ? ExamMapper.ToStudentExamMarkDto(existingMark) : null
+                    Mark = existingMark != null ? ExamMapper.ToStudentExamMarkDto(existingMark, rosterLabels) : null
                 };
 
                 roster.Add(rosterItem);
@@ -1236,6 +1438,11 @@ namespace Application.Exams
                 }
             }
 
+            // Loaded once for the whole generation call (not per subject per enrollment) --
+            // GradePointCalculator.Resolve interpolates against this same ordered list for every
+            // mark below.
+            var gradeScales = await _unitOfWork.GradeScales.GetAllOrderedAsync(cancellationToken);
+
             // Ranking is still per the enrollment's own section (Enrollment.ClassSectionId),
             // independent of how many exams contributed to the result.
             var resultsBySection = new Dictionary<Guid, List<StudentResult>>();
@@ -1310,10 +1517,10 @@ namespace Application.Exams
                     }
 
                     var subjectPercentage = subjectFullMarks > 0 ? Math.Round(mark.TotalMarks / subjectFullMarks * 100, 2) : 0m;
-                    var gradeScale = await _unitOfWork.GradeScales.FindByPercentageAsync(subjectPercentage, cancellationToken);
+                    var (resolvedGrade, resolvedGradePoint) = GradePointCalculator.Resolve(subjectPercentage, gradeScales);
 
-                    mark.Grade = gradeScale != null ? gradeScale.Grade : null;
-                    mark.GradePoint = gradeScale != null ? gradeScale.GradePoint : (decimal?)null;
+                    mark.Grade = resolvedGrade;
+                    mark.GradePoint = resolvedGradePoint;
 
                     var creditWeight = classSubject.CreditHours.HasValue ? classSubject.CreditHours.Value : 1m;
                     if (mark.GradePoint.HasValue)
@@ -1460,10 +1667,11 @@ namespace Application.Exams
         {
             var pagedResults = await _unitOfWork.ExamTerms.GetResultsPagedByFilterAsync(examTermId, classSectionId, enrollmentId, page, pageSize, cancellationToken);
 
+            var resultListLabels = await LoadClassLabelMapAsync(cancellationToken);
             var resultDtos = new List<StudentResultDto>();
             foreach (var result in pagedResults.Items)
             {
-                var resultDto = ExamMapper.ToStudentResultDto(result);
+                var resultDto = ExamMapper.ToStudentResultDto(result, resultListLabels);
                 resultDtos.Add(resultDto);
             }
 
@@ -1488,7 +1696,8 @@ namespace Application.Exams
                 return notFoundResponse;
             }
 
-            var detailDto = ExamMapper.ToStudentResultDetailDto(result);
+            var resultDetailLabels = await LoadClassLabelMapAsync(cancellationToken);
+            var detailDto = ExamMapper.ToStudentResultDetailDto(result, resultDetailLabels);
 
             // Which subjects contributed is answered directly by "does this student have a mark
             // for that exam" -- the same source of truth generation itself used -- rather than
@@ -1503,10 +1712,12 @@ namespace Application.Exams
                 }
 
                 var classSubject = mark.Exam.ClassSubject;
+                var subjectCode = classSubject != null ? classSubject.SubjectCode : null;
                 var subjectDto = new ExamResultSubjectDto
                 {
                     ClassSubjectId = mark.Exam.ClassSubjectId,
-                    SubjectCode = classSubject != null ? classSubject.SubjectCode : null,
+                    SubjectCode = subjectCode,
+                    SubjectLabel = ConfigLabelHelper.Resolve(resultDetailLabels, subjectCode),
                     FullMarks = classSubject != null ? classSubject.FullMarks : null,
                     PassMarks = classSubject != null ? classSubject.PassMarks : null,
                     ObtainedMarks = mark.TotalMarks,
@@ -1545,7 +1756,8 @@ namespace Application.Exams
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            var resultDto = ExamMapper.ToStudentResultDto(result);
+            var withholdLabels = await LoadClassLabelMapAsync(cancellationToken);
+            var resultDto = ExamMapper.ToStudentResultDto(result, withholdLabels);
             var successResponse = CommonResponse<StudentResultDto>.Success(resultDto, "Exam result withheld.");
             return successResponse;
         }
@@ -1726,6 +1938,18 @@ namespace Application.Exams
 
             var combinedMessage = string.Join(" ", errorMessages);
             return combinedMessage;
+        }
+
+        // Merged Grade+Section+Subject Config label map (2026-08-05), same shape as
+        // EmployeeService/AcademicClassService/EnrollmentService's own LoadClassLabelMapAsync, per
+        // the application-wide Config label resolution sweep. See
+        // Docs/config_label_resolution_implementation_guide.md.
+        private async Task<Dictionary<string, string>> LoadClassLabelMapAsync(CancellationToken cancellationToken)
+        {
+            var labelsByCode = ConfigLabelHelper.BuildLabelMap(await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.Grade, cancellationToken));
+            ConfigLabelHelper.MergeLabelMap(labelsByCode, await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.Section, cancellationToken));
+            ConfigLabelHelper.MergeLabelMap(labelsByCode, await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.Subject, cancellationToken));
+            return labelsByCode;
         }
     }
 }

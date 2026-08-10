@@ -17,7 +17,8 @@ namespace Application.Roles
                 MenuType = menu.MenuType,
                 ParentId = menu.ParentId,
                 Order = menu.Order,
-                IsHidden = menu.IsHidden
+                IsHidden = menu.IsHidden,
+                IsDashboardWidget = menu.IsDashboardWidget
             };
 
             return menuClaimDto;

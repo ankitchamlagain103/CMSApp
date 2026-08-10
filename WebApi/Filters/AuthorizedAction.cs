@@ -86,6 +86,18 @@ namespace WebApi.Filters
                 }
             }
 
+            // Every authenticated user can look up their own account via GET /api/users/{id} --
+            // no USER_DETAIL grant needed, same as GetUserRolesAsync needing no grant to read the
+            // caller's own permission tree. Scoped to exactly this one action, and only when the
+            // route id matches the caller's own id -- looking up anyone else still requires
+            // USER_DETAIL below.
+            if (IsSelfUserLookup(controllerName, actionName, context.ActionArguments, currentUserId.Value))
+            {
+                await LogCriticalAccessIfConfiguredAsync(context, currentUserId.Value, currentUserService.UserName, controllerName, actionName);
+                await next();
+                return;
+            }
+
             var isAuthorized = await ValidateUserRoleClaimsAsync(dbContext, currentUserId.Value, controllerName, actionName, context.HttpContext.RequestAborted);
             if (!isAuthorized)
             {
@@ -141,6 +153,21 @@ namespace WebApi.Filters
             }
         }
 
+        private static bool IsSelfUserLookup(string controllerName, string actionName, IDictionary<string, object> actionArguments, Guid currentUserId)
+        {
+            if (controllerName != "Users" || actionName != "GetUserById")
+            {
+                return false;
+            }
+
+            if (!actionArguments.TryGetValue("id", out var idArgument) || idArgument is not Guid routeUserId)
+            {
+                return false;
+            }
+
+            return routeUserId == currentUserId;
+        }
+
         private static async Task<ApplicationUser> GetUserAsync(ApplicationDbContext dbContext, Guid userId, CancellationToken cancellationToken)
         {
             var user = await dbContext.Users
@@ -154,22 +181,40 @@ namespace WebApi.Filters
         {
             try
             {
+                var menuIds = new HashSet<int>();
+
                 var roleIds = await dbContext.UserRoles
                     .Where(userRole => userRole.UserId == userId)
                     .Select(userRole => userRole.RoleId)
                     .Distinct()
                     .ToListAsync(cancellationToken);
 
-                if (roleIds.Count == 0)
+                if (roleIds.Count > 0)
                 {
-                    return false;
+                    var roleMenuIds = await dbContext.RoleClaims
+                        .Where(roleClaim => roleIds.Contains(roleClaim.RoleId))
+                        .Select(roleClaim => roleClaim.MenuId)
+                        .Distinct()
+                        .ToListAsync(cancellationToken);
+
+                    foreach (var roleMenuId in roleMenuIds)
+                    {
+                        menuIds.Add(roleMenuId);
+                    }
                 }
 
-                var menuIds = await dbContext.RoleClaims
-                    .Where(roleClaim => roleIds.Contains(roleClaim.RoleId))
-                    .Select(roleClaim => roleClaim.MenuId)
+                // Per-user overrides (2026-08-07) -- additive on top of role grants, never a
+                // substitute, so a user with zero roles but a direct menu grant still passes.
+                var directMenuIds = await dbContext.UserClaims
+                    .Where(userClaim => userClaim.UserId == userId)
+                    .Select(userClaim => userClaim.MenuId)
                     .Distinct()
                     .ToListAsync(cancellationToken);
+
+                foreach (var directMenuId in directMenuIds)
+                {
+                    menuIds.Add(directMenuId);
+                }
 
                 if (menuIds.Count == 0)
                 {

@@ -10,6 +10,7 @@ namespace Application.TimePeriods.Dtos
         public Guid Id { get; set; }
         public Guid AcademicClassId { get; set; }
         public string GradeCode { get; set; }
+        public string GradeLabel { get; set; }
         public Guid TimePeriodId { get; set; }
         public string TimePeriodName { get; set; }
         public TimeSpan StartTime { get; set; }

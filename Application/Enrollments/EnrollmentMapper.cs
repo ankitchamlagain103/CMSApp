@@ -8,8 +8,9 @@ namespace Application.Enrollments
     public static class EnrollmentMapper
     {
         // Expects the enrollment's Student navigation and ClassSection (with its AcademicClass)
-        // navigation to be loaded (the repository includes them).
-        public static EnrollmentDto ToDto(Enrollment enrollment)
+        // navigation to be loaded (the repository includes them). classLabelsByCode (2026-08-05)
+        // merges Grade+Section -- see EnrollmentService.LoadClassLabelMapAsync.
+        public static EnrollmentDto ToDto(Enrollment enrollment, IReadOnlyDictionary<string, string> classLabelsByCode = null)
         {
             var classSection = enrollment.ClassSection;
             var academicClass = classSection != null ? classSection.AcademicClass : null;
@@ -22,7 +23,9 @@ namespace Application.Enrollments
                 AcademicClassId = classSection != null ? classSection.AcademicClassId : Guid.Empty,
                 AcademicYearId = academicClass != null ? academicClass.AcademicYearId : Guid.Empty,
                 GradeCode = academicClass != null ? academicClass.GradeCode : null,
+                GradeLabel = academicClass != null ? ConfigLabelHelper.Resolve(classLabelsByCode, academicClass.GradeCode) : null,
                 SectionCode = classSection != null ? classSection.SectionCode : null,
+                SectionLabel = classSection != null ? ConfigLabelHelper.Resolve(classLabelsByCode, classSection.SectionCode) : null,
                 RollNumber = enrollment.RollNumber,
                 EnrollmentDate = enrollment.EnrollmentDate,
                 Status = enrollment.Status,
@@ -35,14 +38,15 @@ namespace Application.Enrollments
         }
 
         // Expects the elective's ClassSubject navigation to be loaded (the repository includes it).
-        public static EnrollmentSubjectDto ToElectiveSubjectDto(EnrollmentSubject electiveSubject)
+        public static EnrollmentSubjectDto ToElectiveSubjectDto(EnrollmentSubject electiveSubject, IReadOnlyDictionary<string, string> subjectLabelsByCode = null)
         {
             var electiveSubjectDto = new EnrollmentSubjectDto
             {
                 Id = electiveSubject.Id,
                 EnrollmentId = electiveSubject.EnrollmentId,
                 ClassSubjectId = electiveSubject.ClassSubjectId,
-                SubjectCode = electiveSubject.ClassSubject != null ? electiveSubject.ClassSubject.SubjectCode : null
+                SubjectCode = electiveSubject.ClassSubject != null ? electiveSubject.ClassSubject.SubjectCode : null,
+                SubjectLabel = electiveSubject.ClassSubject != null ? ConfigLabelHelper.Resolve(subjectLabelsByCode, electiveSubject.ClassSubject.SubjectCode) : null
             };
 
             return electiveSubjectDto;
@@ -96,11 +100,14 @@ namespace Application.Enrollments
             return feeSelectionDto;
         }
 
-        public static AwardSummaryDto ToAwardSummaryDto(AwardSummaryItem summaryItem)
+        // labelsByCode is whichever catalog the caller is summarizing -- DiscountType (1008) for
+        // GetDiscountsSummaryAsync, ScholarshipType (1009) for GetScholarshipsSummaryAsync.
+        public static AwardSummaryDto ToAwardSummaryDto(AwardSummaryItem summaryItem, IReadOnlyDictionary<string, string> labelsByCode = null)
         {
             var summaryDto = new AwardSummaryDto
             {
                 TypeCode = summaryItem.TypeCode,
+                TypeLabel = ConfigLabelHelper.Resolve(labelsByCode, summaryItem.TypeCode),
                 StudentCount = summaryItem.StudentCount
             };
 

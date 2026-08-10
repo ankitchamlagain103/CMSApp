@@ -1,8 +1,14 @@
 # Teacher Assignment — Bulk Entry (Class / Subject / Section / Time Period)
 
+> **2026-08-06: the standalone `Teacher` entity/`TeachersController` were removed.** Every route
+> below now lives at `/api/employees/{id}/assignments...` instead of `/api/teachers/{id}/assignments...`
+> (same route tails, same request/response shapes). `Application/Teachers/TeacherAssignmentBuilder`
+> moved to `Application/Employees/TeacherAssignmentBuilder`. See
+> `employee_teaching_profile_and_assignments_implementation_guide.md` for the full picture.
+
 2026-08-04. Adds a general-purpose bulk-entry endpoint for `TeacherAssignment` rows, so a
 teacher's whole routine — several different classes, subjects, sections, and time periods — can
-be submitted in one API call instead of one `POST /api/teachers/{id}/assignments` call per row.
+be submitted in one API call instead of one `POST /api/employees/{id}/assignments` call per row.
 
 **Same-day follow-up round: three validation tightenings, applied to every assignment endpoint
 (single, both bulk endpoints, and the class-scoped bulk-entry endpoint), not just this one.**

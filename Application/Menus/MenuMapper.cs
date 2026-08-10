@@ -21,7 +21,8 @@ namespace Application.Menus
                 MenuFor = menu.MenuFor,
                 Order = menu.Order,
                 IsHidden = menu.IsHidden,
-                IsQuickLink = menu.IsQuickLink
+                IsQuickLink = menu.IsQuickLink,
+                IsDashboardWidget = menu.IsDashboardWidget
             };
 
             return menuDto;

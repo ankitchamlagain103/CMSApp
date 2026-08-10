@@ -20,8 +20,6 @@ namespace Application.Common.Interfaces
 
         IAcademicClassRepository AcademicClasses { get; }
 
-        ITeacherRepository Teachers { get; }
-
         IGuardianRepository Guardians { get; }
 
         IStudentRepository Students { get; }

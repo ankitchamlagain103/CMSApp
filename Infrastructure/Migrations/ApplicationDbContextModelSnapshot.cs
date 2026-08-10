@@ -991,6 +991,10 @@ namespace Infrastructure.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("employment_status");
 
+                    b.Property<int?>("ExperienceYears")
+                        .HasColumnType("integer")
+                        .HasColumnName("experience_years");
+
                     b.Property<string>("FirstName")
                         .IsRequired()
                         .HasMaxLength(100)
@@ -1076,10 +1080,20 @@ namespace Infrastructure.Migrations
                         .HasColumnType("character varying(100)")
                         .HasColumnName("province_code");
 
+                    b.Property<string>("Specialization")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)")
+                        .HasColumnName("specialization");
+
                     b.Property<string>("SsfNumber")
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)")
                         .HasColumnName("ssf_number");
+
+                    b.Property<string>("TeachingLicenseNo")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("teaching_license_no");
 
                     b.Property<string>("UpdatedBy")
                         .HasMaxLength(50)
@@ -1188,6 +1202,24 @@ namespace Infrastructure.Migrations
                     b.Property<DateTime?>("ValidUntil")
                         .HasColumnType("date")
                         .HasColumnName("valid_until");
+
+                    b.Property<string>("VerificationRemarks")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("verification_remarks");
+
+                    b.Property<int>("VerificationStatus")
+                        .HasColumnType("integer")
+                        .HasColumnName("verification_status");
+
+                    b.Property<string>("VerifiedBy")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("verified_by");
+
+                    b.Property<DateTimeOffset?>("VerifiedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("verified_ts");
 
                     b.HasKey("Id");
 
@@ -1458,6 +1490,24 @@ namespace Infrastructure.Migrations
                     b.Property<DateTimeOffset?>("UpdatedTs")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_ts");
+
+                    b.Property<string>("VerificationRemarks")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("verification_remarks");
+
+                    b.Property<int>("VerificationStatus")
+                        .HasColumnType("integer")
+                        .HasColumnName("verification_status");
+
+                    b.Property<string>("VerifiedBy")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("verified_by");
+
+                    b.Property<DateTimeOffset?>("VerifiedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("verified_ts");
 
                     b.HasKey("Id");
 
@@ -3688,6 +3738,12 @@ namespace Infrastructure.Migrations
                         .HasColumnType("character varying(100)")
                         .HasColumnName("icon");
 
+                    b.Property<bool>("IsDashboardWidget")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_dashboard_widget");
+
                     b.Property<bool>("IsDeleted")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
@@ -4997,50 +5053,6 @@ namespace Infrastructure.Migrations
                         {
                             t.HasCheckConstraint("ck_tax_slabs_amount_range", "max_amount IS NULL OR max_amount > min_amount");
                         });
-                });
-
-            modelBuilder.Entity("Domain.Entities.Teacher", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<string>("CreatedBy")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)")
-                        .HasColumnName("created_by");
-
-                    b.Property<DateTimeOffset>("CreatedTs")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_ts");
-
-                    b.Property<int?>("ExperienceYears")
-                        .HasColumnType("integer")
-                        .HasColumnName("experience_years");
-
-                    b.Property<string>("Specialization")
-                        .HasMaxLength(255)
-                        .HasColumnType("character varying(255)")
-                        .HasColumnName("specialization");
-
-                    b.Property<string>("TeachingLicenseNo")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("teaching_license_no");
-
-                    b.Property<string>("UpdatedBy")
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)")
-                        .HasColumnName("updated_by");
-
-                    b.Property<DateTimeOffset?>("UpdatedTs")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_ts");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("teachers", "dbo");
                 });
 
             modelBuilder.Entity("Domain.Entities.TeacherAssignment", b =>
@@ -6381,17 +6393,6 @@ namespace Infrastructure.Migrations
                     b.Navigation("FiscalYear");
                 });
 
-            modelBuilder.Entity("Domain.Entities.Teacher", b =>
-                {
-                    b.HasOne("Domain.Entities.Employee", "Employee")
-                        .WithOne("Teacher")
-                        .HasForeignKey("Domain.Entities.Teacher", "Id")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("Employee");
-                });
-
             modelBuilder.Entity("Domain.Entities.TeacherAssignment", b =>
                 {
                     b.HasOne("Domain.Entities.ClassSection", "ClassSection")
@@ -6405,7 +6406,7 @@ namespace Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.HasOne("Domain.Entities.Teacher", "Teacher")
+                    b.HasOne("Domain.Entities.Employee", "Employee")
                         .WithMany("Assignments")
                         .HasForeignKey("TeacherId")
                         .OnDelete(DeleteBehavior.Restrict)
@@ -6420,7 +6421,7 @@ namespace Infrastructure.Migrations
 
                     b.Navigation("ClassSubject");
 
-                    b.Navigation("Teacher");
+                    b.Navigation("Employee");
 
                     b.Navigation("TimePeriod");
                 });
@@ -6537,6 +6538,8 @@ namespace Infrastructure.Migrations
 
             modelBuilder.Entity("Domain.Entities.Employee", b =>
                 {
+                    b.Navigation("Assignments");
+
                     b.Navigation("Documents");
 
                     b.Navigation("LeaveBalances");
@@ -6548,8 +6551,6 @@ namespace Infrastructure.Migrations
                     b.Navigation("Qualifications");
 
                     b.Navigation("Salaries");
-
-                    b.Navigation("Teacher");
                 });
 
             modelBuilder.Entity("Domain.Entities.EmployeeSalary", b =>
@@ -6641,11 +6642,6 @@ namespace Infrastructure.Migrations
                     b.Navigation("Enrollments");
 
                     b.Navigation("GuardianLinks");
-                });
-
-            modelBuilder.Entity("Domain.Entities.Teacher", b =>
-                {
-                    b.Navigation("Assignments");
                 });
 
             modelBuilder.Entity("Infrastructure.Identity.ApplicationRole", b =>

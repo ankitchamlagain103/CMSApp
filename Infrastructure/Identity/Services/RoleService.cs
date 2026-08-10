@@ -5,6 +5,8 @@ using Application.Roles.Commands;
 using Application.Roles.Dtos;
 using Application.Roles.Queries;
 using Application.Roles.Validators;
+using Domain.Constants;
+using Domain.Enums;
 using FluentValidation.Results;
 using Infrastructure.Identity.Mapper;
 using Infrastructure.Persistence;
@@ -234,24 +236,91 @@ namespace Infrastructure.Identity.Services
                 .Select(role => role.Id)
                 .ToListAsync(cancellationToken);
 
-            var menuClaims = await GetRoleMenuClaimsAsync(roleIds, cancellationToken);
+            var callerAudience = await ResolveMenuAudienceAsync(user, cancellationToken);
+            var menuClaims = await GetRoleMenuClaimsAsync(user.Id, roleIds, callerAudience, cancellationToken);
             var successResponse = CommonResponse<List<MenuClaimDto>>.Success(menuClaims);
             return successResponse;
         }
 
-        private async Task<List<MenuClaimDto>> GetRoleMenuClaimsAsync(List<Guid> roleIds, CancellationToken cancellationToken)
+        // "Audience" here is derived from what kind of account this is, not the raw UserType --
+        // UserType.User covers both Employee self-service logins (provisioned via the portal
+        // account feature, see Employee.UserId) and Student portal logins, and those two need
+        // opposite default visibility. SuperAdmin/Admin are unambiguous. A User-type account
+        // linked to an Employee is treated as Admin/staff audience (they use the same admin
+        // panel API surface, just self-service-scoped); everything else (Student-linked, or
+        // unlinked) defaults to the User/portal audience.
+        private async Task<string> ResolveMenuAudienceAsync(ApplicationUser user, CancellationToken cancellationToken)
+        {
+            if (user.UserType == UserType.SuperAdmin || user.UserType == UserType.Admin)
+            {
+                return MenuAudience.Admin;
+            }
+
+            var isLinkedToEmployee = await _dbContext.Employees.AnyAsync(employee => employee.UserId == user.Id, cancellationToken);
+            if (isLinkedToEmployee)
+            {
+                return MenuAudience.Admin;
+            }
+
+            return MenuAudience.User;
+        }
+
+        private async Task<List<MenuClaimDto>> GetRoleMenuClaimsAsync(Guid userId, List<Guid> roleIds, string callerAudience, CancellationToken cancellationToken)
         {
             var rootMenuDtos = new List<MenuClaimDto>();
-            if (roleIds.Count == 0)
+
+            var grantedMenuIds = new HashSet<int>();
+            if (roleIds.Count > 0)
+            {
+                var roleMenuIds = await _dbContext.RoleClaims
+                    .Where(roleClaim => roleIds.Contains(roleClaim.RoleId))
+                    .Select(roleClaim => roleClaim.MenuId)
+                    .Distinct()
+                    .ToListAsync(cancellationToken);
+
+                foreach (var roleMenuId in roleMenuIds)
+                {
+                    grantedMenuIds.Add(roleMenuId);
+                }
+            }
+
+            // Per-user overrides (2026-08-07) -- additive on top of role grants, so a user with
+            // zero roles but a direct menu grant still sees it in their tree.
+            var directMenuIds = await _dbContext.UserClaims
+                .Where(userClaim => userClaim.UserId == userId)
+                .Select(userClaim => userClaim.MenuId)
+                .Distinct()
+                .ToListAsync(cancellationToken);
+
+            foreach (var directMenuId in directMenuIds)
+            {
+                grantedMenuIds.Add(directMenuId);
+            }
+
+            if (grantedMenuIds.Count == 0)
             {
                 return rootMenuDtos;
             }
 
-            var allowedMenuIds = await _dbContext.RoleClaims
-                .Where(roleClaim => roleIds.Contains(roleClaim.RoleId))
-                .Select(roleClaim => roleClaim.MenuId)
-                .Distinct()
+            // Audience filter (2026-08-07): a granted menu only seeds the tree if it's tagged for
+            // this caller's audience (MenuAudience.Both, or exactly their own) -- defense-in-depth
+            // on top of the role-claim grant itself, and what actually separates a future
+            // Student-portal menu from an Admin-panel one. Applied here, before the ancestor walk,
+            // not after the tree is built -- so an audience-mismatched leaf can never orphan
+            // itself by losing a filtered-out parent (its ancestors are still included below
+            // regardless of their own MenuFor, since they're structural, not separate grants).
+            var grantedMenus = await _dbContext.Menus
+                .Where(menu => grantedMenuIds.Contains(menu.Id))
                 .ToListAsync(cancellationToken);
+
+            var allowedMenuIds = new List<int>();
+            foreach (var grantedMenu in grantedMenus)
+            {
+                if (grantedMenu.MenuFor == MenuAudience.Both || grantedMenu.MenuFor == callerAudience)
+                {
+                    allowedMenuIds.Add(grantedMenu.Id);
+                }
+            }
 
             if (allowedMenuIds.Count == 0)
             {
@@ -371,6 +440,22 @@ namespace Infrastructure.Identity.Services
                 return menuNotFoundResponse;
             }
 
+            // No privilege escalation: a caller can only hand out a permission they already hold
+            // themselves (SuperAdmin bypasses -- same reasoning as AuthorizedAction's own bypass).
+            // Without this, an Admin holding only the "AssignMenuToRole" grant could hand any role
+            // every permission in the system, including ones they don't have.
+            var callerIsSuperAdmin = await IsCallerSuperAdminAsync();
+            if (!callerIsSuperAdmin)
+            {
+                var callerMenuIds = await GetCallerGrantedMenuIdsAsync(cancellationToken);
+                if (!callerMenuIds.Contains(command.MenuId))
+                {
+                    var escalationMessage = "You cannot grant '" + menu.DisplayName + "' because you do not hold it yourself.";
+                    var escalationResponse = CommonResponse<RoleClaimDto>.Fail(ResponseCodes.Forbidden, escalationMessage);
+                    return escalationResponse;
+                }
+            }
+
             var alreadyAssigned = await _dbContext.RoleClaims
                 .AnyAsync(roleClaim => roleClaim.RoleId == command.RoleId && roleClaim.MenuId == command.MenuId, cancellationToken);
             if (alreadyAssigned)
@@ -451,6 +536,45 @@ namespace Infrastructure.Identity.Services
                 return conflictResponse;
             }
 
+            // No privilege escalation: a caller can only hand out a role whose entire grant set
+            // they already hold themselves (SuperAdmin bypasses). A role with zero claims (e.g. a
+            // freshly created empty role, or the seeded zero-permission Student role) always
+            // passes, since there's nothing to escalate.
+            var callerIsSuperAdmin = await IsCallerSuperAdminAsync();
+            if (!callerIsSuperAdmin)
+            {
+                var roleMenuIds = await _dbContext.RoleClaims
+                    .Where(roleClaim => roleClaim.RoleId == command.RoleId)
+                    .Select(roleClaim => roleClaim.MenuId)
+                    .Distinct()
+                    .ToListAsync(cancellationToken);
+
+                if (roleMenuIds.Count > 0)
+                {
+                    var callerMenuIds = await GetCallerGrantedMenuIdsAsync(cancellationToken);
+                    var missingMenuIds = new List<int>();
+                    foreach (var roleMenuId in roleMenuIds)
+                    {
+                        if (!callerMenuIds.Contains(roleMenuId))
+                        {
+                            missingMenuIds.Add(roleMenuId);
+                        }
+                    }
+
+                    if (missingMenuIds.Count > 0)
+                    {
+                        var missingMenuNames = await _dbContext.Menus
+                            .Where(menu => missingMenuIds.Contains(menu.Id))
+                            .Select(menu => menu.DisplayName)
+                            .ToListAsync(cancellationToken);
+
+                        var escalationMessage = "You cannot assign this role because it grants permissions you do not hold yourself: " + string.Join(", ", missingMenuNames) + ".";
+                        var escalationResponse = CommonResponse<bool>.Fail(ResponseCodes.Forbidden, escalationMessage);
+                        return escalationResponse;
+                    }
+                }
+            }
+
             // UserManager is safe here (unlike role-claims): ApplicationUserRole's only custom
             // columns are the IAuditableEntity fields, which the DbContext stamps automatically.
             var addResult = await _userManager.AddToRoleAsync(user, role.Name);
@@ -513,6 +637,64 @@ namespace Infrastructure.Identity.Services
 
             var successResponse = CommonResponse<bool>.Success(true, "Role removed from user successfully.");
             return successResponse;
+        }
+
+        // The caller's type is read from the database (not a token claim), matching
+        // AuthorizedAction/UserService.IsCallerSuperAdminAsync: a demoted SuperAdmin loses this
+        // bypass on their very next request.
+        private async Task<bool> IsCallerSuperAdminAsync()
+        {
+            var callerId = _currentUserService.UserId;
+            if (callerId == null)
+            {
+                return false;
+            }
+
+            var caller = await _userManager.FindByIdAsync(callerId.Value.ToString());
+            if (caller == null)
+            {
+                return false;
+            }
+
+            return caller.UserType == UserType.SuperAdmin;
+        }
+
+        // Every MenuId granted to any role the caller currently holds -- the caller's own
+        // "ceiling" for the privilege-escalation guards above. Empty for a caller with no roles
+        // or no authenticated user (never expected to be reached in that case, since both call
+        // sites already require an authenticated caller to get this far).
+        private async Task<HashSet<int>> GetCallerGrantedMenuIdsAsync(CancellationToken cancellationToken)
+        {
+            var callerId = _currentUserService.UserId;
+            if (callerId == null)
+            {
+                return new HashSet<int>();
+            }
+
+            var caller = await _userManager.FindByIdAsync(callerId.Value.ToString());
+            if (caller == null)
+            {
+                return new HashSet<int>();
+            }
+
+            var callerRoleNames = await _userManager.GetRolesAsync(caller);
+            var callerRoleIds = await _dbContext.Roles
+                .Where(role => callerRoleNames.Contains(role.Name))
+                .Select(role => role.Id)
+                .ToListAsync(cancellationToken);
+
+            if (callerRoleIds.Count == 0)
+            {
+                return new HashSet<int>();
+            }
+
+            var callerMenuIds = await _dbContext.RoleClaims
+                .Where(roleClaim => callerRoleIds.Contains(roleClaim.RoleId))
+                .Select(roleClaim => roleClaim.MenuId)
+                .Distinct()
+                .ToListAsync(cancellationToken);
+
+            return new HashSet<int>(callerMenuIds);
         }
 
         private static string BuildValidationErrorMessage(ValidationResult validationResult)

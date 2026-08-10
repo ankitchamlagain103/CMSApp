@@ -1,3 +1,4 @@
+using Application.Common.Helpers;
 using Application.TimePeriods.Dtos;
 using Domain.Entities;
 
@@ -21,15 +22,18 @@ namespace Application.TimePeriods
         }
 
         // Expects the mapping's AcademicClass and TimePeriod navigations to be loaded.
-        public static ClassTimePeriodDto ToClassTimePeriodDto(ClassTimePeriod mapping)
+        // labelsByCode (2026-08-05): Grade (1001) label map; null keeps GradeLabel at the code.
+        public static ClassTimePeriodDto ToClassTimePeriodDto(ClassTimePeriod mapping, IReadOnlyDictionary<string, string> labelsByCode = null)
         {
             var timePeriod = mapping.TimePeriod;
+            var gradeCode = mapping.AcademicClass != null ? mapping.AcademicClass.GradeCode : null;
 
             var classTimePeriodDto = new ClassTimePeriodDto
             {
                 Id = mapping.Id,
                 AcademicClassId = mapping.AcademicClassId,
-                GradeCode = mapping.AcademicClass != null ? mapping.AcademicClass.GradeCode : null,
+                GradeCode = gradeCode,
+                GradeLabel = ConfigLabelHelper.Resolve(labelsByCode, gradeCode),
                 TimePeriodId = mapping.TimePeriodId,
                 TimePeriodName = timePeriod != null ? timePeriod.Name : null,
                 StartTime = timePeriod != null ? timePeriod.StartTime : default,

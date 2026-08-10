@@ -11,6 +11,7 @@ namespace Application.Fees.Dtos
         public Guid AcademicClassId { get; set; }
         public Guid AcademicYearId { get; set; }
         public string GradeCode { get; set; }
+        public string GradeLabel { get; set; }
         public RecordStatus Status { get; set; }
         public List<FeeStructureItemDto> Items { get; set; } = new List<FeeStructureItemDto>();
     }

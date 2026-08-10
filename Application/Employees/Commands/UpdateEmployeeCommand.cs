@@ -37,5 +37,11 @@ namespace Application.Employees.Commands
         public string DistrictCode { get; set; }
         public string LocalLevelCode { get; set; }
         public int? WardNo { get; set; }
+
+        // Teaching-specific fields (2026-08-06, ported from the removed standalone Teacher entity)
+        // -- all optional, settable on any employee regardless of category/position.
+        public string TeachingLicenseNo { get; set; }
+        public int? ExperienceYears { get; set; }
+        public string Specialization { get; set; }
     }
 }

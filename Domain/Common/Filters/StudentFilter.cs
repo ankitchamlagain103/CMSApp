@@ -12,6 +12,12 @@ namespace Domain.Common.Filters
         public string GradeCode { get; set; }
         public Guid? AcademicYearId { get; set; }
         public Guid? ClassSectionId { get; set; }
+
+        // Server-computed only (2026-08-07) -- never bound from a caller-supplied query. Set by
+        // StudentService.GetMyStudentsAsync to the caller's own TeacherAssignment.ClassSectionId
+        // values, so a teacher's "my students" list can never include a section they aren't
+        // actually assigned to, regardless of what ClassSectionId/GradeCode the caller also sends.
+        public List<Guid> ClassSectionIds { get; set; }
         public RecordStatus? Status { get; set; }
         public Gender? Gender { get; set; }
         public StudentDateField DateField { get; set; } = StudentDateField.CreatedDate;

@@ -13,7 +13,9 @@ namespace Application.FeeInvoices.Dtos
         public string AdmissionNo { get; set; }
         public string Email { get; set; }
         public string GradeCode { get; set; }
+        public string GradeLabel { get; set; }
         public string SectionCode { get; set; }
+        public string SectionLabel { get; set; }
         public decimal OpeningBalance { get; set; }
         public decimal TotalDebit { get; set; }
         public decimal TotalCredit { get; set; }

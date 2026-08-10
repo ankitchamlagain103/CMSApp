@@ -12,10 +12,14 @@ namespace Application.Promotions.Dtos
         public string AdmissionNo { get; set; }
         public Guid FromEnrollmentId { get; set; }
         public string FromGradeCode { get; set; }
+        public string FromGradeLabel { get; set; }
         public string FromSectionCode { get; set; }
+        public string FromSectionLabel { get; set; }
         public Guid ToEnrollmentId { get; set; }
         public string ToGradeCode { get; set; }
+        public string ToGradeLabel { get; set; }
         public string ToSectionCode { get; set; }
+        public string ToSectionLabel { get; set; }
         public DateTime PromotionDate { get; set; }
         public PromotionType PromotionType { get; set; }
         public string Remarks { get; set; }

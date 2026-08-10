@@ -49,6 +49,41 @@ namespace WebApi.Controllers
             return Ok(response);
         }
 
+        // Self-service (2026-08-07) -- "a teacher should see his or her students details only".
+        // No {id} route parameter for the list: the caller's own Employee is resolved from the
+        // JWT and their students scoped to the ClassSectionIds they're actually assigned to teach.
+        // DefaultEnabledMenu-gated, no permission row -- same "self access to your own scope isn't
+        // a privilege" reasoning as every other "Me" route in this codebase.
+
+        [HttpGet("me")]
+        public async Task<ActionResult<CommonResponse<PaginatedResponse<StudentDto>>>> GetMyStudents([FromQuery] GetStudentsQuery query, CancellationToken cancellationToken)
+        {
+            var response = await _studentService.GetMyStudentsAsync(query, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            return Ok(response);
+        }
+
+        [HttpGet("me/{id:guid}")]
+        public async Task<ActionResult<CommonResponse<StudentDto>>> GetMyStudentById(Guid id, CancellationToken cancellationToken)
+        {
+            var response = await _studentService.GetMyStudentByIdAsync(id, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            if (response.ResponseCode != ResponseCodes.Success)
+            {
+                return BadRequest(response);
+            }
+
+            return Ok(response);
+        }
+
         [HttpPut("{id:guid}")]
         public async Task<ActionResult<CommonResponse<StudentDto>>> UpdateStudent(Guid id, [FromBody] UpdateStudentCommand command, CancellationToken cancellationToken)
         {
@@ -224,6 +259,30 @@ namespace WebApi.Controllers
             if (response.ResponseCode != ResponseCodes.Success)
             {
                 return BadRequest(response);
+            }
+
+            return Ok(response);
+        }
+
+        [HttpGet("{id:guid}/enrollment-history")]
+        public async Task<ActionResult<CommonResponse<List<StudentEnrollmentHistoryDto>>>> GetEnrollmentHistory(Guid id, CancellationToken cancellationToken)
+        {
+            var response = await _studentService.GetEnrollmentHistoryAsync(id, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            return Ok(response);
+        }
+
+        [HttpGet("{id:guid}/timetable")]
+        public async Task<ActionResult<CommonResponse<StudentTimetableDto>>> GetTimetable(Guid id, CancellationToken cancellationToken)
+        {
+            var response = await _studentService.GetTimetableAsync(id, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
             }
 
             return Ok(response);

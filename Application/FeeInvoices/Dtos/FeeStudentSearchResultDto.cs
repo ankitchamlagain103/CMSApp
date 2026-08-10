@@ -13,7 +13,9 @@ namespace Application.FeeInvoices.Dtos
         public string Phone { get; set; }
         public Guid AcademicYearId { get; set; }
         public string GradeCode { get; set; }
+        public string GradeLabel { get; set; }
         public string SectionCode { get; set; }
+        public string SectionLabel { get; set; }
         public decimal OutstandingAmount { get; set; }
     }
 }

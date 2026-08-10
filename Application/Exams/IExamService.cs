@@ -35,6 +35,12 @@ namespace Application.Exams
         // marks-entry worklist.
         Task<CommonResponse<List<ExamDto>>> GetExamsAsync(Guid? examTermId, Guid? classSubjectId, Guid? teacherId, CancellationToken cancellationToken = default);
 
+        // Self-service marks entry (2026-08-07) -- resolves the caller's own Employee from the
+        // JWT and either narrows the result (GetMyExamsAsync) or 403s when the target exam's
+        // subject isn't one of the caller's own TeacherAssignment rows. "Show them only the
+        // subject(s) he or she teaches for marks entry."
+        Task<CommonResponse<List<ExamDto>>> GetMyExamsAsync(Guid? examTermId, Guid? classSubjectId, CancellationToken cancellationToken = default);
+
         Task<CommonResponse<ExamDto>> UpdateExamAsync(Guid id, UpdateExamCommand command, CancellationToken cancellationToken = default);
 
         Task<CommonResponse<bool>> DeleteExamAsync(Guid id, CancellationToken cancellationToken = default);
@@ -47,12 +53,18 @@ namespace Application.Exams
 
         Task<CommonResponse<StudentExamMarkDto>> CreateStudentExamMarkAsync(CreateStudentExamMarkCommand command, CancellationToken cancellationToken = default);
 
+        Task<CommonResponse<StudentExamMarkDto>> CreateMyStudentExamMarkAsync(CreateStudentExamMarkCommand command, CancellationToken cancellationToken = default);
+
         Task<CommonResponse<StudentExamMarkDto>> GetStudentExamMarkByIdAsync(Guid id, CancellationToken cancellationToken = default);
 
         // classSectionId (optional) narrows the list to one section's students -- the same subject
         // can be taught by different teachers in different sections, so a teacher-wise list needs
         // this to stay scoped to just their own section.
         Task<CommonResponse<List<StudentExamMarkDto>>> GetStudentExamMarksAsync(Guid? examId, Guid? enrollmentId, Guid? classSectionId, CancellationToken cancellationToken = default);
+
+        // Self-service -- examId is required here (unlike the admin overload above) since it's
+        // what the assignment check runs against.
+        Task<CommonResponse<List<StudentExamMarkDto>>> GetMyStudentExamMarksAsync(Guid examId, Guid? enrollmentId, Guid? classSectionId, CancellationToken cancellationToken = default);
 
         // Admin, student-wise marks entry: every exam within one term the enrollment is eligible
         // for (across every subject), each carrying its existing mark (or null) -- the "pick a
@@ -62,9 +74,13 @@ namespace Application.Exams
 
         Task<CommonResponse<StudentExamMarkDto>> UpdateStudentExamMarkAsync(Guid id, UpdateStudentExamMarkCommand command, CancellationToken cancellationToken = default);
 
+        Task<CommonResponse<StudentExamMarkDto>> UpdateMyStudentExamMarkAsync(Guid id, UpdateStudentExamMarkCommand command, CancellationToken cancellationToken = default);
+
         Task<CommonResponse<bool>> DeleteStudentExamMarkAsync(Guid id, CancellationToken cancellationToken = default);
 
         Task<CommonResponse<BulkUpsertStudentExamMarksResultDto>> BulkUpsertStudentExamMarksAsync(BulkUpsertStudentExamMarksCommand command, CancellationToken cancellationToken = default);
+
+        Task<CommonResponse<BulkUpsertStudentExamMarksResultDto>> BulkUpsertMyStudentExamMarksAsync(BulkUpsertStudentExamMarksCommand command, CancellationToken cancellationToken = default);
 
         // Every enrolled student eligible for the exam's subject, optionally narrowed to one
         // section (classSectionId -- teacher-wise entry: pass the calling teacher's own
@@ -73,6 +89,8 @@ namespace Application.Exams
         // a name/admission-no search -- each row carries its existing mark (or null) so the UI can
         // search, pick one student, and enter/edit their marks without a separate lookup.
         Task<CommonResponse<List<ExamMarkRosterItemDto>>> GetStudentExamMarkRosterAsync(Guid examId, string search, Guid? classSectionId, CancellationToken cancellationToken = default);
+
+        Task<CommonResponse<List<ExamMarkRosterItemDto>>> GetMyStudentExamMarkRosterAsync(Guid examId, string search, Guid? classSectionId, CancellationToken cancellationToken = default);
 
         // --- Result Processing ---
 

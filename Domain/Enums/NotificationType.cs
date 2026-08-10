@@ -12,6 +12,10 @@ namespace Domain.Enums
         LeaveHrApproved = 4,
         LeaveHrRejected = 5,
         BirthdayReminder = 6,
-        WorkAnniversaryReminder = 7
+        WorkAnniversaryReminder = 7,
+        DocumentVerified = 8,
+        DocumentRejected = 9,
+        QualificationVerified = 10,
+        QualificationRejected = 11
     }
 }

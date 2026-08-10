@@ -1,6 +1,6 @@
 namespace Application.AcademicClasses.Commands
 {
-    // Class-scoped counterpart to Application.Teachers.Commands.AssignTeacherBulkEntryCommand --
+    // Class-scoped counterpart to Application.Employees.Commands.AssignTeacherBulkEntryCommand --
     // that one is scoped to one teacher (route id) and lets each row name its own class/subject/
     // section/period; this one is scoped to one AcademicClass (route id) and lets each row name
     // its own teacher, so an admin working from a class's page can map every teacher who teaches

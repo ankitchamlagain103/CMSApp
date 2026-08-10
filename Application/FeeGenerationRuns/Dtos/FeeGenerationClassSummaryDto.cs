@@ -4,9 +4,9 @@ namespace Application.FeeGenerationRuns.Dtos
     {
         public Guid AcademicClassId { get; set; }
 
-        // Config code -- the UI resolves the Nursery/LKG/... display label from the Grade
-        // dropdown, same convention as AcademicClassDto.GradeCode.
+        // Config code, resolved to GradeLabel server-side (2026-08-05).
         public string GradeCode { get; set; }
+        public string GradeLabel { get; set; }
         public int InvoiceCount { get; set; }
         public int StudentCount { get; set; }
 

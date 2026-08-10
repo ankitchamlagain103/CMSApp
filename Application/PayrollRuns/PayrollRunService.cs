@@ -205,7 +205,7 @@ namespace Application.PayrollRuns
             await _unitOfWork.PayrollRuns.AddAsync(run, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            result.Run = PayrollRunMapper.ToDto(run, includeSlips: true);
+            result.Run = PayrollRunMapper.ToDto(run, includeSlips: true, payrollLabels);
 
             var successResponse = CommonResponse<PayrollGenerationResultDto>.Success(result, "Generated a Draft payroll run with " + run.Slips.Count + " slip(s); skipped " + result.Skipped.Count + " employee(s).");
             return successResponse;
@@ -454,7 +454,7 @@ namespace Application.PayrollRuns
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            result.Run = PayrollRunMapper.ToDto(run, includeSlips: true);
+            result.Run = PayrollRunMapper.ToDto(run, includeSlips: true, payrollLabels);
 
             var draftSlipCount = 0;
             foreach (var slip in run.Slips)
@@ -479,10 +479,11 @@ namespace Application.PayrollRuns
 
             var pagedRuns = await _unitOfWork.PayrollRuns.GetPagedByFilterAsync(filter, query.Page, query.PageSize, cancellationToken);
 
+            var listLabels = await LoadPayrollLabelMapAsync(cancellationToken);
             var runDtos = new List<PayrollRunDto>();
             foreach (var run in pagedRuns.Items)
             {
-                var runDto = PayrollRunMapper.ToDto(run, includeSlips: false);
+                var runDto = PayrollRunMapper.ToDto(run, includeSlips: false, listLabels);
                 runDtos.Add(runDto);
             }
 
@@ -507,7 +508,8 @@ namespace Application.PayrollRuns
                 return notFoundResponse;
             }
 
-            var runDto = PayrollRunMapper.ToDto(run, includeSlips: true);
+            var detailLabels = await LoadPayrollLabelMapAsync(cancellationToken);
+            var runDto = PayrollRunMapper.ToDto(run, includeSlips: true, detailLabels);
             var successResponse = CommonResponse<PayrollRunDto>.Success(runDto);
             return successResponse;
         }
@@ -543,7 +545,8 @@ namespace Application.PayrollRuns
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            var runDto = PayrollRunMapper.ToDto(run, includeSlips: true);
+            var approveLabels = await LoadPayrollLabelMapAsync(cancellationToken);
+            var runDto = PayrollRunMapper.ToDto(run, includeSlips: true, approveLabels);
             var successResponse = CommonResponse<PayrollRunDto>.Success(runDto, "Payroll run approved.");
             return successResponse;
         }
@@ -576,7 +579,8 @@ namespace Application.PayrollRuns
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            var runDto = PayrollRunMapper.ToDto(run, includeSlips: true);
+            var paidLabels = await LoadPayrollLabelMapAsync(cancellationToken);
+            var runDto = PayrollRunMapper.ToDto(run, includeSlips: true, paidLabels);
             var successResponse = CommonResponse<PayrollRunDto>.Success(runDto, "Payroll run marked as paid.");
             return successResponse;
         }
@@ -617,7 +621,8 @@ namespace Application.PayrollRuns
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            var runDto = PayrollRunMapper.ToDto(run, includeSlips: true);
+            var cancelLabels = await LoadPayrollLabelMapAsync(cancellationToken);
+            var runDto = PayrollRunMapper.ToDto(run, includeSlips: true, cancelLabels);
             var successResponse = CommonResponse<PayrollRunDto>.Success(runDto, "Payroll run cancelled; its consumed adjustments are Pending again.");
             return successResponse;
         }
@@ -631,7 +636,8 @@ namespace Application.PayrollRuns
                 return notFoundResponse;
             }
 
-            var slipDto = PayrollRunMapper.ToSlipDto(slip, includeLines: true);
+            var getSlipLabels = await LoadPayrollLabelMapAsync(cancellationToken);
+            var slipDto = PayrollRunMapper.ToSlipDto(slip, includeLines: true, getSlipLabels);
             var successResponse = CommonResponse<SalarySlipDto>.Success(slipDto);
             return successResponse;
         }
@@ -664,7 +670,8 @@ namespace Application.PayrollRuns
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            var slipDto = PayrollRunMapper.ToSlipDto(slip, includeLines: true);
+            var cancelSlipLabels = await LoadPayrollLabelMapAsync(cancellationToken);
+            var slipDto = PayrollRunMapper.ToSlipDto(slip, includeLines: true, cancelSlipLabels);
             var successResponse = CommonResponse<SalarySlipDto>.Success(slipDto, "Salary slip cancelled.");
             return successResponse;
         }
@@ -693,7 +700,8 @@ namespace Application.PayrollRuns
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            var slipDto = PayrollRunMapper.ToSlipDto(slip, includeLines: true);
+            var approveSlipLabels = await LoadPayrollLabelMapAsync(cancellationToken);
+            var slipDto = PayrollRunMapper.ToSlipDto(slip, includeLines: true, approveSlipLabels);
             var successResponse = CommonResponse<SalarySlipDto>.Success(slipDto, "Salary slip approved.");
             return successResponse;
         }
@@ -801,7 +809,7 @@ namespace Application.PayrollRuns
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            var slipDto = PayrollRunMapper.ToSlipDto(slip, includeLines: true);
+            var slipDto = PayrollRunMapper.ToSlipDto(slip, includeLines: true, payrollLabels);
             var successResponse = CommonResponse<SalarySlipDto>.Success(slipDto, "Salary slip regenerated from the current configuration.");
             return successResponse;
         }
@@ -879,7 +887,8 @@ namespace Application.PayrollRuns
             RecomputeSlipTotals(slip);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            var slipDto = PayrollRunMapper.ToSlipDto(slip, includeLines: true);
+            var addLineLabels = await LoadPayrollLabelMapAsync(cancellationToken);
+            var slipDto = PayrollRunMapper.ToSlipDto(slip, includeLines: true, addLineLabels);
             var successResponse = CommonResponse<SalarySlipDto>.Success(slipDto, "Slip line added successfully.");
             return successResponse;
         }
@@ -942,7 +951,8 @@ namespace Application.PayrollRuns
             RecomputeSlipTotals(slip);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            var slipDto = PayrollRunMapper.ToSlipDto(slip, includeLines: true);
+            var updateLineLabels = await LoadPayrollLabelMapAsync(cancellationToken);
+            var slipDto = PayrollRunMapper.ToSlipDto(slip, includeLines: true, updateLineLabels);
             var successResponse = CommonResponse<SalarySlipDto>.Success(slipDto, "Slip line updated successfully.");
             return successResponse;
         }
@@ -1006,7 +1016,8 @@ namespace Application.PayrollRuns
             RecomputeSlipTotals(slip);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            var slipDto = PayrollRunMapper.ToSlipDto(slip, includeLines: true);
+            var removeLineLabels = await LoadPayrollLabelMapAsync(cancellationToken);
+            var slipDto = PayrollRunMapper.ToSlipDto(slip, includeLines: true, removeLineLabels);
             var successResponse = CommonResponse<SalarySlipDto>.Success(slipDto, "Slip line removed successfully.");
             return successResponse;
         }
@@ -1537,13 +1548,16 @@ namespace Application.PayrollRuns
         }
 
         // Merged label map for every catalog a slip line's code can come from -- salary
-        // components, deductions, and salary adjustment types (2026-07-19). Generated slip line
-        // Descriptions are written with the human-readable label instead of the raw code.
+        // components, deductions, salary adjustment types, and (added 2026-08-05) insurance
+        // types, matching EmployeeService's equivalent loader. Generated slip line Descriptions
+        // are written with the human-readable label instead of the raw code, and this same map
+        // now also resolves SalarySlipLineDto.ComponentLabel on read.
         private async Task<Dictionary<string, string>> LoadPayrollLabelMapAsync(CancellationToken cancellationToken)
         {
             var labelsByCode = ConfigLabelHelper.BuildLabelMap(await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.SalaryComponentType, cancellationToken));
             ConfigLabelHelper.MergeLabelMap(labelsByCode, await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.DeductionType, cancellationToken));
             ConfigLabelHelper.MergeLabelMap(labelsByCode, await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.SalaryAdjustmentType, cancellationToken));
+            ConfigLabelHelper.MergeLabelMap(labelsByCode, await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.InsuranceType, cancellationToken));
             return labelsByCode;
         }
 

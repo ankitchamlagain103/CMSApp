@@ -1,3 +1,4 @@
+using Application.Common.Helpers;
 using Application.PayrollRuns.Dtos;
 using Domain.Entities;
 using Domain.Enums;
@@ -6,7 +7,10 @@ namespace Application.PayrollRuns
 {
     public static class PayrollRunMapper
     {
-        public static PayrollRunDto ToDto(PayrollRun run, bool includeSlips)
+        // labelsByCode (2026-08-05): merged SalaryComponentType/DeductionType/SalaryAdjustmentType
+        // Config label map, threaded down to each slip line's ComponentLabel; null keeps it at
+        // the raw code.
+        public static PayrollRunDto ToDto(PayrollRun run, bool includeSlips, IReadOnlyDictionary<string, string> labelsByCode = null)
         {
             var runDto = new PayrollRunDto
             {
@@ -39,7 +43,7 @@ namespace Application.PayrollRuns
 
                 if (includeSlips)
                 {
-                    var slipDto = ToSlipDto(slip, includeLines: false);
+                    var slipDto = ToSlipDto(slip, includeLines: false, labelsByCode);
                     runDto.Slips.Add(slipDto);
                 }
             }
@@ -47,7 +51,7 @@ namespace Application.PayrollRuns
             return runDto;
         }
 
-        public static SalarySlipDto ToSlipDto(SalarySlip slip, bool includeLines)
+        public static SalarySlipDto ToSlipDto(SalarySlip slip, bool includeLines, IReadOnlyDictionary<string, string> labelsByCode = null)
         {
             var slipDto = new SalarySlipDto
             {
@@ -97,7 +101,7 @@ namespace Application.PayrollRuns
             {
                 foreach (var line in slip.Lines)
                 {
-                    var lineDto = ToSlipLineDto(line);
+                    var lineDto = ToSlipLineDto(line, labelsByCode);
                     slipDto.Lines.Add(lineDto);
                 }
             }
@@ -105,7 +109,7 @@ namespace Application.PayrollRuns
             return slipDto;
         }
 
-        public static SalarySlipLineDto ToSlipLineDto(SalarySlipLine line)
+        public static SalarySlipLineDto ToSlipLineDto(SalarySlipLine line, IReadOnlyDictionary<string, string> labelsByCode = null)
         {
             var lineDto = new SalarySlipLineDto
             {
@@ -113,6 +117,7 @@ namespace Application.PayrollRuns
                 LineType = line.LineType,
                 Source = line.Source,
                 ComponentCode = line.ComponentCode,
+                ComponentLabel = ConfigLabelHelper.Resolve(labelsByCode, line.ComponentCode),
                 Description = line.Description,
                 Amount = line.Amount
             };

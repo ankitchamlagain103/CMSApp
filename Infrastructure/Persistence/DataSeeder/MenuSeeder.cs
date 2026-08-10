@@ -38,6 +38,7 @@ namespace Infrastructure.Persistence.DataSeeder
             public int Order { get; set; }
             public bool IsHidden { get; set; }
             public bool IsQuickLink { get; set; }
+            public bool IsDashboardWidget { get; set; }
         }
 
         public static async Task SeedAsync(IServiceProvider serviceProvider)
@@ -55,7 +56,7 @@ namespace Infrastructure.Persistence.DataSeeder
             var catalog = new List<MenuSeedDefinition>();
 
             catalog.Add(MainMenu("DASHBOARD", "Dashboard", "icons.DashboardOutlined", 1, "/dashboard/analytics"));
-            catalog.Add(Permission("DASHBOARD", "DASHBOARD_SUMMARY", "View Dashboard Summary", "Dashboard", "GetSummary", 4));
+            catalog.Add(Permission("DASHBOARD", "DASHBOARD_SUMMARY", "View Dashboard Summary", "Dashboard", "GetSummary", 4, isDashboardWidget: true));
             catalog.Add(Permission("DASHBOARD", "DASHBOARD_ENROLLMENT_STATS", "View Enrollment Stats", "Dashboard", "GetEnrollmentStats", 5));
             catalog.Add(Permission("DASHBOARD", "DASHBOARD_TEACHER_WIDGET", "View Teacher List Widget", "Dashboard", "GetTeacherListWidget", 6));
             catalog.Add(Permission("DASHBOARD", "DASHBOARD_USER_WIDGET", "View User List Widget", "Dashboard", "GetUserListWidget", 7));
@@ -65,8 +66,17 @@ namespace Infrastructure.Persistence.DataSeeder
             // Accounts/HR dashboard summaries (2026-07-28) -- persona-oriented composite widgets,
             // same shape as DASHBOARD_SUMMARY. Grant to whatever role an admin creates for that
             // function (e.g. "Accounts"/"HR") via POST /api/roles/claims -- no hardcoded role names.
-            catalog.Add(Permission("DASHBOARD", "DASHBOARD_ACCOUNTS_SUMMARY", "View Accounts Dashboard Summary", "Dashboard", "GetAccountsSummary", 11));
-            catalog.Add(Permission("DASHBOARD", "DASHBOARD_HR_SUMMARY", "View HR Dashboard Summary", "Dashboard", "GetHrSummary", 12));
+            catalog.Add(Permission("DASHBOARD", "DASHBOARD_ACCOUNTS_SUMMARY", "View Accounts Dashboard Summary", "Dashboard", "GetAccountsSummary", 11, isDashboardWidget: true));
+            catalog.Add(Permission("DASHBOARD", "DASHBOARD_HR_SUMMARY", "View HR Dashboard Summary", "Dashboard", "GetHrSummary", 12, isDashboardWidget: true));
+            // Navbar "Ctrl+K"-style global search across Students/Employees -- gated like every
+            // other Dashboard widget (all-or-nothing; not in DefaultEnabledMenu), so a role must
+            // be explicitly granted this before its users can search across records they might
+            // not otherwise have list/detail permission to browse.
+            catalog.Add(Permission("DASHBOARD", "DASHBOARD_GLOBAL_SEARCH", "Global Search", "Dashboard", "GlobalSearch", 13));
+            // Generic widget registry (2026-08-07) -- one endpoint, composes whichever
+            // IsDashboardWidget menus (below) are granted to the caller's role. Not itself a
+            // widget.
+            catalog.Add(Permission("DASHBOARD", "DASHBOARD_WIDGETS", "View Dashboard Widgets", "Dashboard", "GetWidgets", 14));
 
             // Logs (2026-07-28) -- System Access Logs and Error Logs were hidden PERMISSION rows
             // directly under DASHBOARD with no sidebar entry of their own; moved to their own main
@@ -84,6 +94,11 @@ namespace Infrastructure.Persistence.DataSeeder
             catalog.Add(Permission("USER_LIST", "USER_DETAIL", "View User Detail", "Users", "GetUserById", 2));
             catalog.Add(Permission("USER_LIST", "USER_UPDATE", "Update User", "Users", "UpdateUser", 3));
             catalog.Add(Permission("USER_LIST", "USER_DELETE", "Delete User", "Users", "DeleteUser", 4));
+            // Per-user menu overrides (2026-08-07) -- additive grants direct to one user,
+            // bypassing roles. Subject to the same privilege-escalation guard as ROLE_CLAIM_*.
+            catalog.Add(Permission("USER_LIST", "USER_CLAIM_LIST", "View User Claims", "Users", "GetUserClaims", 5));
+            catalog.Add(Permission("USER_LIST", "USER_CLAIM_ASSIGN", "Assign Menu To User", "Users", "AssignMenuToUser", 6));
+            catalog.Add(Permission("USER_LIST", "USER_CLAIM_REMOVE", "Remove Menu From User", "Users", "RemoveMenuFromUser", 7));
             catalog.Add(SubMenu("USER_MANAGEMENT", "ROLE_LIST", "Roles & Permissions", "/apps/role/list", null, "Roles", "GetRoles", 2));
             catalog.Add(Permission("ROLE_LIST", "ROLE_CREATE", "Create Role", "Roles", "CreateRole", 1));
             catalog.Add(Permission("ROLE_LIST", "ROLE_DETAIL", "View Role Detail", "Roles", "GetRoleById", 2));
@@ -171,45 +186,22 @@ namespace Infrastructure.Persistence.DataSeeder
             // bulk-create POST above, no GET).
             catalog.Add(Permission("CLASS_LIST", "CLASS_TEACHER_ASSIGNMENT_LIST", "View Class Teacher Assignments", "AcademicClasses", "GetTeacherAssignments", 13));
 
-            // TEACHER_MANAGEMENT retired (2026-07-16): teachers are managed inside Employee
-            // Management (the backend was already Employee-based via the shared-PK split; this
-            // removes the separate nav module). The /api/teachers/* alias endpoints stay, so
-            // every TEACHER_* permission row survives -- re-parented under EMPLOYEE_LIST as
-            // hidden PERMISSION rows (codes and Ids unchanged, grants preserved). TEACHER_LIST
-            // itself was that module's SUB_MENU; it doubles as the Teachers/GetTeachers
-            // permission, so it is redefined as a hidden permission rather than retired.
-            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_LIST", "View Teachers (legacy list API)", "Teachers", "GetTeachers", 30));
-            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_CREATE", "Create Teacher", "Teachers", "CreateTeacher", 31));
-            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_DETAIL", "View Teacher Detail", "Teachers", "GetTeacherById", 32));
-            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_UPDATE", "Update Teacher", "Teachers", "UpdateTeacher", 33));
-            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_DELETE", "Delete Teacher", "Teachers", "DeleteTeacher", 34));
-            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_ASSIGNMENT_ADD", "Assign Teacher", "Teachers", "AssignClassSubject", 38));
-            // 2026-08-03: bulk multi-section counterpart -- assigns the same subject to a teacher
-            // across several sections in one call instead of repeating AssignClassSubject per section.
-            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_ASSIGNMENT_BULK_ADD", "Assign Teacher (Bulk Sections)", "Teachers", "AssignClassSubjectBulk", 62));
-            // General bulk-entry counterpart -- unlike the bulk-sections endpoint above (one
-            // ClassSubject, several sections), each row here names its own class/subject/section/
-            // period, so a teacher's whole routine can be entered in one call.
-            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_ASSIGNMENT_BULK_ENTRY_ADD", "Assign Teacher (Bulk Entry)", "Teachers", "AssignClassSubjectBulkEntry", 63));
-            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_ASSIGNMENT_REMOVE", "Remove Teacher Assignment", "Teachers", "RemoveAssignment", 39));
-            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_ASSIGNMENT_LIST", "View Teacher Assignments", "Teachers", "GetAssignments", 40));
-            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_SALARY_ADD", "Add Teacher Salary", "Teachers", "AddSalary", 45));
-            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_SALARY_LIST", "View Teacher Salary History", "Teachers", "GetSalaryHistory", 46));
-            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_SALARY_TAX_CALCULATION", "View Teacher Tax Calculation", "Teachers", "GetSalaryTaxCalculation", 47));
-            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_PAYSLIP_PREVIEW", "Preview Teacher Payslip", "Teachers", "GetPayslipPreview", 48));
-            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_ID_CARD_PREVIEW", "Preview Teacher ID Card", "Teachers", "GetIdCardPreview", 49));
-            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_SALARY_TAX_CALCULATION_MONTHLY", "View Teacher Monthly Tax Breakdown", "Teachers", "GetMonthlySalaryTaxCalculation", 50));
-            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_PAYSLIP_LIST", "View Teacher Payslip List", "Teachers", "GetPayslips", 51));
-            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_PAYSLIP_DETAIL", "View Teacher Payslip Detail", "Teachers", "GetPayslipDetail", 52));
-            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_LOAN_REQUEST", "Request Teacher Loan", "Teachers", "RequestLoan", 53));
-            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_LOAN_LIST", "View Teacher Loans", "Teachers", "GetLoans", 54));
-            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_LOAN_APPROVE", "Approve Teacher Loan", "Teachers", "ApproveLoan", 55));
-            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_LOAN_REJECT", "Reject Teacher Loan", "Teachers", "RejectLoan", 56));
-            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_LOAN_CANCEL", "Cancel Teacher Loan", "Teachers", "CancelLoan", 57));
-            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_SALARY_FORECAST", "View Teacher Salary Forecast", "Teachers", "GetSalaryForecast", 58));
-            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_TAX_PLANNING", "View Teacher Tax Planning", "Teachers", "GetTaxPlanning", 59));
-            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_SALARY_ANNUAL_FORECAST", "View Teacher Annual Salary Forecast", "Teachers", "GetAnnualForecast", 60));
-            catalog.Add(Permission("EMPLOYEE_LIST", "TEACHER_TAX_DETAILS_GRID", "View Teacher Tax Details Grid", "Teachers", "GetTaxDetailsGrid", 61));
+            // TEACHER_MANAGEMENT retired (2026-07-16): teachers were managed inside Employee
+            // Management even then (the backend was already Employee-based via the shared-PK
+            // split). The standalone Teacher entity/TeachersController/every TEACHER_* permission
+            // row below it was retired entirely on 2026-08-06 (see BuildRetiredMenuCodes) -- a
+            // teacher is now just an Employee categorized by EmployeeCategoryCode/JobPositionCode,
+            // no separate profile, list, or permission tree. The genuinely non-duplicated pieces
+            // (class/subject/section/period assignment, ID card preview) moved onto Employees
+            // below as EMPLOYEE_ASSIGNMENT_*/EMPLOYEE_ID_CARD_PREVIEW; everything else (salary,
+            // tax, payslip, loans) was always a thin alias into an EMPLOYEE_* permission that
+            // already existed, so nothing new was needed for those.
+            catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_ASSIGNMENT_ADD", "Assign Teacher", "Employees", "AssignClassSubject", 62));
+            catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_ASSIGNMENT_BULK_ADD", "Assign Teacher (Bulk Sections)", "Employees", "AssignClassSubjectBulk", 63));
+            catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_ASSIGNMENT_BULK_ENTRY_ADD", "Assign Teacher (Bulk Entry)", "Employees", "AssignClassSubjectBulkEntry", 64));
+            catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_ASSIGNMENT_REMOVE", "Remove Teacher Assignment", "Employees", "RemoveAssignment", 65));
+            catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_ASSIGNMENT_LIST", "View Teacher Assignments", "Employees", "GetAssignments", 66));
+            catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_ID_CARD_PREVIEW", "Preview Employee ID Card", "Employees", "GetIdCardPreview", 67));
 
             catalog.Add(MainMenu("STUDENT_MANAGEMENT", "Student Management", "icons.TeamOutlined", 8, null));
             catalog.Add(SubMenu("STUDENT_MANAGEMENT", "STUDENT_LIST", "Students", "/apps/student/list", null, "Students", "GetStudents", 1, isQuickLink: true));
@@ -228,6 +220,10 @@ namespace Infrastructure.Persistence.DataSeeder
             // Portal account provisioning (2026-07-27) -- see the matching EMPLOYEE_REGISTER_ACCOUNT
             // comment under EMPLOYEE_LIST.
             catalog.Add(Permission("STUDENT_LIST", "STUDENT_REGISTER_ACCOUNT", "Register Student Portal Account", "Students", "RegisterUserAccount", 13));
+            // "History"/"Current Class" tabs -- split out of the main student GET 2026-08-05 so
+            // opening a profile doesn't pay for data most page loads never look at.
+            catalog.Add(Permission("STUDENT_LIST", "STUDENT_ENROLLMENT_HISTORY", "View Student Enrollment History", "Students", "GetEnrollmentHistory", 14));
+            catalog.Add(Permission("STUDENT_LIST", "STUDENT_TIMETABLE", "View Student Timetable", "Students", "GetTimetable", 15));
             catalog.Add(SubMenu("STUDENT_MANAGEMENT", "GUARDIAN_LIST", "Guardians", "/apps/guardian/list", null, "Guardians", "GetGuardians", 2));
             catalog.Add(Permission("GUARDIAN_LIST", "GUARDIAN_CREATE", "Create Guardian", "Guardians", "CreateGuardian", 1));
             catalog.Add(Permission("GUARDIAN_LIST", "GUARDIAN_DETAIL", "View Guardian Detail", "Guardians", "GetGuardianById", 2));
@@ -403,7 +399,9 @@ namespace Infrastructure.Persistence.DataSeeder
             catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_DETAIL", "View Employee Detail", "Employees", "GetEmployeeById", 2));
             catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_UPDATE", "Update Employee", "Employees", "UpdateEmployee", 3));
             catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_DELETE", "Delete Employee", "Employees", "DeleteEmployee", 4));
-            catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_TEACHER_PROMOTE", "Add Teacher Profile", "Employees", "PromoteToTeacher", 5));
+            // EMPLOYEE_TEACHER_PROMOTE retired (2026-08-06) -- teaching fields are now plain
+            // optional Employee fields set via the normal Create/Update Employee call, no separate
+            // "add teacher profile" step. See BuildRetiredMenuCodes.
             catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_SALARY_ADD", "Add Employee Salary", "Employees", "AddSalary", 6));
             catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_SALARY_LIST", "View Employee Salary History", "Employees", "GetSalaryHistory", 7));
             catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_SALARY_COMPONENT_ADD", "Add Salary Component", "Employees", "AddSalaryComponent", 9));
@@ -443,6 +441,17 @@ namespace Infrastructure.Persistence.DataSeeder
             catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_DOCUMENT_DOWNLOAD", "Download Employee Document", "Employees", "DownloadDocument", 40));
             catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_DOCUMENT_DELETE", "Delete Employee Document", "Employees", "DeleteDocument", 41));
 
+            // Document/qualification self-service + HR verification (2026-08-07) -- an employee
+            // can upload their own document / add their own qualification (via the "Me" routes,
+            // DefaultEnabledMenu-gated, no permission row) starting VerificationStatus.Pending;
+            // these two Verify/Reject permission pairs are what an admin grants to whichever role
+            // a school treats as "HR" to decide them. Not a hardcoded role -- same convention as
+            // the Accounts/HR dashboard summaries.
+            catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_QUALIFICATION_VERIFY", "Verify Employee Qualification", "Employees", "VerifyQualification", 69));
+            catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_QUALIFICATION_REJECT", "Reject Employee Qualification", "Employees", "RejectQualification", 70));
+            catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_DOCUMENT_VERIFY", "Verify Employee Document", "Employees", "VerifyDocument", 71));
+            catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_DOCUMENT_REJECT", "Reject Employee Document", "Employees", "RejectDocument", 72));
+
             // Leave Management (2026-07-23) -- photo, leave balances, leave requests, and
             // notifications are all Employee sub-resources (same "no dedicated cross-employee
             // list action" reasoning as Loans/Adjustments above), so they're permission rows
@@ -468,6 +477,9 @@ namespace Infrastructure.Persistence.DataSeeder
             catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_NOTIFICATION_READ", "Mark Notification Read", "Employees", "MarkNotificationRead", 58));
             catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_NOTIFICATION_READ_ALL", "Mark All Notifications Read", "Employees", "MarkAllNotificationsRead", 59));
             catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_PROFILE_VIEW", "View Employee Profile", "Employees", "GetEmployeeProfile", 60));
+            // Composite "Dashboard" page (2026-08-07) -- leave/routine/upcoming-events, the
+            // admin-facing (id-scoped) counterpart of the self-service MY_DASHBOARD sub-menu below.
+            catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_DASHBOARD_VIEW", "View Employee Dashboard", "Employees", "GetEmployeeDashboard", 68));
 
             // Portal account provisioning (2026-07-27) -- lets an admin create a login for an
             // existing Employee record that didn't get one at creation time. Same permission
@@ -537,6 +549,27 @@ namespace Infrastructure.Persistence.DataSeeder
             // subject/date/time scheduling (see EXAM_CREATE_ROUTINE above). Their catalog rows
             // are retired below (BuildRetiredMenuCodes), not redefined here.
 
+            // My Workspace (2026-08-06) -- self-service nav destinations for any Employee-linked
+            // login (Teacher, Accountant, HR, Principal, ...), backed by EmployeesController's new
+            // "me/..." actions. These rows exist purely for the nav tree / admin catalog --
+            // AuthorizedAction never checks them for the "me" actions, since every one of those is
+            // listed in appsettings.json's DefaultEnabledMenu and works for any authenticated
+            // Employee-linked user regardless of grant. Grant these SUB_MENUs to whichever roles
+            // should actually SEE the links (same one-time role-claims step as any other menu) --
+            // access itself already works either way.
+            catalog.Add(MainMenu("MY_WORKSPACE", "My Workspace", "icons.UserOutlined", 16, null));
+            // Composite landing page (2026-08-07) -- leave summary/pending requests, class
+            // routine + best-effort "next class", and upcoming holidays/events, one call
+            // (GetMyDashboard). Order 1 so it's the workspace's default/first tab.
+            catalog.Add(SubMenu("MY_WORKSPACE", "MY_DASHBOARD", "My Dashboard", "/apps/my-workspace/dashboard", null, "Employees", "GetMyDashboard", 1, isQuickLink: true, isDashboardWidget: true));
+            catalog.Add(SubMenu("MY_WORKSPACE", "MY_PROFILE", "My Profile", "/apps/my-workspace/profile", null, "Employees", "GetMyProfile", 2));
+            catalog.Add(SubMenu("MY_WORKSPACE", "MY_LEAVE", "Leave & Balance", "/apps/my-workspace/leave", null, "Employees", "GetMyLeaveBalances", 3, isQuickLink: true));
+            catalog.Add(SubMenu("MY_WORKSPACE", "MY_PAYSLIPS", "Payslip & Taxes", "/apps/my-workspace/payslips", null, "Employees", "GetMyPayslips", 4));
+            catalog.Add(SubMenu("MY_WORKSPACE", "MY_CLASSES", "My Classes", "/apps/my-workspace/classes", null, "Employees", "GetMyAssignments", 5));
+            // Teacher data scoping (2026-08-07) -- "my students" landing page; marks entry is
+            // reached in-context from a class/exam here, not a separate top-level nav item.
+            catalog.Add(SubMenu("MY_WORKSPACE", "MY_STUDENTS", "My Students", "/apps/my-workspace/students", null, "Students", "GetMyStudents", 6));
+
             return catalog;
         }
 
@@ -562,7 +595,8 @@ namespace Infrastructure.Persistence.DataSeeder
                 // Retired 2026-07-23: GET /api/employees/{id}/salaries/tax-calculation removed
                 // (superseded by GET .../salaries/tax-planning, which already composes on the
                 // same underlying EmployeeService.GetCurrentSalaryTaxCalculationAsync -- that
-                // method itself is unchanged and still backs the Teachers alias, which was kept).
+                // method itself is unchanged). The /api/teachers/... alias that used to back this
+                // was itself removed entirely on 2026-08-06, see the TEACHER_* block below.
                 "EMPLOYEE_SALARY_TAX_CALCULATION",
 
                 // Retired 2026-07-23: Qualifications and Documents moved off Teacher onto
@@ -613,7 +647,47 @@ namespace Infrastructure.Persistence.DataSeeder
                 // kept their codes/ids, just re-parented under ACCOUNTS -- existing role grants
                 // on those three survive untouched.
                 "FEE_MANAGEMENT",
-                "PAYROLL_MANAGEMENT"
+                "PAYROLL_MANAGEMENT",
+
+                // Retired 2026-08-06: the standalone Teacher entity/TeachersController were
+                // removed entirely -- a teacher is now just an Employee categorized by
+                // EmployeeCategoryCode/JobPositionCode, per explicit instruction to simplify the
+                // Role->Claims screen (26 near-duplicate TEACHER_* rows were inflating it). Full
+                // CRUD/list (TEACHER_LIST/CREATE/DETAIL/UPDATE/DELETE) is gone with no replacement
+                // -- Employee's own CRUD already covers it. Salary/tax/payslip/loan rows are gone
+                // with no replacement -- each already had a real EMPLOYEE_* permission backing the
+                // same operation (the Teacher-side ones were pure aliases). Assignment/ID-card rows
+                // are replaced by EMPLOYEE_ASSIGNMENT_*/EMPLOYEE_ID_CARD_PREVIEW above (the one
+                // genuinely non-duplicated slice of functionality). Any role holding any of these
+                // grants loses them on next boot.
+                "TEACHER_LIST",
+                "TEACHER_CREATE",
+                "TEACHER_DETAIL",
+                "TEACHER_UPDATE",
+                "TEACHER_DELETE",
+                "TEACHER_ASSIGNMENT_ADD",
+                "TEACHER_ASSIGNMENT_BULK_ADD",
+                "TEACHER_ASSIGNMENT_BULK_ENTRY_ADD",
+                "TEACHER_ASSIGNMENT_REMOVE",
+                "TEACHER_ASSIGNMENT_LIST",
+                "TEACHER_SALARY_ADD",
+                "TEACHER_SALARY_LIST",
+                "TEACHER_SALARY_TAX_CALCULATION",
+                "TEACHER_PAYSLIP_PREVIEW",
+                "TEACHER_ID_CARD_PREVIEW",
+                "TEACHER_SALARY_TAX_CALCULATION_MONTHLY",
+                "TEACHER_PAYSLIP_LIST",
+                "TEACHER_PAYSLIP_DETAIL",
+                "TEACHER_LOAN_REQUEST",
+                "TEACHER_LOAN_LIST",
+                "TEACHER_LOAN_APPROVE",
+                "TEACHER_LOAN_REJECT",
+                "TEACHER_LOAN_CANCEL",
+                "TEACHER_SALARY_FORECAST",
+                "TEACHER_TAX_PLANNING",
+                "TEACHER_SALARY_ANNUAL_FORECAST",
+                "TEACHER_TAX_DETAILS_GRID",
+                "EMPLOYEE_TEACHER_PROMOTE"
             };
 
             return retiredCodes;
@@ -644,7 +718,8 @@ namespace Infrastructure.Persistence.DataSeeder
             string controller,
             string action,
             int order,
-            bool isQuickLink = false)
+            bool isQuickLink = false,
+            bool isDashboardWidget = false)
         {
             var definition = new MenuSeedDefinition
             {
@@ -658,7 +733,8 @@ namespace Infrastructure.Persistence.DataSeeder
                 ParentCode = parentCode,
                 Order = order,
                 IsHidden = false,
-                IsQuickLink = isQuickLink
+                IsQuickLink = isQuickLink,
+                IsDashboardWidget = isDashboardWidget
             };
 
             return definition;
@@ -670,7 +746,8 @@ namespace Infrastructure.Persistence.DataSeeder
             string displayName,
             string controller,
             string action,
-            int order)
+            int order,
+            bool isDashboardWidget = false)
         {
             var definition = new MenuSeedDefinition
             {
@@ -681,7 +758,8 @@ namespace Infrastructure.Persistence.DataSeeder
                 Action = action,
                 ParentCode = parentCode,
                 Order = order,
-                IsHidden = true
+                IsHidden = true,
+                IsDashboardWidget = isDashboardWidget
             };
 
             return definition;
@@ -754,6 +832,7 @@ namespace Infrastructure.Persistence.DataSeeder
                 menu.Order = definition.Order;
                 menu.IsHidden = definition.IsHidden;
                 menu.IsQuickLink = definition.IsQuickLink;
+                menu.IsDashboardWidget = definition.IsDashboardWidget;
                 menu.IsDeleted = false;
                 menu.DeletedBy = null;
                 menu.DeletedTs = null;

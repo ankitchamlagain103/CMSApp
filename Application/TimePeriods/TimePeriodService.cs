@@ -1,8 +1,10 @@
+using Application.Common.Helpers;
 using Application.Common.Interfaces;
 using Application.Common.Models;
 using Application.TimePeriods.Commands;
 using Application.TimePeriods.Dtos;
 using Application.TimePeriods.Validators;
+using Domain.Constants;
 using Domain.Entities;
 using FluentValidation.Results;
 
@@ -191,6 +193,7 @@ namespace Application.TimePeriods
                 periodsById[periodId] = timePeriod;
             }
 
+            var mapLabels = await LoadGradeLabelMapAsync(cancellationToken);
             var created = new List<ClassTimePeriodDto>();
             var skipped = new List<ClassTimePeriodSkipDto>();
 
@@ -229,7 +232,7 @@ namespace Application.TimePeriods
                     };
 
                     await _unitOfWork.TimePeriods.AddMappingAsync(mapping, cancellationToken);
-                    created.Add(TimePeriodMapper.ToClassTimePeriodDto(mapping));
+                    created.Add(TimePeriodMapper.ToClassTimePeriodDto(mapping, mapLabels));
                 }
             }
 
@@ -255,10 +258,11 @@ namespace Application.TimePeriods
 
             var mappings = await _unitOfWork.TimePeriods.GetMappingsByClassIdAsync(academicClassId, cancellationToken);
 
+            var getLabels = await LoadGradeLabelMapAsync(cancellationToken);
             var classTimePeriodDtos = new List<ClassTimePeriodDto>();
             foreach (var mapping in mappings)
             {
-                var classTimePeriodDto = TimePeriodMapper.ToClassTimePeriodDto(mapping);
+                var classTimePeriodDto = TimePeriodMapper.ToClassTimePeriodDto(mapping, getLabels);
                 classTimePeriodDtos.Add(classTimePeriodDto);
             }
 
@@ -280,6 +284,15 @@ namespace Application.TimePeriods
 
             var successResponse = CommonResponse<bool>.Success(true, "Mapping removed successfully.");
             return successResponse;
+        }
+
+        // Grade (1001) Config label map (2026-08-05), per the application-wide Config label
+        // resolution sweep. See Docs/config_label_resolution_implementation_guide.md.
+        private async Task<Dictionary<string, string>> LoadGradeLabelMapAsync(CancellationToken cancellationToken)
+        {
+            var gradeOptions = await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.Grade, cancellationToken);
+            var labelsByCode = ConfigLabelHelper.BuildLabelMap(gradeOptions);
+            return labelsByCode;
         }
 
         private static string BuildValidationErrorMessage(ValidationResult validationResult)

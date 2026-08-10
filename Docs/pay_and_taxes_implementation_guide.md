@@ -1,5 +1,11 @@
 # Pay & Taxes implementation guide
 
+> **2026-08-06: the standalone `Teacher` entity/`TeachersController` were removed.** Every
+> `/api/teachers/{id}/salaries...`/`/payslips...`/`/loans...` route mentioned below was a pure
+> alias into the `/api/employees/{id}/...` route of the same name — use the `Employees` route
+> directly now. See `employee_teaching_profile_and_assignments_implementation_guide.md` for the
+> full picture.
+
 Adds three pieces on top of the existing Employee/Teacher compensation plan
 (`employee_management_implementation_guide.md`): a **monthly** tax breakdown, a
 structured **payslip** list/detail (separate from the existing HTML preview), and a

@@ -7,6 +7,7 @@ namespace Application.Exams.Dtos
         public Guid Id { get; set; }
         public Guid ExamId { get; set; }
         public string SubjectCode { get; set; }
+        public string SubjectLabel { get; set; }
         public Guid EnrollmentId { get; set; }
         public string StudentName { get; set; }
         public string AdmissionNo { get; set; }

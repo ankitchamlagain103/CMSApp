@@ -33,7 +33,7 @@ namespace Application.AcademicClasses
 
         Task<CommonResponse<List<ClassSubjectDto>>> GetClassSubjectsAsync(Guid academicClassId, Guid? classSectionId, CancellationToken cancellationToken = default);
 
-        // Class-scoped counterpart to ITeacherService.AssignClassSubjectBulkEntryAsync -- that one
+        // Class-scoped counterpart to IEmployeeService.AssignClassSubjectBulkEntryAsync -- that one
         // is scoped to one teacher and lets each row name its own class/subject/section/period;
         // this one is scoped to one AcademicClass (the id here) and lets each row name its own
         // teacher, so "who teaches this class" can be mapped in a single submission from the

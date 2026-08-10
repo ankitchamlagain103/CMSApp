@@ -1,3 +1,4 @@
+using Application.Common.Helpers;
 using Application.Common.Interfaces;
 using Application.Common.Models;
 using Application.Enrollments;
@@ -5,6 +6,7 @@ using Application.Enrollments.Commands;
 using Application.Promotions.Commands;
 using Application.Promotions.Dtos;
 using Application.Promotions.Validators;
+using Domain.Constants;
 using Domain.Entities;
 using Domain.Enums;
 using FluentValidation.Results;
@@ -64,7 +66,8 @@ namespace Application.Promotions
             }
 
             var promotionWithDetails = await _unitOfWork.StudentPromotions.GetByIdWithDetailsAsync(processResult.Promotion.Id, cancellationToken);
-            var promotionDto = PromotionMapper.ToDto(promotionWithDetails);
+            var createLabels = await LoadClassLabelMapAsync(cancellationToken);
+            var promotionDto = PromotionMapper.ToDto(promotionWithDetails, createLabels);
             var successResponse = CommonResponse<StudentPromotionDto>.Success(promotionDto, "Student promotion recorded successfully.");
             return successResponse;
         }
@@ -78,7 +81,8 @@ namespace Application.Promotions
                 return notFoundResponse;
             }
 
-            var promotionDto = PromotionMapper.ToDto(promotion);
+            var getLabels = await LoadClassLabelMapAsync(cancellationToken);
+            var promotionDto = PromotionMapper.ToDto(promotion, getLabels);
             var successResponse = CommonResponse<StudentPromotionDto>.Success(promotionDto);
             return successResponse;
         }
@@ -87,10 +91,11 @@ namespace Application.Promotions
         {
             var pagedPromotions = await _unitOfWork.StudentPromotions.GetPagedByFilterAsync(studentId, page, pageSize, cancellationToken);
 
+            var listLabels = await LoadClassLabelMapAsync(cancellationToken);
             var promotionDtos = new List<StudentPromotionDto>();
             foreach (var promotion in pagedPromotions.Items)
             {
-                var promotionDto = PromotionMapper.ToDto(promotion);
+                var promotionDto = PromotionMapper.ToDto(promotion, listLabels);
                 promotionDtos.Add(promotionDto);
             }
 
@@ -248,6 +253,15 @@ namespace Application.Promotions
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
             return (promotion, null);
+        }
+
+        // Merged Grade+Section Config label map (2026-08-05), per the application-wide Config
+        // label resolution sweep. See Docs/config_label_resolution_implementation_guide.md.
+        private async Task<Dictionary<string, string>> LoadClassLabelMapAsync(CancellationToken cancellationToken)
+        {
+            var labelsByCode = ConfigLabelHelper.BuildLabelMap(await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.Grade, cancellationToken));
+            ConfigLabelHelper.MergeLabelMap(labelsByCode, await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.Section, cancellationToken));
+            return labelsByCode;
         }
 
         private static string BuildValidationErrorMessage(ValidationResult validationResult)

@@ -9,6 +9,7 @@ namespace Application.FeeGenerationRuns.Dtos
         public string StudentName { get; set; }
         public string AdmissionNo { get; set; }
         public string SectionCode { get; set; }
+        public string SectionLabel { get; set; }
         public decimal TotalNetAmount { get; set; }
         public decimal TotalPaidAmount { get; set; }
         public decimal TotalOutstandingAmount { get; set; }

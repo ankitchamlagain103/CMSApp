@@ -11,6 +11,7 @@ namespace Application.Exams.Dtos
         public Guid ExamId { get; set; }
         public Guid ClassSubjectId { get; set; }
         public string SubjectCode { get; set; }
+        public string SubjectLabel { get; set; }
         public DateTime ExamDate { get; set; }
         public bool MarksLocked { get; set; }
         public int? FullMarks { get; set; }

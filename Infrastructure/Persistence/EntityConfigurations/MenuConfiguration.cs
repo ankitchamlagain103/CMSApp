@@ -69,6 +69,10 @@ namespace Infrastructure.Persistence.EntityConfigurations
                     .HasColumnName("is_quick_link")
                     .HasDefaultValue(false);
 
+            builder.Property(m => m.IsDashboardWidget)
+                    .HasColumnName("is_dashboard_widget")
+                    .HasDefaultValue(false);
+
             builder.HasOne(m => m.MainMenu)
                     .WithMany(m => m.Childrens)
                     .HasForeignKey(m => m.ParentId)

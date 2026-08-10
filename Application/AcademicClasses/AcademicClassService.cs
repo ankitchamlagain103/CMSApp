@@ -2,10 +2,11 @@ using Application.AcademicClasses.Commands;
 using Application.AcademicClasses.Dtos;
 using Application.AcademicClasses.Queries;
 using Application.AcademicClasses.Validators;
+using Application.Common.Helpers;
 using Application.Common.Interfaces;
 using Application.Common.Models;
-using Application.Teachers;
-using Application.Teachers.Dtos;
+using Application.Employees;
+using Application.Employees.Dtos;
 using Domain.Common.Filters;
 using Domain.Constants;
 using Domain.Entities;
@@ -120,7 +121,8 @@ namespace Application.AcademicClasses
             await _unitOfWork.AcademicClasses.AddAsync(academicClass, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            var academicClassDto = AcademicClassMapper.ToDto(academicClass);
+            var classLabels = await LoadClassLabelMapAsync(cancellationToken);
+            var academicClassDto = AcademicClassMapper.ToDto(academicClass, classLabels);
             var successResponse = CommonResponse<AcademicClassDto>.Success(academicClassDto, "Class created successfully.");
             return successResponse;
         }
@@ -134,7 +136,8 @@ namespace Application.AcademicClasses
                 return notFoundResponse;
             }
 
-            var academicClassDto = AcademicClassMapper.ToDto(academicClass);
+            var classLabels = await LoadClassLabelMapAsync(cancellationToken);
+            var academicClassDto = AcademicClassMapper.ToDto(academicClass, classLabels);
             var successResponse = CommonResponse<AcademicClassDto>.Success(academicClassDto);
             return successResponse;
         }
@@ -149,11 +152,12 @@ namespace Application.AcademicClasses
             };
 
             var pagedClasses = await _unitOfWork.AcademicClasses.GetPagedByFilterAsync(filter, query.Page, query.PageSize, cancellationToken);
+            var classLabels = await LoadClassLabelMapAsync(cancellationToken);
 
             var academicClassDtos = new List<AcademicClassDto>();
             foreach (var academicClass in pagedClasses.Items)
             {
-                var academicClassDto = AcademicClassMapper.ToDto(academicClass);
+                var academicClassDto = AcademicClassMapper.ToDto(academicClass, classLabels);
                 academicClassDtos.Add(academicClassDto);
             }
 
@@ -192,7 +196,8 @@ namespace Application.AcademicClasses
             _unitOfWork.AcademicClasses.Update(academicClass);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            var academicClassDto = AcademicClassMapper.ToDto(academicClass);
+            var classLabels = await LoadClassLabelMapAsync(cancellationToken);
+            var academicClassDto = AcademicClassMapper.ToDto(academicClass, classLabels);
             var successResponse = CommonResponse<AcademicClassDto>.Success(academicClassDto, "Class updated successfully.");
             return successResponse;
         }
@@ -265,7 +270,8 @@ namespace Application.AcademicClasses
             await _unitOfWork.AcademicClasses.AddSectionAsync(classSection, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            var classSectionDto = AcademicClassMapper.ToSectionDto(classSection);
+            var classLabels = await LoadClassLabelMapAsync(cancellationToken);
+            var classSectionDto = AcademicClassMapper.ToSectionDto(classSection, classLabels);
             var successResponse = CommonResponse<ClassSectionDto>.Success(classSectionDto, "Section added to class successfully.");
             return successResponse;
         }
@@ -292,7 +298,8 @@ namespace Application.AcademicClasses
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            var classSectionDto = AcademicClassMapper.ToSectionDto(classSection);
+            var classLabels = await LoadClassLabelMapAsync(cancellationToken);
+            var classSectionDto = AcademicClassMapper.ToSectionDto(classSection, classLabels);
             var successResponse = CommonResponse<ClassSectionDto>.Success(classSectionDto, "Section updated successfully.");
             return successResponse;
         }
@@ -346,11 +353,12 @@ namespace Application.AcademicClasses
             }
 
             var sections = await _unitOfWork.AcademicClasses.GetSectionsAsync(academicClassId, cancellationToken);
+            var classLabels = await LoadClassLabelMapAsync(cancellationToken);
 
             var sectionDtos = new List<ClassSectionDto>();
             foreach (var section in sections)
             {
-                var sectionDto = AcademicClassMapper.ToSectionDto(section);
+                var sectionDto = AcademicClassMapper.ToSectionDto(section, classLabels);
                 sectionDtos.Add(sectionDto);
             }
 
@@ -457,7 +465,8 @@ namespace Application.AcademicClasses
             await _unitOfWork.AcademicClasses.AddClassSubjectAsync(classSubject, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            var classSubjectDto = AcademicClassMapper.ToClassSubjectDto(classSubject);
+            var classLabels = await LoadClassLabelMapAsync(cancellationToken);
+            var classSubjectDto = AcademicClassMapper.ToClassSubjectDto(classSubject, classLabels);
             var successResponse = CommonResponse<ClassSubjectDto>.Success(classSubjectDto, "Subject assigned to class successfully.");
             return successResponse;
         }
@@ -496,7 +505,8 @@ namespace Application.AcademicClasses
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            var classSubjectDto = AcademicClassMapper.ToClassSubjectDto(classSubject);
+            var classLabels = await LoadClassLabelMapAsync(cancellationToken);
+            var classSubjectDto = AcademicClassMapper.ToClassSubjectDto(classSubject, classLabels);
             var successResponse = CommonResponse<ClassSubjectDto>.Success(classSubjectDto, "Class subject updated successfully.");
             return successResponse;
         }
@@ -538,11 +548,12 @@ namespace Application.AcademicClasses
             // classSectionId narrows to one section's effective list (class-wide rows plus that
             // section's scoped rows) -- the shape the enrollment elective picker needs.
             var classSubjects = await _unitOfWork.AcademicClasses.GetClassSubjectsAsync(academicClassId, classSectionId, cancellationToken);
+            var classLabels = await LoadClassLabelMapAsync(cancellationToken);
 
             var classSubjectDtos = new List<ClassSubjectDto>();
             foreach (var classSubject in classSubjects)
             {
-                var classSubjectDto = AcademicClassMapper.ToClassSubjectDto(classSubject);
+                var classSubjectDto = AcademicClassMapper.ToClassSubjectDto(classSubject, classLabels);
                 classSubjectDtos.Add(classSubjectDto);
             }
 
@@ -550,14 +561,14 @@ namespace Application.AcademicClasses
             return successResponse;
         }
 
-        // Class-scoped counterpart to ITeacherService.AssignClassSubjectBulkEntryAsync -- that one
-        // is scoped to one teacher (route id) and lets each row name its own class/subject/
+        // Class-scoped counterpart to IEmployeeService.AssignClassSubjectBulkEntryAsync -- that one
+        // is scoped to one employee (route id) and lets each row name its own class/subject/
         // section/period; this one is scoped to one AcademicClass (route id) and lets each row
         // name its own TeacherId, so an admin working from a class's page can map every teacher
         // who teaches that class -- across its subjects, sections and time periods -- in one
-        // submission instead of visiting each teacher's profile in turn. Reuses
+        // submission instead of visiting each employee's profile in turn. Reuses
         // TeacherAssignmentBuilder.BuildAsync, the exact same per-row validation
-        // ITeacherService's own assignment endpoints run, so a row succeeds or fails identically
+        // IEmployeeService's own assignment endpoints run, so a row succeeds or fails identically
         // regardless of which side of the relationship it was submitted from.
         public async Task<CommonResponse<ClassTeacherAssignmentBulkEntryResultDto>> AssignTeachersBulkEntryAsync(Guid academicClassId, AssignClassTeachersBulkEntryCommand command, CancellationToken cancellationToken = default)
         {
@@ -576,8 +587,9 @@ namespace Application.AcademicClasses
 
             var created = new List<TeacherAssignmentDto>();
             var skipped = new List<ClassTeacherAssignmentEntrySkipDto>();
-            var teacherCache = new Dictionary<Guid, Teacher>();
+            var teacherCache = new Dictionary<Guid, Employee>();
             var classSubjectCache = new Dictionary<Guid, ClassSubject>();
+            var classLabels = await LoadClassLabelMapAsync(cancellationToken);
 
             // Tracks what's already been staged earlier in this same request, same reasoning as
             // AssignClassSubjectBulkEntryAsync -- nothing is saved until the loop finishes, so two
@@ -617,7 +629,7 @@ namespace Application.AcademicClasses
 
                 if (!teacherCache.TryGetValue(item.TeacherId, out var teacher))
                 {
-                    teacher = await _unitOfWork.Teachers.GetByIdAsync(item.TeacherId, cancellationToken);
+                    teacher = await _unitOfWork.Employees.GetByIdAsync(item.TeacherId, cancellationToken);
                     teacherCache[item.TeacherId] = teacher;
                 }
 
@@ -629,7 +641,7 @@ namespace Application.AcademicClasses
                         TeacherId = item.TeacherId,
                         ClassSubjectId = item.ClassSubjectId,
                         ClassSectionId = item.ClassSectionId,
-                        Reason = "Teacher with id '" + item.TeacherId + "' was not found."
+                        Reason = "Employee with id '" + item.TeacherId + "' was not found."
                     };
                     skipped.Add(skip);
                     continue;
@@ -655,7 +667,7 @@ namespace Application.AcademicClasses
                     continue;
                 }
 
-                // Scope guard unique to this class-scoped entry point -- ITeacherService's own
+                // Scope guard unique to this class-scoped entry point -- IEmployeeService's own
                 // bulk-entry endpoint has no "this must belong to a specific class" constraint,
                 // but this one is reached from one class's own page, so a row naming a subject
                 // that belongs to a different class is a request mistake, not a valid cross-class
@@ -748,8 +760,8 @@ namespace Application.AcademicClasses
                 }
 
                 stagedKeys.Add(stagedKey);
-                await _unitOfWork.Teachers.AddAssignmentAsync(assignment, cancellationToken);
-                created.Add(TeacherMapper.ToAssignmentDto(assignment));
+                await _unitOfWork.Employees.AddAssignmentAsync(assignment, cancellationToken);
+                created.Add(TeacherAssignmentMapper.ToAssignmentDto(assignment, classLabels));
             }
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
@@ -786,12 +798,13 @@ namespace Application.AcademicClasses
                 }
             }
 
-            var assignments = await _unitOfWork.Teachers.GetAssignmentsByAcademicClassAsync(academicClassId, classSectionId, cancellationToken);
+            var assignments = await _unitOfWork.Employees.GetAssignmentsByAcademicClassAsync(academicClassId, classSectionId, cancellationToken);
+            var classLabels = await LoadClassLabelMapAsync(cancellationToken);
 
             var assignmentDtos = new List<ClassTeacherAssignmentDto>();
             foreach (var assignment in assignments)
             {
-                var assignmentDto = AcademicClassMapper.ToTeacherAssignmentDto(assignment);
+                var assignmentDto = AcademicClassMapper.ToTeacherAssignmentDto(assignment, classLabels);
                 assignmentDtos.Add(assignmentDto);
             }
 
@@ -840,6 +853,18 @@ namespace Application.AcademicClasses
             }
 
             return (fullMarks, passMarks, resolvedTheoryMarks, resolvedTheoryPassMarks, resolvedPracticalMarks, resolvedPracticalPassMarks);
+        }
+
+        // Merged Grade+Section+Subject label map (2026-08-05, part of the application-wide
+        // Config label-resolution sweep -- see Docs/config_label_resolution_implementation_guide.md).
+        // Their code namespaces are distinct by convention, same reasoning every other merged
+        // label loader in this codebase relies on.
+        private async Task<Dictionary<string, string>> LoadClassLabelMapAsync(CancellationToken cancellationToken)
+        {
+            var labelsByCode = ConfigLabelHelper.BuildLabelMap(await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.Grade, cancellationToken));
+            ConfigLabelHelper.MergeLabelMap(labelsByCode, await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.Section, cancellationToken));
+            ConfigLabelHelper.MergeLabelMap(labelsByCode, await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.Subject, cancellationToken));
+            return labelsByCode;
         }
 
         private static string BuildValidationErrorMessage(ValidationResult validationResult)

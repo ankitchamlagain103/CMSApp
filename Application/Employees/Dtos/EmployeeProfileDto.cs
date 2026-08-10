@@ -14,15 +14,20 @@ namespace Application.Employees.Dtos
         public string Phone { get; set; }
         public string Email { get; set; }
 
-        // Employment Information -- Designation/Department are JobPositionCode/
-        // EmployeeCategoryCode's raw codes (same as everywhere else in this codebase, no
-        // resolved-label convention exists for these two yet).
+        // Employment Information -- Designation/Department resolve JobPositionCode/
+        // EmployeeCategoryCode server-side (2026-08-05), same ConfigLabelHelper convention as
+        // everywhere else in this codebase now uses.
         public string EmployeeCode { get; set; }
         public string LevelCode { get; set; }
+        public string LevelLabel { get; set; }
         public string JobPositionCode { get; set; }
+        public string JobPositionLabel { get; set; }
         public string EmployeeCategoryCode { get; set; }
+        public string EmployeeCategoryLabel { get; set; }
         public string BranchCode { get; set; }
+        public string BranchLabel { get; set; }
         public string ProvinceCode { get; set; }
+        public string ProvinceLabel { get; set; }
         public DateTime? JoinDate { get; set; }
 
         // "3 years 4 months" -- computed from JoinDate against today, blank when JoinDate is null.

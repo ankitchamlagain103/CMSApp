@@ -63,7 +63,7 @@ namespace Infrastructure.Persistence.DataSeeder
             var sectionsByClassId = await SeedSectionsAsync(dbContext, classesByGrade);
             var classSubjects = await SeedClassSubjectsAsync(dbContext, classesByGrade);
             var teachers = await SeedTeachersAsync(dbContext);
-            await SeedTeacherAssignmentsAsync(dbContext, teachers, classesByGrade, sectionsByClassId, classSubjects);
+            //await SeedTeacherAssignmentsAsync(dbContext, teachers, classesByGrade, sectionsByClassId, classSubjects);
             await SeedStudentsAsync(dbContext, academicYear, classesByGrade, sectionsByClassId, classSubjects);
         }
 
@@ -502,7 +502,7 @@ namespace Infrastructure.Persistence.DataSeeder
             return true;
         }
 
-        private static async Task<List<Teacher>> SeedTeachersAsync(ApplicationDbContext dbContext)
+        private static async Task<List<Employee>> SeedTeachersAsync(ApplicationDbContext dbContext)
         {
             var teacherFirstNames = new[]
             {
@@ -534,8 +534,7 @@ namespace Infrastructure.Persistence.DataSeeder
 
             var existingEmployees = await dbContext.Employees
                 .IgnoreQueryFilters()
-                .Include(employee => employee.Teacher)
-                .Where(employee => employee.Teacher != null)
+                .Where(employee => employee.EmployeeCategoryCode == EmployeeCategoryCodes.Academic && employee.JobPositionCode == JobPositionCodes.Teacher)
                 .ToListAsync();
 
             var existingByEmployeeCode = new Dictionary<string, Employee>();
@@ -544,7 +543,7 @@ namespace Infrastructure.Persistence.DataSeeder
                 existingByEmployeeCode[employee.EmployeeCode] = employee;
             }
 
-            var seededTeachers = new List<Teacher>();
+            var seededTeachers = new List<Employee>();
             for (var teacherIndex = 0; teacherIndex < TeacherCount; teacherIndex++)
             {
                 var employeeCode = "EMP2026" + (teacherIndex + 1).ToString("000");
@@ -552,7 +551,7 @@ namespace Infrastructure.Persistence.DataSeeder
                 {
                     if (!existingEmployee.IsDeleted)
                     {
-                        seededTeachers.Add(existingEmployee.Teacher);
+                        seededTeachers.Add(existingEmployee);
                     }
 
                     continue;
@@ -575,12 +574,6 @@ namespace Infrastructure.Persistence.DataSeeder
                     PaymentMode = PaymentMode.BankDeposit
                 };
 
-                var teacherEntity = new Teacher
-                {
-                    Employee = employeeEntity
-                };
-                employeeEntity.Teacher = teacherEntity;
-
                 var qualification = new EmployeeQualification
                 {
                     Employee = employeeEntity,
@@ -592,7 +585,7 @@ namespace Infrastructure.Persistence.DataSeeder
 
                 dbContext.Employees.Add(employeeEntity);
                 dbContext.EmployeeQualifications.Add(qualification);
-                seededTeachers.Add(teacherEntity);
+                seededTeachers.Add(employeeEntity);
             }
 
             await dbContext.SaveChangesAsync();
@@ -601,7 +594,7 @@ namespace Infrastructure.Persistence.DataSeeder
 
         private static async Task SeedTeacherAssignmentsAsync(
             ApplicationDbContext dbContext,
-            List<Teacher> teachers,
+            List<Employee> teachers,
             Dictionary<string, AcademicClass> classesByGrade,
             Dictionary<Guid, List<ClassSection>> sectionsByClassId,
             List<ClassSubject> classSubjects)

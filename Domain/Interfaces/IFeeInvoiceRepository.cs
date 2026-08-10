@@ -9,7 +9,7 @@ namespace Domain.Interfaces
     // transactional records that only make sense next to invoices -- FeePayment (with its
     // FeePaymentAllocation children) and the pre-generation FeeAdjustment queue. One repository
     // because every payment/adjustment operation reads or mutates invoices in the same unit of
-    // work (same aggregate-owns-children convention as ITeacherRepository/IEnrollmentRepository).
+    // work (same aggregate-owns-children convention as IEmployeeRepository/IEnrollmentRepository).
     public interface IFeeInvoiceRepository : IRepository<FeeInvoice, Guid>
     {
         Task<PagedResult<FeeInvoice>> GetPagedByFilterAsync(FeeInvoiceFilter filter, int pageNumber, int pageSize, CancellationToken cancellationToken = default);

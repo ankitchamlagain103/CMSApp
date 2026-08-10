@@ -11,10 +11,12 @@ namespace Application.AcademicClasses.Dtos
         public Guid Id { get; set; }
         public Guid AcademicClassId { get; set; }
         public string SubjectCode { get; set; }
+        public string SubjectLabel { get; set; }
         public bool IsMandatory { get; set; }
         public int DisplayOrder { get; set; }
         public Guid? ClassSectionId { get; set; }
         public string SectionCode { get; set; }
+        public string SectionLabel { get; set; }
         public SubjectScope Scope { get; set; }
         public decimal? CreditHours { get; set; }
 

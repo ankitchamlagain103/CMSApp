@@ -19,6 +19,13 @@
         // (2026-07-28) -- deliberately explicit rather than inferred from MenuType/Url, so an
         // admin can curate exactly which pages appear there via POST/PUT /api/menus.
         public bool IsQuickLink { get; set; }
+
+        // Whether this menu is registered as a generic dashboard widget (2026-08-07) -- when
+        // true, GET /api/dashboard/widgets includes it (by Code) for any caller whose role grants
+        // it and whose audience matches, resolving its data through a registered
+        // IDashboardWidgetProvider keyed on the same Code. Same "admin curates via POST/PUT
+        // /api/menus" reasoning as IsQuickLink -- a menu becomes a widget by flag, not inference.
+        public bool IsDashboardWidget { get; set; }
         public virtual Menu MainMenu { get; set; }
         public virtual ICollection<Menu> Childrens { get; set; } = new List<Menu>();
     }

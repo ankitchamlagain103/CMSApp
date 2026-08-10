@@ -11,6 +11,7 @@ namespace Application.Roles.Dtos
         public int? ParentId { get; set; }
         public int Order { get; set; }
         public bool IsHidden { get; set; }
+        public bool IsDashboardWidget { get; set; }
         public bool HasChildren { get; set; }
         public List<MenuClaimDto> Children { get; set; } = new List<MenuClaimDto>();
     }

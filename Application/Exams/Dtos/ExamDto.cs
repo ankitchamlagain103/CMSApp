@@ -14,7 +14,9 @@ namespace Application.Exams.Dtos
         public Guid ExamTermId { get; set; }
         public Guid ClassSubjectId { get; set; }
         public string SubjectCode { get; set; }
+        public string SubjectLabel { get; set; }
         public string GradeCode { get; set; }
+        public string GradeLabel { get; set; }
         public DateTime ExamDate { get; set; }
         public Guid? TimePeriodId { get; set; }
         public string TimePeriodName { get; set; }

@@ -9,11 +9,15 @@ using Domain.Enums;
 using Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using System.Linq.Expressions;
 
 namespace Infrastructure.Identity.Services
 {
     public class DashboardService : IDashboardService
     {
+        private const int DefaultGlobalSearchLimit = 5;
+        private const int MaxGlobalSearchLimit = 20;
+
         private readonly ApplicationDbContext _dbContext;
         private readonly IUnitOfWork _unitOfWork;
         private readonly ICurrentUserService _currentUserService;
@@ -82,29 +86,41 @@ namespace Infrastructure.Identity.Services
             return successResponse;
         }
 
+        // Teaching-staff predicate written inline (not a call to EmployeeRoleHelper.IsTeachingStaff)
+        // because EF Core's LINQ-to-SQL translator can't reliably translate an arbitrary C# static
+        // method call inside a query expression -- the helper stays the source of truth for
+        // in-memory checks (e.g. GlobalSearchAsync's per-row IsTeacher flag below), this predicate
+        // must express the same rule directly so it survives translation to SQL.
+        private static readonly Expression<Func<Employee, bool>> IsTeachingStaffExpression =
+            employee => employee.EmployeeCategoryCode == EmployeeCategoryCodes.Academic
+                && (employee.JobPositionCode == JobPositionCodes.Teacher
+                    || employee.JobPositionCode == JobPositionCodes.Principal
+                    || employee.JobPositionCode == JobPositionCodes.VicePrincipal);
+
         public async Task<CommonResponse<TeacherListWidgetDto>> GetTeacherListWidgetAsync(int take, CancellationToken cancellationToken = default)
         {
-            var totalTeachers = await _dbContext.Teachers.CountAsync(cancellationToken);
-            var activeTeachers = await _dbContext.Teachers.CountAsync(teacher => teacher.Employee.EmploymentStatus == EmploymentStatus.Active, cancellationToken);
+            var teachingStaffQuery = _dbContext.Employees.Where(IsTeachingStaffExpression);
 
-            var recentTeacherEntities = await _dbContext.Teachers
-                .Include(teacher => teacher.Employee)
-                .OrderByDescending(teacher => teacher.Employee.CreatedTs)
+            var totalTeachers = await teachingStaffQuery.CountAsync(cancellationToken);
+            var activeTeachers = await teachingStaffQuery.CountAsync(employee => employee.EmploymentStatus == EmploymentStatus.Active, cancellationToken);
+
+            var recentTeacherEntities = await teachingStaffQuery
+                .OrderByDescending(employee => employee.CreatedTs)
                 .Take(take)
                 .ToListAsync(cancellationToken);
 
             var recentTeachers = new List<DashboardTeacherSummaryDto>();
-            foreach (var teacher in recentTeacherEntities)
+            foreach (var employee in recentTeacherEntities)
             {
                 var dashboardTeacherSummaryDto = new DashboardTeacherSummaryDto
                 {
-                    Id = teacher.Id,
-                    EmployeeNo = teacher.Employee.EmployeeCode,
-                    FirstName = teacher.Employee.FirstName,
-                    MiddleName = teacher.Employee.MiddleName,
-                    LastName = teacher.Employee.LastName,
-                    Status = teacher.Employee.EmploymentStatus,
-                    JoiningDate = teacher.Employee.JoinDate
+                    Id = employee.Id,
+                    EmployeeNo = employee.EmployeeCode,
+                    FirstName = employee.FirstName,
+                    MiddleName = employee.MiddleName,
+                    LastName = employee.LastName,
+                    Status = employee.EmploymentStatus,
+                    JoiningDate = employee.JoinDate
                 };
                 recentTeachers.Add(dashboardTeacherSummaryDto);
             }
@@ -504,6 +520,94 @@ namespace Infrastructure.Identity.Services
             return successResponse;
         }
 
+        // Navbar "Ctrl+K"-style global search across Students and Employees (2026-08-05).
+        // Deliberately queries _dbContext.Students/_dbContext.Employees directly rather than
+        // adding search methods to IStudentRepository/IEmployeeRepository -- same reasoning
+        // every other cross-cutting Dashboard widget in this file already follows (this concern
+        // spans two unrelated aggregates for a UI navigation need, not a domain operation either
+        // aggregate's own repository should own).
+        public async Task<CommonResponse<GlobalSearchResultDto>> GlobalSearchAsync(string query, int limit, CancellationToken cancellationToken = default)
+        {
+            var trimmedQuery = query != null ? query.Trim() : null;
+            if (string.IsNullOrWhiteSpace(trimmedQuery))
+            {
+                var validationResponse = CommonResponse<GlobalSearchResultDto>.Fail(ResponseCodes.ValidationError, "A search query is required.");
+                return validationResponse;
+            }
+
+            var effectiveLimit = limit > 0 ? Math.Min(limit, MaxGlobalSearchLimit) : DefaultGlobalSearchLimit;
+            var searchPattern = "%" + trimmedQuery + "%";
+
+            // A pasted Guid (a student's or employee's own id, copied from another screen) is
+            // matched exactly, alongside the usual name/code ILike match -- this is the "Student
+            // ID"/"Employee ID" half of the ask, distinct from AdmissionNo/EmployeeCode.
+            var parsedId = Guid.TryParse(trimmedQuery, out var parsedGuid) ? parsedGuid : (Guid?)null;
+
+            // Same three columns StudentRepository.GetPagedByFilterAsync's own Search filter
+            // matches (FirstName/LastName/AdmissionNo, no MiddleName) -- kept consistent with
+            // that existing convention rather than diverging for this endpoint alone.
+            var matchingStudents = await _dbContext.Students
+                .Where(student => EF.Functions.ILike(student.FirstName, searchPattern)
+                    || EF.Functions.ILike(student.LastName, searchPattern)
+                    || EF.Functions.ILike(student.AdmissionNo, searchPattern)
+                    || (parsedId.HasValue && student.Id == parsedId.Value))
+                .OrderBy(student => student.FirstName)
+                .ThenBy(student => student.LastName)
+                .Take(effectiveLimit)
+                .ToListAsync(cancellationToken);
+
+            var studentResults = new List<GlobalSearchStudentResultDto>();
+            foreach (var student in matchingStudents)
+            {
+                studentResults.Add(new GlobalSearchStudentResultDto
+                {
+                    Id = student.Id,
+                    AdmissionNo = student.AdmissionNo,
+                    FullName = BuildFullName(student.FirstName, student.MiddleName, student.LastName),
+                    Gender = student.Gender,
+                    Status = student.Status
+                });
+            }
+
+            var matchingEmployees = await _dbContext.Employees
+                .Where(employee => EF.Functions.ILike(employee.FirstName, searchPattern)
+                    || EF.Functions.ILike(employee.LastName, searchPattern)
+                    || EF.Functions.ILike(employee.EmployeeCode, searchPattern)
+                    || (parsedId.HasValue && employee.Id == parsedId.Value))
+                .OrderBy(employee => employee.FirstName)
+                .ThenBy(employee => employee.LastName)
+                .Take(effectiveLimit)
+                .ToListAsync(cancellationToken);
+
+            var jobPositionOptions = await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.JobPosition, cancellationToken);
+            var jobPositionLabels = ConfigLabelHelper.BuildLabelMap(jobPositionOptions);
+
+            var employeeResults = new List<GlobalSearchEmployeeResultDto>();
+            foreach (var employee in matchingEmployees)
+            {
+                employeeResults.Add(new GlobalSearchEmployeeResultDto
+                {
+                    Id = employee.Id,
+                    EmployeeCode = employee.EmployeeCode,
+                    FullName = BuildFullName(employee.FirstName, employee.MiddleName, employee.LastName),
+                    JobPositionCode = employee.JobPositionCode,
+                    JobPositionLabel = ConfigLabelHelper.Resolve(jobPositionLabels, employee.JobPositionCode),
+                    EmploymentStatus = employee.EmploymentStatus,
+                    IsTeacher = EmployeeRoleHelper.IsTeachingStaff(employee.EmployeeCategoryCode, employee.JobPositionCode)
+                });
+            }
+
+            var globalSearchResultDto = new GlobalSearchResultDto
+            {
+                Query = trimmedQuery,
+                Students = studentResults,
+                Employees = employeeResults
+            };
+
+            var successResponse = CommonResponse<GlobalSearchResultDto>.Success(globalSearchResultDto);
+            return successResponse;
+        }
+
         // Small standalone helper, same "not shared with EmployeeMapper.BuildFullName" call as
         // that mapper's own doc comment already makes for its own duplicate -- Dashboard reads
         // across every aggregate and shouldn't pull in per-feature mappers for one string.
@@ -686,8 +790,9 @@ namespace Infrastructure.Identity.Services
             // EmploymentStatus has more than two values (OnLeave/Suspended/Resigned/Terminated/
             // Retired) -- this graph keeps the same two-bucket shape as the student one by
             // treating anything other than Active as "inactive".
-            var activeCount = await _dbContext.Teachers.CountAsync(teacher => teacher.Employee.EmploymentStatus == EmploymentStatus.Active, cancellationToken);
-            var inactiveCount = await _dbContext.Teachers.CountAsync(teacher => teacher.Employee.EmploymentStatus != EmploymentStatus.Active, cancellationToken);
+            var teachingStaffQuery = _dbContext.Employees.Where(IsTeachingStaffExpression);
+            var activeCount = await teachingStaffQuery.CountAsync(employee => employee.EmploymentStatus == EmploymentStatus.Active, cancellationToken);
+            var inactiveCount = await teachingStaffQuery.CountAsync(employee => employee.EmploymentStatus != EmploymentStatus.Active, cancellationToken);
 
             var series = new BarGraphSeriesDto { Name = "Teachers", Data = new List<int> { activeCount, inactiveCount } };
             var barGraphDto = new BarGraphDto

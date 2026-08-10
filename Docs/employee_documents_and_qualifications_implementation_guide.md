@@ -1,5 +1,16 @@
 # CMSApp — Employee Qualifications, Employee & Student Documents, Accounts and Codes (UI)
 
+> **2026-08-07: self-service upload + HR verification.** An employee can now upload their own
+> document / add their own qualification via new `me/...` routes, and every record (self-service
+> or admin-entered) carries a `verificationStatus`. See the dedicated section near the bottom of
+> this guide — everything above it describes the admin `{id}`-scoped routes, which are otherwise
+> unchanged.
+
+> **2026-08-06: the standalone `Teacher` entity/`TeachersController` were removed entirely** (this
+> guide already routed qualifications/documents through `/api/employees/...`, so none of its
+> routes changed) — see `employee_teaching_profile_and_assignments_implementation_guide.md` for
+> what did change elsewhere.
+
 **2026-07-23 consolidation.** This supersedes `teacher_documents_implementation_guide.md` (deleted)
 for the teacher-facing half of that guide: qualifications and documents are no longer scoped to
 `Teacher` at all — they belong to `Employee` generically, since neither concept is actually
@@ -56,9 +67,17 @@ Response `data` (add/list) — `EmployeeQualificationDto`:
   "id": "…", "employeeId": "…",
   "qualificationCode": "MASTERS", "courseName": "M.Sc. Mathematics",
   "institution": "Tribhuvan University", "completionYear": 2018,
-  "score": "3.7 GPA", "remarks": null
+  "score": "3.7 GPA", "remarks": null,
+  "verificationStatus": 2,
+  "verificationRemarks": null,
+  "verifiedTs": "2026-07-23T09:15:00+00:00",
+  "verifiedBy": "hr.staff"
 }
 ```
+
+`verificationStatus` (`1` Pending / `2` Approved / `3` Rejected, added 2026-08-07) is `Approved`
+here because this row came through the admin route — see the Self-service section below for the
+`Pending` case and the verify/reject endpoints.
 
 No update endpoint (add + remove only, same convention as every other line-item child record in
 this codebase — e.g. salary components/deductions).
@@ -93,9 +112,16 @@ Response `data` — `EmployeeDocumentDto`:
   "documentTypeCode": "DRIVING_LICENSE", "documentName": "Driving License — B category",
   "fileName": "license-scan.pdf", "contentType": "application/pdf", "fileSizeBytes": 482133,
   "validUntil": "2028-03-01", "remarks": null,
-  "uploadedTs": "2026-07-23T09:15:00+00:00"
+  "uploadedTs": "2026-07-23T09:15:00+00:00",
+  "verificationStatus": 2,
+  "verificationRemarks": null,
+  "verifiedTs": "2026-07-23T09:15:00+00:00",
+  "verifiedBy": "hr.staff"
 }
 ```
+
+`verificationStatus` (`1` Pending / `2` Approved / `3` Rejected, added 2026-08-07) is `Approved`
+here because this row came through the admin route — see the Self-service section below.
 
 ### List — `GET /api/employees/{id}/documents`
 
@@ -155,12 +181,75 @@ which are payment-routing details, not statutory scheme identifiers.
 
 ## Permissions (seeded to SuperAdmin)
 
-`EMPLOYEE_QUALIFICATION_ADD/REMOVE/LIST` and `EMPLOYEE_DOCUMENT_UPLOAD/LIST/DOWNLOAD/DELETE`
-(both under `EMPLOYEE_LIST`) — grant to other roles via `POST /api/roles/claims`. The old
+`EMPLOYEE_QUALIFICATION_ADD/REMOVE/LIST`, `EMPLOYEE_DOCUMENT_UPLOAD/LIST/DOWNLOAD/DELETE`, and
+(added 2026-08-07) `EMPLOYEE_QUALIFICATION_VERIFY/REJECT`, `EMPLOYEE_DOCUMENT_VERIFY/REJECT` (all
+under `EMPLOYEE_LIST`) — grant to other roles via `POST /api/roles/claims`. The verify/reject
+permissions are what you grant to whichever role your school treats as "HR" — there is no
+hardcoded HR role in this codebase, same as the Accounts/HR dashboard summaries. The old
 `TEACHER_QUALIFICATION_*`/`TEACHER_DOCUMENT_*` rows are **retired** (soft-deleted by
 `MenuSeeder.BuildRetiredMenuCodes` on next boot) — any role that previously held those grants
 loses them and needs the new `EMPLOYEE_*` rows granted instead. `STUDENT_DOCUMENT_*` (under
-`STUDENT_MANAGEMENT`) is unaffected.
+`STUDENT_MANAGEMENT`) is unaffected. The new self-service `me/...` routes below need **no**
+permission grant at all (`DefaultEnabledMenu`, same as every other "Me" route).
+
+## Self-service upload + HR verification (2026-08-07)
+
+Mirrors the existing 12-route "Me" self-service pattern (`employee_self_service_implementation_guide.md`)
+— any login whose `ApplicationUser` is linked to an `Employee` row can upload their own document
+or add their own qualification, and HR (or whichever role holds the new verify/reject permissions)
+decides on it.
+
+### New "Me" routes (no `{id}`, no permission grant needed — `DefaultEnabledMenu`)
+
+```
+POST   /api/employees/me/qualifications                      add (same body as the admin route)
+GET    /api/employees/me/qualifications                      list mine
+POST   /api/employees/me/documents                            upload (multipart, same fields)
+GET    /api/employees/me/documents                            list mine
+GET    /api/employees/me/documents/{documentId}/download      download my own file
+```
+
+Request/response shapes are byte-for-byte identical to the admin `{id}`-scoped routes above — the
+only functional difference is **the record starts `verificationStatus: 1` (Pending)** instead of
+`2` (Approved). The success message also says so:
+`"Document uploaded successfully. Pending HR verification."` /
+`"Qualification added successfully. Pending HR verification."` An unlinked account (Student, or an
+Admin with no HR record) gets a clean `404` `"Your account is not linked to an employee record."`,
+same as every other "Me" route. **No self-service delete** — if a submission needs correcting
+before HR reviews it, an admin removes it via the existing `DELETE .../documents/{documentId}` /
+`.../qualifications/{qualificationId}` route and the employee re-submits.
+
+### Why admin-route uploads are auto-Approved
+
+A record entered through the existing `{id}`-scoped admin route (`POST /api/employees/{id}/documents`,
+`POST /api/employees/{id}/qualifications` — used by HR/admin doing data entry on an employee's
+behalf, e.g. onboarding) is stamped `verificationStatus: 2` (Approved) immediately, with
+`verifiedBy`/`verifiedTs` set to the entering user — an already-authorized staff action doesn't
+need a second review step. Only the two new self-service routes start `Pending`.
+
+### Verify / Reject — `POST /api/employees/{id}/documents/{documentId}/verify|reject`, `POST /api/employees/{id}/qualifications/{qualificationId}/verify|reject`
+
+Permission-gated (`EMPLOYEE_DOCUMENT_VERIFY`/`REJECT`, `EMPLOYEE_QUALIFICATION_VERIFY`/`REJECT`).
+Body (`DocumentVerificationCommand`/`QualificationVerificationCommand`, both identical shape):
+
+```json
+{ "remarks": "Citizenship number doesn't match the record on file." }
+```
+
+`remarks` is optional either way (a plain approve typically leaves it blank). **One-shot**: only a
+`Pending` record can be decided — deciding an already-decided one returns
+`400 CONFLICT` `"This document has already been approved."` (or `rejected`), same guard
+`LeaveRequest`'s manager/HR decisions use. Response `data` is the updated `EmployeeDocumentDto`/
+`EmployeeQualificationDto` (`verificationStatus` now `2` or `3`, `verificationRemarks`/`verifiedTs`/
+`verifiedBy` populated). The employee gets a `Notification` row either way (`NotificationType.DocumentVerified`/
+`DocumentRejected`/`QualificationVerified`/`QualificationRejected`) — same
+`GET /api/employees/{id}/notifications` feed the Leave workflow already raises into.
+
+### `verificationStatus` values
+
+`1` Pending, `2` Approved, `3` Rejected (`Domain.Enums.VerificationStatus`) — every `EmployeeDocumentDto`/
+`EmployeeQualificationDto` from any route (admin or self-service) now carries this plus
+`verificationRemarks`/`verifiedTs`/`verifiedBy`.
 
 ## Backend notes
 
@@ -197,3 +286,20 @@ Since `Teacher.Id` already equals its owning `Employee.Id` (the shared-PK design
 right `employee_id` value, it just needs the column and constraint renamed, not its data rewritten.
 This is a schema-only migration, not a data migration, which is the direct benefit of qualifications
 and documents never having been given their own independent identity column in the first place.
+
+## Migration required, addendum (2026-08-07, self-service + verification)
+
+Four new columns on **both** `dbo.employee_documents` and `dbo.employee_qualifications`:
+
+- `verification_status integer NOT NULL` (`1`/`2`/`3` — no default; every existing row needs a
+  value backfilled, see below)
+- `verification_remarks varchar(500) NULL`
+- `verified_ts timestamptz NULL`
+- `verified_by varchar(256) NULL`
+
+**Data backfill for existing rows**: every row that already exists today was entered through the
+(only, at the time) admin route, so backfill `verification_status = 2` (Approved) for all of them
+— e.g. `UPDATE dbo.employee_documents SET verification_status = 2 WHERE verification_status IS
+NULL;` (and the same for `employee_qualifications`) as part of the same migration, before adding
+the `NOT NULL` constraint. Until this migration is applied, every document/qualification
+create/read/verify/reject call 500s (EF selects the mapped columns).

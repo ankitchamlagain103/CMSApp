@@ -4,7 +4,7 @@ using Domain.Entities;
 namespace Domain.Interfaces
 {
     // Aggregate repository: ExamTerm plus its Exam children (same "owns its child link entities"
-    // convention as IAcademicClassRepository/ITeacherRepository). Exam merges what used to be two
+    // convention as IAcademicClassRepository/IEmployeeRepository). Exam merges what used to be two
     // separate entities (a term-wide "Exam" container plus a per-subject-per-section
     // "ExamSchedule" child) into one row -- see the doc comment on the Exam entity for why.
     // Entities loaded via the Get*ByIdAsync methods below are tracked by EF, so an in-place

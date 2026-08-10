@@ -1,10 +1,16 @@
 # Class Teacher Assignments — List (GET, from the Academic Class side)
 
+> **2026-08-06: the standalone `Teacher` entity/`TeachersController` were removed.** This
+> endpoint's own route (`GET /api/academicclasses/{id}/teacher-assignments`) is **unchanged**.
+> Every `/api/teachers/{id}/assignments...` route mentioned below now lives at
+> `/api/employees/{id}/assignments...` instead. See
+> `employee_teaching_profile_and_assignments_implementation_guide.md` for the full picture.
+
 2026-08-04, same day as `class_teacher_assignment_bulk_entry_implementation_guide.md`. Adds the
 missing **read** endpoint for that feature: `POST /api/academicclasses/{id}/teacher-assignments/bulk-entry`
-(and the older `POST /api/teachers/{id}/assignments`/`/bulk`/`/bulk-entry` create endpoints) let an
+(and the older `POST /api/employees/{id}/assignments`/`/bulk`/`/bulk-entry` create endpoints) let an
 admin *create* `TeacherAssignment` rows, but there was no way to ask "who is actually teaching
-this class right now" without going teacher-by-teacher through `GET /api/teachers/{id}/assignments`.
+this class right now" without going teacher-by-teacher through `GET /api/employees/{id}/assignments`.
 This closes that gap with one class-scoped listing call.
 
 ## Endpoint

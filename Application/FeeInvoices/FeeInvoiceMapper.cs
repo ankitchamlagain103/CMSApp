@@ -6,9 +6,10 @@ namespace Application.FeeInvoices
 {
     public static class FeeInvoiceMapper
     {
-        // labelsByCode (2026-07-19): merged Config label map (fee categories + adjustment
-        // types); when supplied, the DTOs carry human-readable labels alongside the raw codes.
-        // Null keeps the label fields at the code itself, so no consumer ever sees a blank.
+        // labelsByCode (2026-07-19, extended 2026-08-05 to also merge Grade+Section): merged
+        // Config label map (fee categories + adjustment types + grade + section); when supplied,
+        // the DTOs carry human-readable labels alongside the raw codes. Null keeps the label
+        // fields at the code itself, so no consumer ever sees a blank.
         public static FeeInvoiceDto ToDto(FeeInvoice invoice, bool includeLines, IReadOnlyDictionary<string, string> labelsByCode = null)
         {
             var invoiceDto = new FeeInvoiceDto
@@ -46,7 +47,9 @@ namespace Application.FeeInvoices
                 if (enrollment.ClassSection != null)
                 {
                     invoiceDto.SectionCode = enrollment.ClassSection.SectionCode;
+                    invoiceDto.SectionLabel = ConfigLabelHelper.Resolve(labelsByCode, enrollment.ClassSection.SectionCode);
                     invoiceDto.GradeCode = enrollment.ClassSection.AcademicClass?.GradeCode;
+                    invoiceDto.GradeLabel = ConfigLabelHelper.Resolve(labelsByCode, invoiceDto.GradeCode);
                 }
             }
 
@@ -109,7 +112,9 @@ namespace Application.FeeInvoices
                 if (enrollment.ClassSection != null)
                 {
                     adjustmentDto.SectionCode = enrollment.ClassSection.SectionCode;
+                    adjustmentDto.SectionLabel = ConfigLabelHelper.Resolve(labelsByCode, enrollment.ClassSection.SectionCode);
                     adjustmentDto.GradeCode = enrollment.ClassSection.AcademicClass?.GradeCode;
+                    adjustmentDto.GradeLabel = ConfigLabelHelper.Resolve(labelsByCode, adjustmentDto.GradeCode);
                 }
             }
 

@@ -1,7 +1,7 @@
 namespace Application.AcademicClasses.Commands
 {
     // One row of the "who teaches this class" bulk-entry grid -- unlike
-    // Application.Teachers.Commands.TeacherAssignmentEntryItem (scoped to one teacher via the
+    // Application.Employees.Commands.TeacherAssignmentEntryItem (scoped to one teacher via the
     // route), TeacherId is part of the row itself here, since one class is taught by several
     // different teachers across its subjects/sections.
     //

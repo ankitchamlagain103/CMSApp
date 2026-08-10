@@ -14,5 +14,6 @@ namespace Application.Menus.Commands
         public int Order { get; set; }
         public bool IsHidden { get; set; }
         public bool IsQuickLink { get; set; }
+        public bool IsDashboardWidget { get; set; }
     }
 }

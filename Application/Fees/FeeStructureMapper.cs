@@ -7,18 +7,20 @@ namespace Application.Fees
     public static class FeeStructureMapper
     {
         // Expects the fee structure's AcademicClass and Items navigations to be loaded (the
-        // repository includes both). labelsByCode is the FeeCategory (1010) label map; null
-        // keeps FeeCategoryLabel at the code itself.
+        // repository includes both). labelsByCode is the merged FeeCategory (1010) + Grade (1001)
+        // label map (extended 2026-08-05); null keeps every Label field at the code itself.
         public static FeeStructureDto ToDto(FeeStructure feeStructure, IReadOnlyDictionary<string, string> labelsByCode = null)
         {
             var academicClass = feeStructure.AcademicClass;
+            var gradeCode = academicClass != null ? academicClass.GradeCode : null;
 
             var feeStructureDto = new FeeStructureDto
             {
                 Id = feeStructure.Id,
                 AcademicClassId = feeStructure.AcademicClassId,
                 AcademicYearId = academicClass != null ? academicClass.AcademicYearId : Guid.Empty,
-                GradeCode = academicClass != null ? academicClass.GradeCode : null,
+                GradeCode = gradeCode,
+                GradeLabel = ConfigLabelHelper.Resolve(labelsByCode, gradeCode),
                 Status = feeStructure.Status
             };
 

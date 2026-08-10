@@ -68,7 +68,8 @@ namespace Application.Menus
                 MenuFor = command.MenuFor,
                 Order = command.Order,
                 IsHidden = command.IsHidden,
-                IsQuickLink = command.IsQuickLink
+                IsQuickLink = command.IsQuickLink,
+                IsDashboardWidget = command.IsDashboardWidget
             };
 
             await _unitOfWork.Menus.AddAsync(menu, cancellationToken);
@@ -189,6 +190,7 @@ namespace Application.Menus
             menu.Order = command.Order;
             menu.IsHidden = command.IsHidden;
             menu.IsQuickLink = command.IsQuickLink;
+            menu.IsDashboardWidget = command.IsDashboardWidget;
 
             _unitOfWork.Menus.Update(menu);
             await _unitOfWork.SaveChangesAsync(cancellationToken);

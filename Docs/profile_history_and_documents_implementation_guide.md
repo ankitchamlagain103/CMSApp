@@ -1,5 +1,14 @@
 # CMSApp — Profile History, Subject Teachers & Student Documents (UI)
 
+**Superseded as of 2026-08-05 for sections 1 and 3** (student `enrollmentHistory` and
+`currentEnrollment.subjects`/`teacherName`) — see
+`Docs/student_timetable_and_profile_optimization_implementation_guide.md`. `enrollmentHistory` is
+no longer embedded in `GET /api/students/{id}` at all (moved to
+`GET /api/students/{id}/enrollment-history`); `currentEnrollment.subjects[]` is gone entirely
+(replaced by the richer `GET /api/students/{id}/timetable`, which adds time-period info the old
+`subjects[].teacherName` field never had). **Section 2 (teacher `serviceHistory`) and section 4
+(student documents) are unaffected and still accurate as written below.**
+
 **What shipped (2026-07-13, this batch)** — four related profile upgrades:
 
 1. **Student schooling history** — `GET /api/students/{id}` returns `enrollmentHistory`: every enrollment ever, oldest academic year first ("studying in this school since AY2082").

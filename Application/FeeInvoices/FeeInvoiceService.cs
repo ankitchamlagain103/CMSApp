@@ -530,10 +530,12 @@ namespace Application.FeeInvoices
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
             }
 
+            var listLabels = await LoadFeeLabelMapAsync(cancellationToken);
+
             var invoiceDtos = new List<FeeInvoiceDto>();
             foreach (var invoice in pagedInvoices.Items)
             {
-                var invoiceDto = FeeInvoiceMapper.ToDto(invoice, includeLines: false);
+                var invoiceDto = FeeInvoiceMapper.ToDto(invoice, includeLines: false, labelsByCode: listLabels);
                 invoiceDtos.Add(invoiceDto);
             }
 
@@ -999,11 +1001,13 @@ namespace Application.FeeInvoices
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
             }
 
+            var feeLabels = await LoadFeeLabelMapAsync(cancellationToken);
+
             var invoiceDtos = new List<FeeInvoiceDto>();
             decimal outstandingAmount = 0m;
             foreach (var invoice in invoices)
             {
-                var invoiceDto = FeeInvoiceMapper.ToDto(invoice, includeLines: false);
+                var invoiceDto = FeeInvoiceMapper.ToDto(invoice, includeLines: false, labelsByCode: feeLabels);
                 invoiceDtos.Add(invoiceDto);
 
                 if (invoice.Status != FeeInvoiceStatus.Draft)
@@ -1018,7 +1022,9 @@ namespace Application.FeeInvoices
                 StudentName = BuildStudentName(enrollment.Student),
                 AdmissionNo = enrollment.Student?.AdmissionNo,
                 GradeCode = enrollment.ClassSection?.AcademicClass?.GradeCode,
+                GradeLabel = ConfigLabelHelper.Resolve(feeLabels, enrollment.ClassSection?.AcademicClass?.GradeCode),
                 SectionCode = enrollment.ClassSection?.SectionCode,
+                SectionLabel = ConfigLabelHelper.Resolve(feeLabels, enrollment.ClassSection?.SectionCode),
                 OutstandingAmount = outstandingAmount,
                 Invoices = invoiceDtos
             };
@@ -1125,6 +1131,8 @@ namespace Application.FeeInvoices
                 entry.Balance = runningBalance;
             }
 
+            var accountLabels = await LoadFeeLabelMapAsync(cancellationToken);
+
             var statementDto = new FeeAccountStatementDto
             {
                 EnrollmentId = enrollmentId,
@@ -1133,7 +1141,9 @@ namespace Application.FeeInvoices
                 AdmissionNo = enrollment.Student?.AdmissionNo,
                 Email = enrollment.Student?.Email,
                 GradeCode = enrollment.ClassSection?.AcademicClass?.GradeCode,
+                GradeLabel = ConfigLabelHelper.Resolve(accountLabels, enrollment.ClassSection?.AcademicClass?.GradeCode),
                 SectionCode = enrollment.ClassSection?.SectionCode,
+                SectionLabel = ConfigLabelHelper.Resolve(accountLabels, enrollment.ClassSection?.SectionCode),
                 OpeningBalance = 0m,
                 TotalDebit = totalDebit,
                 TotalCredit = totalCredit,
@@ -1183,6 +1193,8 @@ namespace Application.FeeInvoices
                 }
             }
 
+            var searchLabels = await LoadFeeLabelMapAsync(cancellationToken);
+
             var resultDtos = new List<FeeStudentSearchResultDto>();
             foreach (var enrollment in enrollments)
             {
@@ -1198,7 +1210,9 @@ namespace Application.FeeInvoices
                     Phone = enrollment.Student?.Phone,
                     AcademicYearId = enrollment.ClassSection?.AcademicClass?.AcademicYearId ?? Guid.Empty,
                     GradeCode = enrollment.ClassSection?.AcademicClass?.GradeCode,
+                    GradeLabel = ConfigLabelHelper.Resolve(searchLabels, enrollment.ClassSection?.AcademicClass?.GradeCode),
                     SectionCode = enrollment.ClassSection?.SectionCode,
+                    SectionLabel = ConfigLabelHelper.Resolve(searchLabels, enrollment.ClassSection?.SectionCode),
                     OutstandingAmount = outstandingAmount
                 };
                 resultDtos.Add(resultDto);
@@ -1637,6 +1651,11 @@ namespace Application.FeeInvoices
             ConfigLabelHelper.MergeLabelMap(labelsByCode, await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.DiscountType, cancellationToken));
             ConfigLabelHelper.MergeLabelMap(labelsByCode, await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.ScholarshipType, cancellationToken));
             ConfigLabelHelper.MergeLabelMap(labelsByCode, await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.FeeAdjustmentType, cancellationToken));
+            // 2026-08-05: also merges Grade+Section so FeeInvoiceMapper can resolve
+            // GradeLabel/SectionLabel from this same map (part of the application-wide Config
+            // label-resolution sweep -- see Docs/config_label_resolution_implementation_guide.md).
+            ConfigLabelHelper.MergeLabelMap(labelsByCode, await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.Grade, cancellationToken));
+            ConfigLabelHelper.MergeLabelMap(labelsByCode, await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.Section, cancellationToken));
             return labelsByCode;
         }
 

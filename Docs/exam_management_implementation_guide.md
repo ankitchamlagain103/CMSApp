@@ -344,6 +344,20 @@ POST /api/gradescales
 percentage; a percentage falling in a gap between configured bands gets `grade: null`/
 `gradePoint: null` for that subject (not an error), so configure full 0–100 coverage.
 
+**A subject's `gradePoint` is interpolated within its matched band, not a flat step value**
+(`Application/GradeScales/GradePointCalculator.cs` — see "What changed, and when," item 10, near
+the end of this guide) — the raw band lookup only
+decides which row's `[minPercent, maxPercent]` the percentage falls into (that row's `grade` is
+still used as-is); the `gradePoint` itself then scales linearly from that band's own `gradePoint`
+(at its `minPercent`) up towards the **next-higher** band's `gradePoint` (at its `maxPercent`),
+the same formula Nepal's NEB/SEE system uses: `GP = LowerGP + [(percentage − LowerBound) /
+(UpperBound − LowerBound)] × (UpperGP − LowerGP)`. With the illustrative A+/A/B+/... schema above,
+80% and 87% (both inside the 80–90 "A" band, `gradePoint 3.6`) now resolve to `3.6` and `3.88`
+respectively instead of both flatly returning `3.6`. **The topmost band never interpolates** — it
+has no higher band to scale towards, so it stays flat across its whole range (e.g. A+ is a flat
+`4.0` across 90–100, by design, matching the "90–100% grade 4 is consistent" rule this schema was
+built around).
+
 ---
 
 ## 5. Marks Entry — `/api/studentexammarks`
@@ -641,7 +655,8 @@ subjects — `Domain/Constants/ExamResultRules.CompartmentMaxFailedSubjects`, cu
 `Fail` (3+).
 
 **GPA** is the credit-hour-weighted average of each subject's grade point (`ClassSubject.creditHours`,
-falling back to a weight of `1` when unconfigured).
+falling back to a weight of `1` when unconfigured) — each subject's own grade point is itself the
+interpolated value from section 4 above, not the flat band value.
 
 ### Publish
 
@@ -841,7 +856,7 @@ routine endpoint's first, create-only cut) — replaced by `EXAM_SAVE_ROUTINE` a
    `PUT /api/exams/routine`'s items gained `periodCode` as an alternative to raw
    `startTime`/`endTime`, originally resolved from a Config catalog. New
    `GET /api/studentexammarks/student/{enrollmentId}` — admin, student-wise marks entry.
-9. **Current (2026-08-03, same day, superseding step 8's period field): class period timing moved
+9. **2026-08-03, same day, superseding step 8's period field): class period timing moved
    off the Config catalog onto a real `TimePeriod` table** — `periodCode` (string) became
    `timePeriodId` (`Guid?`, a real FK), now also shared with `TeacherAssignment.TimePeriodId`, and
    a picked period must be mapped to the exam's own class via the new `ClassTimePeriod` table
@@ -849,6 +864,23 @@ routine endpoint's first, create-only cut) — replaced by `EXAM_SAVE_ROUTINE` a
    `Docs/time_period_and_class_routine_implementation_guide.md` for the full reference and
    `Docs/exam_routine_and_marks_configuration_implementation_guide.md` for the marks-entry/period
    detail together.
+10. **Current (2026-08-05): grade points now interpolate within a Grade Scale band instead of
+    stepping flatly.** Reported bug: two very different percentages inside the same band (e.g. 80%
+    and 87%, both inside an "A" band configured 80–90% → `gradePoint 3.6`) both resolved to the
+    exact same `gradePoint`, since result generation only ever used the matched band's own flat
+    value. Fixed by `Application/GradeScales/GradePointCalculator.cs` (new, called from
+    `ExamService.GenerateExamResultsAsync` — section 4/6 above have the full behavior writeup): the
+    `gradePoint` now scales linearly from the matched band's own value (at its `minPercent`) toward
+    the next-higher band's value (at its `maxPercent`), the same formula Nepal's NEB/SEE system
+    uses. The topmost band (nothing above it to scale towards) is unaffected — it's still a flat
+    value across its whole range. `grade` itself (the letter) is unaffected — it's still whichever
+    band's `[minPercent, maxPercent]` the percentage falls into, unchanged. No schema/migration
+    impact and no DTO shape change (`StudentExamMarkDto.gradePoint` was already `decimal?`) —
+    existing persisted marks keep whatever value they were generated with; only a fresh
+    `POST /api/examresults/generate` call picks up the new math. Also fixed a pre-existing N+1: the
+    grade-band lookup used to run one query per subject per student; it's now loaded once per
+    generation call via the existing `GET /api/gradescales`-backing `GetAllOrderedAsync`
+    repository method.
 
 If you're reconciling an older frontend build against this guide, anywhere it sends
 `roomId`/`invigilatorEmployeeId`/`classSectionId`/`name`/`weightagePercent`/`isFinalExam` on an

@@ -7,6 +7,7 @@ namespace Application.AcademicClasses.Dtos
         public Guid Id { get; set; }
         public Guid AcademicClassId { get; set; }
         public string SectionCode { get; set; }
+        public string SectionLabel { get; set; }
         public int Capacity { get; set; }
         public RecordStatus Status { get; set; }
     }

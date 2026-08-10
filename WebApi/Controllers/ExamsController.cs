@@ -73,6 +73,20 @@ namespace WebApi.Controllers
             return Ok(response);
         }
 
+        // Self-service (2026-08-07) -- "show them only the subject(s) he or she teaches". No
+        // teacherId query param here: the caller's own Employee is resolved from the JWT.
+        [HttpGet("me")]
+        public async Task<ActionResult<CommonResponse<List<ExamDto>>>> GetMyExams([FromQuery] Guid? examTermId, [FromQuery] Guid? classSubjectId, CancellationToken cancellationToken)
+        {
+            var response = await _examService.GetMyExamsAsync(examTermId, classSubjectId, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            return Ok(response);
+        }
+
         [HttpGet("{id:guid}")]
         public async Task<ActionResult<CommonResponse<ExamDto>>> GetExamById(Guid id, CancellationToken cancellationToken)
         {

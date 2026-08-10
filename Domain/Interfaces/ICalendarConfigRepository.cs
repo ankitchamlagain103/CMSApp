@@ -5,7 +5,7 @@ namespace Domain.Interfaces
     // Aggregate repository for the BS calendar reference/configuration tables. BsMonthLength
     // is the primary entity; the BsMonthName/BsWeekdayName localization rows are owned here
     // too (12 + 7 fixed rows, no repository of their own -- same "owner repo handles child
-    // reference rows" convention as ITeacherRepository's qualifications).
+    // reference rows" convention as IEmployeeRepository's qualifications).
     public interface ICalendarConfigRepository : IRepository<BsMonthLength, Guid>
     {
         Task<IReadOnlyList<BsMonthLength>> GetMonthLengthsAsync(int? bsYear = null, CancellationToken cancellationToken = default);

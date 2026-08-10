@@ -144,6 +144,19 @@ namespace Infrastructure.Persistence.EntityConfigurations
                     .HasColumnName("photo_path")
                     .HasMaxLength(500);
 
+            // Teaching-specific fields (2026-08-06, ported from the removed Teacher entity/table
+            // -- same column names/lengths as the old dbo.teachers table had).
+            builder.Property(e => e.TeachingLicenseNo)
+                    .HasColumnName("teaching_license_no")
+                    .HasMaxLength(100);
+
+            builder.Property(e => e.ExperienceYears)
+                    .HasColumnName("experience_years");
+
+            builder.Property(e => e.Specialization)
+                    .HasColumnName("specialization")
+                    .HasMaxLength(255);
+
             // Self-referencing, Restrict like Menu's ParentId (never cascade a self-reference --
             // deleting a manager must not cascade-delete their reports).
             builder.HasOne(e => e.Manager)

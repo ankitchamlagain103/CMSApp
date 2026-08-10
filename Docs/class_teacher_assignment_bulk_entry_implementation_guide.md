@@ -1,5 +1,12 @@
 # Class Teacher Assignment — Bulk Entry (from the Academic Class side)
 
+> **2026-08-06: the standalone `Teacher` entity/`TeachersController` were removed.** This
+> endpoint's own route (`POST /api/academicclasses/{id}/teacher-assignments/bulk-entry`) is
+> **unchanged** — it was never on `TeachersController`. Only its internal dependency moved:
+> `TeacherAssignmentBuilder` now lives in `Application/Employees/`, and `TeacherId` in every
+> request/response now refers directly to an `Employee.Id`. See
+> `employee_teaching_profile_and_assignments_implementation_guide.md` for the full picture.
+
 2026-08-04, same day as `teacher_assignment_bulk_entry_implementation_guide.md`. Adds the
 class-scoped counterpart to that guide's endpoint: instead of starting from one teacher's profile
 and entering their routine, an admin can start from one **class**'s page and map every teacher who

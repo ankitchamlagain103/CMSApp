@@ -11,7 +11,9 @@ namespace Application.Exams.Dtos
         public string StudentName { get; set; }
         public string AdmissionNo { get; set; }
         public string GradeCode { get; set; }
+        public string GradeLabel { get; set; }
         public string SectionCode { get; set; }
+        public string SectionLabel { get; set; }
         public Guid ExamTermId { get; set; }
         public decimal TotalMarks { get; set; }
         public decimal ObtainedMarks { get; set; }

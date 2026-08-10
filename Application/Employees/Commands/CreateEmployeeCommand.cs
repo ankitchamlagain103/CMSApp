@@ -43,6 +43,12 @@ namespace Application.Employees.Commands
         public string LocalLevelCode { get; set; }
         public int? WardNo { get; set; }
 
+        // Teaching-specific fields (2026-08-06, ported from the removed standalone Teacher entity)
+        // -- all optional, settable on any employee regardless of category/position.
+        public string TeachingLicenseNo { get; set; }
+        public int? ExperienceYears { get; set; }
+        public string Specialization { get; set; }
+
         // Portal account provisioning (2026-07-27), on request -- when true, a login is created
         // for this employee in the same call (Email above must be set; RoleIds picks which role(s)
         // it gets, admin-chosen same as CreateUserCommand.RoleIds). False by default: creating an

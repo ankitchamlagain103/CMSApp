@@ -46,6 +46,102 @@ namespace WebApi.Controllers
             return Ok(response);
         }
 
+        // Self-service marks entry (2026-08-07) -- "show them only the subject he or she teaches
+        // for marks entry": every action below resolves the caller's own Employee from the JWT and
+        // 403s if the target exam's subject isn't one of their own TeacherAssignment rows. examId
+        // is required here (unlike the admin GetStudentExamMarks above) since it's what the check
+        // runs against.
+
+        [HttpPost("me")]
+        public async Task<ActionResult<CommonResponse<StudentExamMarkDto>>> CreateMyStudentExamMark([FromBody] CreateStudentExamMarkCommand command, CancellationToken cancellationToken)
+        {
+            var response = await _examService.CreateMyStudentExamMarkAsync(command, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            if (response.ResponseCode == ResponseCodes.Conflict)
+            {
+                return Conflict(response);
+            }
+
+            if (response.ResponseCode != ResponseCodes.Success)
+            {
+                return BadRequest(response);
+            }
+
+            return Ok(response);
+        }
+
+        [HttpGet("me")]
+        public async Task<ActionResult<CommonResponse<List<StudentExamMarkDto>>>> GetMyStudentExamMarks([FromQuery] Guid examId, [FromQuery] Guid? enrollmentId, [FromQuery] Guid? classSectionId, CancellationToken cancellationToken)
+        {
+            var response = await _examService.GetMyStudentExamMarksAsync(examId, enrollmentId, classSectionId, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            if (response.ResponseCode != ResponseCodes.Success)
+            {
+                return BadRequest(response);
+            }
+
+            return Ok(response);
+        }
+
+        [HttpPut("me/{id:guid}")]
+        public async Task<ActionResult<CommonResponse<StudentExamMarkDto>>> UpdateMyStudentExamMark(Guid id, [FromBody] UpdateStudentExamMarkCommand command, CancellationToken cancellationToken)
+        {
+            var response = await _examService.UpdateMyStudentExamMarkAsync(id, command, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            if (response.ResponseCode != ResponseCodes.Success)
+            {
+                return BadRequest(response);
+            }
+
+            return Ok(response);
+        }
+
+        [HttpGet("me/roster")]
+        public async Task<ActionResult<CommonResponse<List<ExamMarkRosterItemDto>>>> GetMyStudentExamMarkRoster([FromQuery] Guid examId, [FromQuery] string search, [FromQuery] Guid? classSectionId, CancellationToken cancellationToken)
+        {
+            var response = await _examService.GetMyStudentExamMarkRosterAsync(examId, search, classSectionId, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            if (response.ResponseCode != ResponseCodes.Success)
+            {
+                return BadRequest(response);
+            }
+
+            return Ok(response);
+        }
+
+        [HttpPost("me/bulk")]
+        public async Task<ActionResult<CommonResponse<BulkUpsertStudentExamMarksResultDto>>> BulkUpsertMyStudentExamMarks([FromBody] BulkUpsertStudentExamMarksCommand command, CancellationToken cancellationToken)
+        {
+            var response = await _examService.BulkUpsertMyStudentExamMarksAsync(command, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            if (response.ResponseCode != ResponseCodes.Success)
+            {
+                return BadRequest(response);
+            }
+
+            return Ok(response);
+        }
+
         // Admin, student-wise marks entry: every subject/exam within one term the given
         // enrollment is eligible for, each carrying its existing mark (or null) -- pick a student,
         // enter every subject's marks in one screen. Complements the roster below, which is the

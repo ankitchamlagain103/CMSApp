@@ -373,6 +373,8 @@ Soft delete — the user vanishes from lists and can't log in, but the row survi
 
 Identifies the caller from the JWT (no `userId` parameter). Returns every menu granted to any of the caller's roles, plus the parent `SUB_MENU`/`MAIN_MENU` nodes above them, assembled into a tree. This is the endpoint to call after login to render navigation. Any authenticated user may call it (listed in `DefaultEnabledMenu` — no permission row needed); a user whose roles have no grants gets an empty `data` array, not an error.
 
+**2026-08-07: audience filtering.** A granted menu now only appears in this tree if its `menuFor` (`ADMIN`/`USER`/`BOTH`) matches the caller's own **audience** — `BOTH` always passes. Audience is derived from account linkage, not the raw `userType` claim: SuperAdmin/Admin accounts, and any `User`-type account linked to an `Employee` record (self-service staff logins), are treated as `ADMIN` audience; everything else (a Student-linked account, or an unlinked `User`-type account) is `USER` audience. Today every seeded menu is tagged `ADMIN`, so this is currently a no-op for every staff/admin account and a defense-in-depth guard for Student accounts (which already see an empty tree today since the seeded `Student` role has zero grants) — it starts mattering the moment a real Student-portal menu is tagged `USER`. This does **not** change API authorization — `AuthorizedAction` is unaffected; this only controls what shows up in the nav tree. Full reference: `role_privilege_escalation_guard_implementation_guide.md`.
+
 **Response** (`200`, array of root menus, not paginated):
 ```json
 {
@@ -418,7 +420,7 @@ Identifies the caller from the JWT (no `userId` parameter). Returns every menu g
 
 **Request**: `{ "userId": "c1111111-0000-0000-0000-000000000002", "roleId": "c2222222-0000-0000-0000-000000000002" }`
 
-**Response** (`200`): `{ ..., "responseMessage": "Role assigned to user successfully.", "data": true }` **Failures**: `404 NOT_FOUND` (user or role missing); `400 CONFLICT` `"This user is already in the role."`; `400 VALIDATION_ERROR`.
+**Response** (`200`): `{ ..., "responseMessage": "Role assigned to user successfully.", "data": true }` **Failures**: `404 NOT_FOUND` (user or role missing); `400 CONFLICT` `"This user is already in the role."`; `400 VALIDATION_ERROR`; `400 FORBIDDEN` `"You cannot assign this role because it grants permissions you do not hold yourself: <names>."` — **2026-08-07**, see the privilege-escalation guard note below. SuperAdmin is exempt.
 
 ## DELETE /api/roles/users/{userId}/{roleId} — remove a role from a user
 
@@ -461,11 +463,43 @@ Identifies the caller from the JWT (no `userId` parameter). Returns every menu g
 }
 ```
 
-**Failures**: `404 NOT_FOUND` (role or menu missing); `400 CONFLICT` `"This menu is already assigned to the role."`; `400 VALIDATION_ERROR`.
+**Failures**: `404 NOT_FOUND` (role or menu missing); `400 CONFLICT` `"This menu is already assigned to the role."`; `400 VALIDATION_ERROR`; `400 FORBIDDEN` `"You cannot grant '<menu display name>' because you do not hold it yourself."` — **2026-08-07**, see the privilege-escalation guard note below. SuperAdmin is exempt.
 
 ## DELETE /api/roles/{roleId}/claims/{menuId}
 
 **Response** (`200`): `{ ..., "responseMessage": "Menu removed from role successfully.", "data": true }` **Failure**: `404 NOT_FOUND` `"This menu is not assigned to the role."`
+
+## Teacher data scoping — My Students & My Marks Entry (2026-08-07)
+
+New self-service, data-filtered routes so a teacher sees only their own students and only the
+subjects they teach: `GET /api/students/me` / `GET /api/students/me/{id}` (scoped to the caller's
+own `TeacherAssignment.ClassSectionId` values), `GET /api/exams/me`,
+`GET /api/studentexammarks/me/roster`, `GET/POST /api/studentexammarks/me`,
+`PUT /api/studentexammarks/me/{id}`, `POST /api/studentexammarks/me/bulk` (all scoped to the
+caller's `TeacherAssignment.ClassSubjectId` values, enforced on the write path too — not just
+hidden from the read/roster view). `DefaultEnabledMenu`-gated like every other "Me" route, no
+permission row. Admin routes are unchanged. Full reference:
+`teacher_data_scoping_implementation_guide.md`.
+
+## Per-user menu overrides (2026-08-07)
+
+`GET /api/users/{id}/claims`, `POST /api/users/claims` (`{ userId, menuId }`), `DELETE
+/api/users/{id}/claims/{menuId}` — grant/revoke a menu directly to one user, additive on top of
+whatever their roles already grant (never a substitute). Same privilege-escalation guard as
+`POST /api/roles/claims` (caller can only hand out a menu they hold themselves), same response
+shapes as the role-claims endpoints above with `userId` in place of `roleId`. Permissions
+`USER_CLAIM_LIST`/`USER_CLAIM_ASSIGN`/`USER_CLAIM_REMOVE`. Full reference:
+`role_privilege_escalation_guard_implementation_guide.md` (Part 4).
+
+## Privilege-escalation guard on role/claim assignment (2026-08-07)
+
+`AssignMenuToRoleAsync` and `AssignRoleToUserAsync` now check the **caller's own** effective
+granted menus before letting a grant through — a non-SuperAdmin caller can only hand out a
+permission (or a role carrying permissions) they already hold themselves. Previously the only
+gate was the caller's own `AssignMenuToRole`/`AssignRoleToUser` permission row, which meant an
+Admin holding just that one grant could hand any role (or any user) every permission in the
+system, including ones they didn't have. Full reference:
+`role_privilege_escalation_guard_implementation_guide.md`.
 
 A typical role-permission editor: list all `PERMISSION`-type menus from `/api/menus`, render checkboxes per role, call these two endpoints on toggle.
 
@@ -554,6 +588,8 @@ Only allowed once the menu has no children — delete bottom-up (permissions bef
 # Configs (dropdown catalog) — `/api/configs`
 
 **Every dropdown in the UI is populated from these tables** — don't hardcode option lists in the frontend. A `ConfigType` names a dropdown (identified by its numeric `typeCode`); its `Config` rows are the options.
+
+**Use this catalog's dropdown endpoint only to populate a `<select>` in a create/edit form (2026-08-05).** Every read endpoint elsewhere in this API that returns a Config-backed code (`gradeCode`, `sectionCode`, `subjectCode`, `jobPositionCode`, `componentCode`, ...) now also returns that code's resolved label in a sibling `...Label` field on the same response — do not call `GET /api/configs/dropdown/{typeCode}` a second time just to map a code you already have to its label. Full reference, including the complete list of DTOs that gained a label field: `Docs/config_label_resolution_implementation_guide.md`.
 
 `ConfigDto`:
 ```json
@@ -872,6 +908,26 @@ sidebar menu instead of being reachable only from the Dashboard page.
 
 Full request/response reference and design notes for the Dashboard feature: `Docs/dashboard_updated_file.md`.
 
+## GET /api/dashboard/widgets?take=5 — generic dashboard widget registry (2026-08-07)
+
+The role-agnostic alternative to calling `summary`/`accounts-summary`/`hr-summary`/
+`employees/me/dashboard` individually: returns exactly the widgets the caller's own role grants,
+each resolved from `Menu.isDashboardWidget` rows in their `GET /api/roles/user-menus` tree.
+Permission `DASHBOARD_WIDGETS`. Currently registered widget codes: `DASHBOARD_SUMMARY`,
+`DASHBOARD_ACCOUNTS_SUMMARY`, `DASHBOARD_HR_SUMMARY`, `MY_DASHBOARD`.
+
+**Response** (`200`): `data` = array of `{ widgetCode, displayName, success, message, data }` —
+`data` is whichever DTO that widget's dedicated endpoint already returns (polymorphic per
+`widgetCode`; the frontend must know each shape ahead of time). `success: false` means that
+widget's underlying call failed for this caller (e.g. `MY_DASHBOARD` for an account with no
+linked `Employee` record) — still included in the array, filter on `success` before rendering. A
+`Menu` flagged `isDashboardWidget` with no registered provider yet is silently omitted, not an
+error. The dedicated per-widget endpoints above are unchanged and still work — this is an
+additional surface, not a replacement. `Menu.isDashboardWidget` (settable via `POST`/`PUT
+/api/menus`, same "admin curates via a flag" shape as `isQuickLink`) is what makes a menu eligible
+in the first place. Full reference: `Docs/role_privilege_escalation_guard_implementation_guide.md`
+(Part 3).
+
 ---
 
 # Student Management (2026-07-12, restructured 2026-07-13)
@@ -882,7 +938,19 @@ Full sub-system for academic years, classes (with sections), subjects, teachers,
 - **Endpoints** (all permission-gated, standard envelope):
   - `/api/academicyears` — CRUD; unique `code`; one `isCurrent` year (setting it demotes the others); code immutable on update. `POST /{id}/clone-structure` copies another year's classes/sections/subject mappings into it (existing grades skipped) — the one-click new-year setup.
   - `/api/academicclasses` — CRUD + `/{id}/sections` (add/list/update/remove sections; capacity lives on the section, `0` = unlimited) + `/{id}/subjects` (assign/list/remove class subjects — **shared by every section of the class**; an *optional* subject may instead be scoped to a single section via `classSectionId`, and `GET …/subjects?classSectionId=…` returns one section's effective list); a class = year+grade (unique pair, immutable after create), with its `sections` nested in every response.
-  - `/api/teachers` — CRUD (`employeeCode` optional on create — blank = auto-generated `EMP{year}{seq}`; unique/immutable, `search` filter) + `/{id}/assignments` (link to a classSubject, optionally narrowed to one `classSectionId` — null = all sections; `isClassTeacher` requires a section, at most one class teacher per **section**). The teacher detail response adds `serviceHistory` (assignments with academic years, oldest first). **2026-07-15**: a `Teacher` is now a thin teaching-specific profile (`teachingLicenseNo`/`experienceYears`/`specialization`) sharing its id with an `Employee` row that owns identity/HR/bank fields — `POST /api/teachers` creates both together, and `TeacherDto` still returns one flattened object so this is not a breaking response shape, just a larger one (adds `gender`, `dateOfBirth`, `jobPositionCode`, `employmentStatus`, `bankName`, `bankAccountNumber`, `paymentMode`). **2026-07-23**: `/{id}/qualifications` and `/{id}/documents` were removed from `/api/teachers` entirely (no alias kept) — qualifications and documents are generic to every employee now, use `/api/employees/{id}/qualifications` and `/api/employees/{id}/documents` (catalog 1005/1006, same shapes as before — see `employee_documents_and_qualifications_implementation_guide.md`) regardless of whether the employee happens to also be a teacher. See "Employee Management & Payroll" below.
+  - **2026-08-06: the standalone `Teacher` entity/`TeachersController` were removed entirely.** A
+    teacher is now just an `Employee` categorized by `employeeCategoryCode`/`jobPositionCode` — no
+    separate CRUD, no separate profile. Assignments live at `/api/employees/{id}/assignments`
+    (link to a classSubject, optionally narrowed to one `classSectionId` — null = all sections;
+    `isClassTeacher` requires a section, at most one class teacher per **section**); the employee
+    detail response adds `serviceHistory` (assignments with academic years, oldest first) and
+    three optional teaching fields (`teachingLicenseNo`/`experienceYears`/`specialization`,
+    settable on any employee via the normal `POST`/`PUT /api/employees` calls — no eligibility
+    gate, no separate "add teacher profile" step). Qualifications/documents/salary/tax/payslip/
+    loans/ID-card-preview all live at `/api/employees/{id}/...` too (they were already Employee
+    routes even before this round). Full reference:
+    `employee_teaching_profile_and_assignments_implementation_guide.md`. See "Employee Management
+    & Payroll" below.
   - `/api/guardians` — CRUD; standalone records shared across students.
   - `/api/students` — CRUD (`admissionNo` optional on create — blank = auto-generated `ADM{year}{seq}`; unique/immutable, `search` filter); `POST` accepts an optional `guardians` array (existing `guardianId` or inline new-guardian fields, `relationshipCode`, at most one `isPrimary`) so onboarding captures guardians in one call; `PUT` takes the same `guardians` list with three-way semantics (null = unchanged, `[]` = unlink all, list = replace-sync); the detail response returns `guardians` inline plus `currentEnrollment` (current year/grade/section/roll + subjects studying, each subject with its `teacherName`) and `enrollmentHistory` (all enrollments, oldest year first — see `profile_history_and_documents_implementation_guide.md`); `/{id}/guardians` still links/unlinks individually (one primary per student, auto-demoted); `/{id}/documents` mirrors employee documents (multipart upload, catalog 1007, list/download/delete).
   - `/api/enrollments` — CRUD against a **section** (`classSectionId`; unique student+section; **one active enrollment per student per academic year**; per-section capacity and roll-number uniqueness; student/section immutable — move = status `2` Transferred + new enrollment) + `/{id}/subjects/{classSubjectId}` electives (non-mandatory subjects of the enrollment's class only). Rows flatten grade/section/year ids and codes.
@@ -902,13 +970,15 @@ Full reference in `fee_management_implementation_guide.md`; orientation summary:
 
 # Employee Management & Component-Based Payroll (2026-07-15, redesigned same day from teacher-only)
 
-Full reference in `employee_management_implementation_guide.md`; orientation summary: every staff member (teacher, principal, accountant, receptionist, librarian, IT officer, driver, security guard, office assistant, cleaner, office help) is now an `Employee` (`/api/employees` — CRUD, `employeeCode` optional/auto-generated `EMP{year}{seq}`, filters by category/position/status/gender/date-range/search/phone). `employeeCategoryCode`/`jobPositionCode` are Config codes (catalog `1011`/`1012`); `employmentStatus` is a 6-value enum (Active/OnLeave/Suspended/Resigned/Terminated/Retired). `Teacher` (`/api/teachers`) is a thin teaching-profile sharing its id with an `Employee` row — `POST /api/teachers` creates both together; `POST /api/employees/{id}/teacher-profile` promotes an existing employee instead (must be Academic category + Teacher/Principal/Vice Principal position).
+Full reference in `employee_management_implementation_guide.md`; orientation summary: every staff member (teacher, principal, accountant, receptionist, librarian, IT officer, driver, security guard, office assistant, cleaner, office help) is an `Employee` (`/api/employees` — CRUD, `employeeCode` optional/auto-generated `EMP{year}{seq}`, filters by category/position/status/gender/date-range/search/phone/qualification). `employeeCategoryCode`/`jobPositionCode` are Config codes (catalog `1011`/`1012`); `employmentStatus` is a 6-value enum (Active/OnLeave/Suspended/Resigned/Terminated/Retired). **2026-08-06: the standalone `Teacher` entity/`TeachersController` were removed entirely** — `teachingLicenseNo`/`experienceYears`/`specialization` are now plain optional fields directly on `EmployeeDto`/`CreateEmployeeCommand`/`UpdateEmployeeCommand`, settable on any employee via the normal Create/Update call (no more `POST /api/teachers`, no more `POST /api/employees/{id}/teacher-profile` eligibility-gated promotion step). `EmployeeDto.isTeachingStaff` (read-only, derived from category/position) replaces the old `hasTeacherProfile`. Full reference: `employee_teaching_profile_and_assignments_implementation_guide.md`.
 
 **"Accounts and Codes" (2026-07-23)**: `EmployeeDto`/`CreateEmployeeCommand`/`UpdateEmployeeCommand` gained five optional statutory/scheme identifier fields — `panNumber`, `providentFundNumber`, `ssfNumber`, `citNumber`, `gratuityNumber` (all free-form strings, ≤50 chars, no format enforced — the numbering schemes aren't standardized enough across employers to validate a shape). Distinct from the existing `bankName`/`bankAccountNumber` (payment routing, not a statutory identifier).
 
-**Qualifications and Documents are generic to every employee, not teacher-specific (2026-07-23)** — moved off `Teacher` entirely: `POST/DELETE/GET /api/employees/{id}/qualifications` (catalog `1005`, renamed "Employee Qualification") and `POST/GET /api/employees/{id}/documents` + `GET .../documents/{documentId}/download` + `DELETE .../documents/{documentId}` (multipart upload, PDF/JPG/PNG ≤10 MB, catalog `1006`, optional `validUntil` expiry). **No `/api/teachers/{id}/qualifications` or `/api/teachers/{id}/documents` route exists anymore** — every consumer (teacher or otherwise) uses the Employees route. Full reference: `employee_documents_and_qualifications_implementation_guide.md` (supersedes the retired `teacher_documents_implementation_guide.md`).
+**Qualifications and Documents are generic to every employee, not teacher-specific (2026-07-23)** — moved off `Teacher` entirely: `POST/DELETE/GET /api/employees/{id}/qualifications` (catalog `1005`, renamed "Employee Qualification") and `POST/GET /api/employees/{id}/documents` + `GET .../documents/{documentId}/download` + `DELETE .../documents/{documentId}` (multipart upload, PDF/JPG/PNG ≤10 MB, catalog `1006`, optional `validUntil` expiry). Every consumer (teacher or otherwise) uses this same Employees route — no teacher-specific alias ever existed for these two. Full reference: `employee_documents_and_qualifications_implementation_guide.md` (supersedes the retired `teacher_documents_implementation_guide.md`).
 
-**Compensation plan** — `/api/employees/{id}/salaries` (also reachable via the unchanged `/api/teachers/{id}/salaries` alias): one row per salary revision, each holding named **components** (income — `componentCode` from catalog `1013`, e.g. `BASIC`/`SSF_CONTRIBUTION`/allowances; `valueType` Fixed or Percentage-of-`BASIC`; `frequencyType` Monthly/Annual/OneTime; `isTaxable`/`isRetirementContribution` flags), **deductions** (catalog `1014`, same shape minus `isTaxable`), and **insurance premiums** (catalog `1015`: Life/Health/Housing, each with a configured tax-deduction cap). The plain `GET .../salaries/tax-calculation` computation described below was removed from `Employees` on 2026-07-23 (**`GET /api/teachers/{id}/salaries/tax-calculation` still works**, kept by request) — for an employee, get the same `taxCalculation` block from `GET .../salaries/tax-planning?fiscalYearId=` instead (see the Investment & Tax Planning entry below). The computation itself: gross annual taxable income → Nepal's retirement-fund "least of three" exemption (actual contributions vs. ⅓ of gross vs. the fiscal year's configured cap) → capped insurance deduction → the existing progressive `TaxSlab` bracket walker → annual/monthly tax and net pay.
+**Self-service upload + HR verification (2026-08-07)**: both `EmployeeDocumentDto`/`EmployeeQualificationDto` gained `verificationStatus` (`1` Pending/`2` Approved/`3` Rejected)/`verificationRemarks`/`verifiedTs`/`verifiedBy`. New no-permission "Me" routes — `POST/GET /api/employees/me/qualifications`, `POST/GET /api/employees/me/documents`, `GET /api/employees/me/documents/{documentId}/download` — let an employee submit their own record, which starts `Pending`; a record entered through the existing admin `{id}`-scoped route is still auto-`Approved` (an already-authorized staff action doesn't need re-review). `POST /api/employees/{id}/documents/{documentId}/verify|reject` and the `qualifications` equivalent (permission `EMPLOYEE_DOCUMENT_VERIFY`/`REJECT`, `EMPLOYEE_QUALIFICATION_VERIFY`/`REJECT` — grant to whichever role a school treats as "HR", no hardcoded role) decide a `Pending` record, one-shot (a second decision 409s), optional `remarks`, and raise a `Notification` to the employee either way. Full reference: `employee_documents_and_qualifications_implementation_guide.md`'s "Self-service upload + HR verification" section.
+
+**Compensation plan** — `/api/employees/{id}/salaries`: one row per salary revision, each holding named **components** (income — `componentCode` from catalog `1013`, e.g. `BASIC`/`SSF_CONTRIBUTION`/allowances; `valueType` Fixed or Percentage-of-`BASIC`; `frequencyType` Monthly/Annual/OneTime; `isTaxable`/`isRetirementContribution` flags), **deductions** (catalog `1014`, same shape minus `isTaxable`), and **insurance premiums** (catalog `1015`: Life/Health/Housing, each with a configured tax-deduction cap). The plain `GET .../salaries/tax-calculation` computation described below was removed entirely on 2026-07-23 (2026-08-06 update: the `GET /api/teachers/{id}/salaries/tax-calculation` alias that used to survive this removal is also gone now, along with the rest of `TeachersController`) — get the same `taxCalculation` block from `GET .../salaries/tax-planning?fiscalYearId=` instead (see the Investment & Tax Planning entry below). The computation itself: gross annual taxable income → Nepal's retirement-fund "least of three" exemption (actual contributions vs. ⅓ of gross vs. the fiscal year's configured cap) → capped insurance deduction → the existing progressive `TaxSlab` bracket walker → annual/monthly tax and net pay.
 
 `/api/fiscalyears` — a payroll-specific year concept (separate from `AcademicYear`, since Nepal's government fiscal year doesn't align with the school's academic calendar), with nested `/{id}/taxslabs` (progressive Individual/Couple tax brackets, `taxRate` as a fraction) and a `retirementExemptionCapAmount` field (the configurable "C" in the exemption rule). Full fiscal-year/tax-slab reference stays in `payroll_implementation_guide.md`.
 
@@ -920,9 +990,9 @@ Full reference in `employee_management_implementation_guide.md`; orientation sum
 
 Full reference in `document_preview_implementation_guide.md`; orientation summary: an admin edits an HTML template per document type via `/api/documenttemplates` (`templateType` unique: `1` Payslip / `2` FeeReceipt / `3` StudentIdCard / `4` TeacherIdCard) containing `{{Token}}` placeholders; `GET /api/documenttemplates/placeholders/{templateType}` returns the backend-authoritative list of tokens each type supports. Four preview endpoints compute the real data and return the fully-substituted HTML string, ready to display/print — no PDF generation, the frontend prints via the browser:
 
-- `GET /api/employees/{id}/salaries/payslip-preview?fiscalYearId=` (and the `/api/teachers/{id}/salaries/payslip-preview` alias) — always the employee's **latest** salary revision.
+- `GET /api/employees/{id}/salaries/payslip-preview?fiscalYearId=` — always the employee's **latest** salary revision.
 - `GET /api/enrollments/{id}/fee-receipt-preview` — same composed data as `GET /api/enrollments/{id}/fee-structure`.
-- `GET /api/students/{id}/id-card-preview` and `GET /api/teachers/{id}/id-card-preview`.
+- `GET /api/students/{id}/id-card-preview` and `GET /api/employees/{id}/id-card-preview`.
 
 All five return `CommonResponse<{ templateType, html }>`; `404` if no template is configured for that type yet (a default is seeded on first boot for every type). No photo/image support today — `StudentDto`/`TeacherDto` have no photo field.
 
@@ -930,7 +1000,7 @@ All five return `CommonResponse<{ templateType, html }>`; `404` if no template i
 
 # Pay & Taxes (2026-07-15)
 
-Full reference in `pay_and_taxes_implementation_guide.md`; orientation summary: three additions on top of the existing compensation-plan endpoints above, all `Employees`/`Teachers`-aliased as usual. `GET /api/employees/{id}/salaries/tax-calculation/monthly?fiscalYearId=` returns the same annual `taxCalculation` plus `months`: 12 fiscal-month rows (`{ monthIndex, monthName, periodStartDate, periodEndDate, monthDays, incomeLines, deductionLines, monthGrossIncome, monthTax, monthNet }`) — fiscal-month boundaries are an **approximation** (`FiscalYear.startDate`..`endDate` split into 12 equal Gregorian segments, labeled Shrawan..Ashad) and `monthTax` is a **flat** `annualTax / 12` every row, not a cumulative rest-of-year re-projection. `GET /api/employees/{id}/payslips?fiscalYearId=` lists only fiscal months whose pay period has already started (`PayslipSummaryDto[]`, `payDays`/`upl` simplified — no attendance module exists); `GET /api/employees/{id}/payslips/{fiscalYearId}/{monthIndex}` returns the structured line-item detail behind it (`PayslipDetailDto`) — a separate, non-HTML path from the existing `.../payslip-preview`. `POST /api/employees/{id}/loans` / `GET .../loans` / `POST .../loans/{loanId}/approve|reject|cancel` manage a request → approve/reject/cancel workflow (`EmployeeLoanDto`, `LoanStatus` 1–5); repayment progress (`amountRepaid`/`remainingBalance`/`isFullyRepaid`) is computed from `startDate`/`emiAmount`/`principalAmount` against today, not stored, and an `Approved` loan's EMI is automatically folded into the Payslip/Tax-Details deduction lines for any month on/after `startDate` — no separate "activate deduction" step. **`dbo.employee_loans` needs a migration that doesn't exist yet** — every `/loans` endpoint 500s until it's applied.
+Full reference in `pay_and_taxes_implementation_guide.md`; orientation summary: three additions on top of the existing compensation-plan endpoints above, all on `Employees` (no `Teachers` alias exists anymore, see `employee_teaching_profile_and_assignments_implementation_guide.md`). `GET /api/employees/{id}/salaries/tax-calculation/monthly?fiscalYearId=` returns the same annual `taxCalculation` plus `months`: 12 fiscal-month rows (`{ monthIndex, monthName, periodStartDate, periodEndDate, monthDays, incomeLines, deductionLines, monthGrossIncome, monthTax, monthNet }`) — fiscal-month boundaries are an **approximation** (`FiscalYear.startDate`..`endDate` split into 12 equal Gregorian segments, labeled Shrawan..Ashad) and `monthTax` is a **flat** `annualTax / 12` every row, not a cumulative rest-of-year re-projection. `GET /api/employees/{id}/payslips?fiscalYearId=` lists only fiscal months whose pay period has already started (`PayslipSummaryDto[]`, `payDays`/`upl` simplified — no attendance module exists); `GET /api/employees/{id}/payslips/{fiscalYearId}/{monthIndex}` returns the structured line-item detail behind it (`PayslipDetailDto`) — a separate, non-HTML path from the existing `.../payslip-preview`. `POST /api/employees/{id}/loans` / `GET .../loans` / `POST .../loans/{loanId}/approve|reject|cancel` manage a request → approve/reject/cancel workflow (`EmployeeLoanDto`, `LoanStatus` 1–5); repayment progress (`amountRepaid`/`remainingBalance`/`isFullyRepaid`) is computed from `startDate`/`emiAmount`/`principalAmount` against today, not stored, and an `Approved` loan's EMI is automatically folded into the Payslip/Tax-Details deduction lines for any month on/after `startDate` — no separate "activate deduction" step. **`dbo.employee_loans` needs a migration that doesn't exist yet** — every `/loans` endpoint 500s until it's applied.
 
 ---
 
@@ -1129,7 +1199,44 @@ Full reference in `dual_calendar_implementation_guide.md`; orientation summary: 
 
 # Leave Management, Notifications & Employee Profile (2026-07-23)
 
-Full reference in `leave_management_and_employee_profile_implementation_guide.md`; orientation summary: built from a raw schema sketch and an Employee Profile page mockup, everything here is admin-facing at `/api/employees/{id}/...` — there's still no employee-login feature, so nothing is self-service. `Employee` gained org fields — `branchCode`/`provinceCode`/`levelCode` (Config catalogs `1019`/`1020`/`1021`), a self-referencing `managerId`, and a single `photoPath` (`POST/GET-download/DELETE /api/employees/{id}/photo`, jpg/jpeg/png only). `LeaveType` (`/api/leavetypes`, real entity — `daysPerYear`/`carryForward`/`isPaid`, not a Config catalog) is seeded with Annual/Sick/Casual (18/12/12, illustrative). `EmployeeLeaveBalance` (`GET/POST /api/employees/{id}/leavebalances`) is scoped to the **current fiscal year only** — `balance = allocated - used - pending`. `LeaveRequest` (`POST /api/employees/{id}/leaverequests` with optional multipart attachment, plus list/detail/manager-approve/manager-reject/hr-approve/hr-reject/cancel, and substitute add/remove) has **two independent one-shot approval fields**, `managerStatus`/`hrStatus` — **`hrStatus` is authoritative and is never gated on `managerStatus`**, so HR can approve or reject a request regardless of what the manager has or hasn't done (an explicit "emergency override" requirement) — only an HR decision actually moves days between `pending`/`used` on the balance. `effectiveStatus` in the response is computed, not stored (HR's decision if made; else `Rejected` if the manager rejected; else `Pending`). `Notification` (`GET /api/employees/{id}/notifications`, mark-read/mark-all-read) is raised automatically on submit and on each manager/HR decision — nothing else creates one yet (birthday/anniversary reminder types are reserved for a future job, not wired up). `GET /api/employees/{id}/profile` is the one composite call behind the whole profile page: personal/employment info, current-fiscal-year leave summary, live-computed upcoming birthday/work-anniversary, and pending leave requests — there's no Attendance module, so the mockup's "View Attendance" quick action has nothing to link to. Holidays reuse the existing Dual Calendar module rather than a new table: `CalendarEvent` with `eventType = PublicHoliday` gained optional `provinceCode`/`branchCode` scoping, and two new event types, `StudentBirthday`/`EmployeeBirthday`, let an admin pin a specific person's birthday onto the shared calendar (`studentId`/`employeeId` fields, exactly one required matching the type). **New tables (`leave_types`, `employee_leave_balances`, `leave_requests`, `leave_substitutes`, `notifications`) and new columns on `employees`/`calendar_events` need a migration that doesn't exist yet** — every endpoint in this section 500s until it's applied.
+> **2026-08-06: self-service arrived.** Every route below (leave balances/requests, profile) is
+> now also reachable without an `{id}` — see "Employee Self-Service" further down — for any login
+> whose `ApplicationUser` is linked to this `Employee` row, resolved from the JWT rather than a
+> route parameter. The admin `{id}`-scoped routes described here are unchanged.
+
+Full reference in `leave_management_and_employee_profile_implementation_guide.md`; orientation summary: built from a raw schema sketch and an Employee Profile page mockup, everything here is admin-facing at `/api/employees/{id}/...`. `Employee` gained org fields — `branchCode`/`provinceCode`/`levelCode` (Config catalogs `1019`/`1020`/`1021`), a self-referencing `managerId`, and a single `photoPath` (`POST/GET-download/DELETE /api/employees/{id}/photo`, jpg/jpeg/png only). `LeaveType` (`/api/leavetypes`, real entity — `daysPerYear`/`carryForward`/`isPaid`, not a Config catalog) is seeded with Annual/Sick/Casual (18/12/12, illustrative). `EmployeeLeaveBalance` (`GET/POST /api/employees/{id}/leavebalances`) is scoped to the **current fiscal year only** — `balance = allocated - used - pending`. `LeaveRequest` (`POST /api/employees/{id}/leaverequests` with optional multipart attachment, plus list/detail/manager-approve/manager-reject/hr-approve/hr-reject/cancel, and substitute add/remove) has **two independent one-shot approval fields**, `managerStatus`/`hrStatus` — **`hrStatus` is authoritative and is never gated on `managerStatus`**, so HR can approve or reject a request regardless of what the manager has or hasn't done (an explicit "emergency override" requirement) — only an HR decision actually moves days between `pending`/`used` on the balance. `effectiveStatus` in the response is computed, not stored (HR's decision if made; else `Rejected` if the manager rejected; else `Pending`). `Notification` (`GET /api/employees/{id}/notifications`, mark-read/mark-all-read) is raised automatically on submit and on each manager/HR decision — nothing else creates one yet (birthday/anniversary reminder types are reserved for a future job, not wired up). `GET /api/employees/{id}/profile` is the one composite call behind the whole profile page: personal/employment info, current-fiscal-year leave summary, live-computed upcoming birthday/work-anniversary, and pending leave requests — there's no Attendance module, so the mockup's "View Attendance" quick action has nothing to link to. Holidays reuse the existing Dual Calendar module rather than a new table: `CalendarEvent` with `eventType = PublicHoliday` gained optional `provinceCode`/`branchCode` scoping, and two new event types, `StudentBirthday`/`EmployeeBirthday`, let an admin pin a specific person's birthday onto the shared calendar (`studentId`/`employeeId` fields, exactly one required matching the type). **New tables (`leave_types`, `employee_leave_balances`, `leave_requests`, `leave_substitutes`, `notifications`) and new columns on `employees`/`calendar_events` need a migration that doesn't exist yet** — every endpoint in this section 500s until it's applied.
+
+---
+
+# Employee Self-Service (2026-08-06, Dashboard added 2026-08-07)
+
+Full reference in `employee_self_service_implementation_guide.md`; orientation summary: 12 new
+`/api/employees/me/...` routes (no `{id}`) mirroring the admin routes above byte-for-byte in
+request/response shape — `me/profile`, `me/leavebalances`, `me/leaverequests` (POST/GET),
+`me/leaverequests/{requestId}` (GET), `me/leaverequests/{requestId}/cancel` (POST),
+`me/payslips` (list + `{fiscalYearId}/{monthIndex}` detail), `me/salaries/payslip-preview`,
+`me/salaries/tax-planning`, `me/salaries/tax-details`, `me/assignments`. Each resolves the
+caller's own `Employee` from the JWT (`Employee.UserId`) rather than a route parameter — a Student
+or an unlinked Admin account gets a clean `404` ("not linked to an employee record"), not a 500.
+Deliberately **not** teacher-specific — any Employee-linked login gets this regardless of role
+(Teacher, Accountant, HR, Principal, ...), and manager/HR approval actions, salary editing, and
+loans stay admin-only. **Access itself needs no permission grant** (all "me" routes are in
+`appsettings.json`'s `DefaultEnabledMenu`) — a `MY_WORKSPACE` menu (5 sub-menus: My Dashboard, My
+Profile, Leave & Balance, Payslip & Taxes, My Classes) exists only so a role's sidebar can show nav
+links for them, via the normal one-time `POST /api/roles/claims` grant; the API call already works
+without it. `GET /api/calendar/month-view`/`events`/`festivals` were also added to
+`DefaultEnabledMenu` (read-only, school-wide — not employee-scoped, so no "me" wrapper needed).
+
+**`GET /api/employees/me/dashboard`** (+ admin `GET /api/employees/{id}/dashboard`, permission
+`EMPLOYEE_DASHBOARD_VIEW`), added 2026-08-07: one composite call for the Employee Dashboard
+landing page — `leaveSummary`/`pendingLeaveRequests` (same figures as the Profile page),
+`classRoutine` (`TeacherAssignmentDto[]`, the employee's whole assigned-period routine ordered by
+period start time — this codebase has no day-of-week timetable, so a period recurs every school
+day, not just "today"), `nextClass` (the first routine entry whose period hasn't started yet
+today in Nepal time, or `null`), and `upcomingEvents` (Birthday/WorkAnniversary merged with
+`PublicHoliday`/`InternalEvent` calendar rows and BS festivals over the next 30 days, capped at
+10, Province/Branch-scoped like the calendar itself). No migration needed — reuses
+`Employee.UserId`, `CalendarEvent`, and `FestivalOccurrence`, all pre-existing.
 
 ---
 
@@ -1264,10 +1371,10 @@ endpoint + marks-configuration defaulting). Orientation summary:
 **Round (2026-08-03): teacher-assignment period timing + bulk multi-section assign, first cut —
 Config-based, superseded the same day by the next round entry.** `TeacherAssignmentDto`/
 `AssignTeacherCommand` gained a `periodCode` field (a Config catalog code) and
-`POST /api/teachers/{id}/assignments/bulk` was added (`AssignTeacherBulkCommand`:
+`POST /api/employees/{id}/assignments/bulk` was added (`AssignTeacherBulkCommand`:
 `classSubjectId`, `classSectionIds` (non-empty list), `isClassTeacher`, plus the period field) —
 assigns the same subject/period to a teacher across several sections in one call instead of
-repeating `POST /api/teachers/{id}/assignments` once per section. Skip-list style, like every
+repeating `POST /api/employees/{id}/assignments` once per section. Skip-list style, like every
 other bulk endpoint in this codebase: `{ created: [...], skipped: [{ classSectionId, reason }] }`,
 never an all-or-nothing reject. `isClassTeacher: true` is only valid with exactly one
 `classSectionId` (a class teacher belongs to one section) — that specific combination 400s the
@@ -1318,9 +1425,9 @@ column; an already-seeded database's existing `Subject` rows keep it blank until
 edited via `PUT /api/configs/{id}`.
 
 **Round (2026-08-04): general-purpose bulk entry for teacher assignments.**
-`POST /api/teachers/{id}/assignments/bulk-entry` (`AssignTeacherBulkEntryCommand`: `items[]`, each
+`POST /api/employees/{id}/assignments/bulk-entry` (`AssignTeacherBulkEntryCommand`: `items[]`, each
 with its own `classSubjectId`/`classSectionId`/`isClassTeacher`/`timePeriodId`) is a new sibling to
-the existing `POST /api/teachers/{id}/assignments/bulk` — that one fixes one `classSubjectId`/
+the existing `POST /api/employees/{id}/assignments/bulk` — that one fixes one `classSubjectId`/
 `timePeriodId` per call and only varies the section list; this one lets every row be a completely
 different class/subject/section/period, so a teacher's whole routine can be entered in one submit
 instead of one call per row. Still scoped to one teacher (the route id) — no multi-teacher grid,
@@ -1377,7 +1484,7 @@ simplification of a third that was already correct:
    wouldn't otherwise see each other) — keyed by `(teacherId, timePeriodId)` on the class-scoped
    endpoint (two *different* teachers can share a period; only the same teacher twice conflicts) and
    effectively just `timePeriodId` on the two teacher-scoped endpoints (teacher is constant for the
-   whole request there). One side effect: `POST /api/teachers/{id}/assignments/bulk`'s shared
+   whole request there). One side effect: `POST /api/employees/{id}/assignments/bulk`'s shared
    `TimePeriodId` now only ever succeeds for the *first* section in the list when set — assigning a
    teacher to several different sections during the identical period is exactly the scenario this
    rule exists to block, so use `.../assignments/bulk-entry` (each row gets its own period) instead
@@ -1394,7 +1501,7 @@ requirements and failure-reason tables.
 
 **Round (2026-08-04, same day): the missing GET — list teachers by class.** Every earlier round
 this same day added a way to *create* `TeacherAssignment` rows in bulk, but there was still no way
-to read them back scoped by class — only `GET /api/teachers/{id}/assignments` (one teacher at a
+to read them back scoped by class — only `GET /api/employees/{id}/assignments` (one teacher at a
 time) existed. New **`GET /api/academicclasses/{id}/teacher-assignments`**
 (optional `?classSectionId=` query param to narrow to one section) returns
 `ClassTeacherAssignmentDto[]` — the same core fields as `Application.Teachers.Dtos.TeacherAssignmentDto`
@@ -1407,10 +1514,67 @@ self-contained per this codebase's convention). Unpaged, sorted by subject code 
 name — a class routine is a small, bounded dataset. New permission `CLASS_TEACHER_ASSIGNMENT_LIST`
 under `CLASS_LIST`. This is the data source the "Class Routine" grid (from the bulk-entry round
 above) loads on page load and re-loads after every submit; removing a row still goes through the
-existing `DELETE /api/teachers/{teacherId}/assignments/{assignmentId}` (no new delete endpoint
+existing `DELETE /api/employees/{teacherId}/assignments/{assignmentId}` (no new delete endpoint
 needed — it only needs the assignment's own `id`, which this list returns). No migration —
 read-only over existing data. Full reference:
 `Docs/class_teacher_assignments_list_implementation_guide.md`.
+
+**Round (2026-08-05): student timetable + profile-response optimization.** Three related changes,
+all in `Docs/student_timetable_and_profile_optimization_implementation_guide.md`:
+
+1. **New `GET /api/students/{id}/timetable`** — a student-facing "who teaches my classes, and
+   when" view (`StudentTimetableDto`: header + `entries[]` of subject/teacher/period, sorted by
+   period start time). Reuses `ITeacherRepository.GetAssignmentsByAcademicClassAsync` (the same
+   repository method the "who teaches this class" admin endpoint uses), scoped to the student's own
+   section and filtered down to the subjects they actually study (mandatory + their own chosen
+   electives). New permission `STUDENT_TIMETABLE`.
+2. **`GET /api/students/{id}` slimmed to a profile-header shape** — `guardians[]` is now always
+   empty on this endpoint (the "Guardians" tab already had its own `GET .../guardians`, this was
+   duplicate data; create/update responses still populate it), `currentEnrollment.subjects[]` is
+   gone (replaced by the new timetable endpoint), and `enrollmentHistory[]` is removed entirely —
+   replaced by new **`GET /api/students/{id}/enrollment-history`** (new permission
+   `STUDENT_ENROLLMENT_HISTORY`). This is a **breaking DTO shape change** for any UI already reading
+   those three things off the main GET — see the guide's before/after table. One internal fix
+   alongside it: `GetIdCardPreviewAsync` used to read guardians off the (now-empty) profile DTO —
+   fixed to query the repository directly instead of silently printing blank guardian fields on ID
+   cards.
+3. **Server-resolved Config labels** — `StudentGuardianDto.RelationshipLabel`,
+   `StudentCurrentEnrollmentDto`/`StudentEnrollmentHistoryDto`/`StudentTimetableDto`'s
+   `GradeLabel`/`SectionLabel`, and `StudentTimetableEntryDto.SubjectLabel`, all resolved
+   server-side via the existing `ConfigLabelHelper` (first use in the Student feature; already used
+   by Fee/Payroll). Removes the need for a UI to call the dropdown endpoints just to turn
+   `"FATHER"` into `"Father"`.
+
+The guide also writes up the general "one API call per tab, not one call for the whole page"
+convention this round is the reference implementation of — apply it (and the `ConfigLabelHelper`
+label-resolution pattern) to other screens as they're next touched, rather than assuming every
+other feature was swept in this same round (it wasn't — see the guide's own "Scope of this round"
+section). No migration — DTO/service-layer only.
+
+**Round (2026-08-05, same day): Global Search (navbar "Ctrl+K").** New
+**`GET /api/dashboard/global-search?query=&limit=`** — the cross-menu search a navbar search box
+needs (distinct from the Students/Employees list pages' own scoped `search` params): matches
+Students by `FirstName`/`LastName`/`AdmissionNo` and Employees (including teaching staff — see
+below) by `FirstName`/`LastName`/`EmployeeCode`, plus an exact match on either record's own `Id`
+when `query` parses as a GUID (the "Student ID"/"Employee ID" half of the ask). Response is
+grouped, not one flat list: `{ query, students: [...], employees: [...] }`, each group
+independently capped at `limit` (default 5, max 20) and sorted by name.
+`GlobalSearchEmployeeResultDto.IsTeacher` (`Employee.Teacher != null`) replaces a separate
+"Teachers" group — Teacher isn't a standalone root aggregate in this codebase (shared-PK with
+Employee), so a third group would either duplicate the Employee rows or arbitrarily exclude
+teaching staff from `employees[]`; `isTeacher` tells the UI which detail route to use instead.
+`JobPositionLabel` is resolved server-side via the existing `ConfigLabelHelper`. Lives on the
+existing `IDashboardService`/`DashboardService` (not a new feature folder) — same "cross-cutting,
+multi-aggregate, UI-navigation concern" shape as `GetQuickMenusAsync`/`GetAccountsSummaryAsync`/
+`GetHrSummaryAsync`, querying `ApplicationDbContext.Students`/`.Employees` directly rather than
+adding search methods to `IStudentRepository`/`IEmployeeRepository`. New permission
+`DASHBOARD_GLOBAL_SEARCH` — gated like every other Dashboard widget (**not** in
+`DefaultEnabledMenu`), a deliberate choice since this can surface Student/Employee records across
+the whole org independent of the caller's `STUDENT_LIST`/`EMPLOYEE_LIST` grants. Deliberately a
+typeahead, not a paged search — no `page`/total-count, no fuzzy matching, no relevance ranking
+beyond alphabetical; point a "see all results" action at the existing list endpoints' own `search`
+param instead. No migration — read-only over existing data. Full reference:
+`Docs/global_search_implementation_guide.md`.
 
 ---
 

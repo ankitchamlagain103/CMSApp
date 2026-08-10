@@ -1,3 +1,4 @@
+using Application.Common.Helpers;
 using Application.FeeGenerationRuns.Dtos;
 using Application.FeeInvoices;
 using Domain.Entities;
@@ -61,7 +62,7 @@ namespace Application.FeeGenerationRuns
         // class drill-down, see ToClassGroupDto) with foreach + Dictionary (house style avoids
         // GroupBy for result-list building) -- periodInvoices must include
         // Enrollment/ClassSection/AcademicClass (GetByPeriodWithDetailsAsync).
-        public static FeeGenerationRunDetailDto ToDetailDto(FeeGenerationRun run, IReadOnlyList<FeeInvoice> periodInvoices)
+        public static FeeGenerationRunDetailDto ToDetailDto(FeeGenerationRun run, IReadOnlyList<FeeInvoice> periodInvoices, IReadOnlyDictionary<string, string> classLabelsByCode = null)
         {
             var summaryDto = ToDto(run, periodInvoices);
 
@@ -102,10 +103,12 @@ namespace Application.FeeGenerationRuns
 
                 if (!classSummariesById.TryGetValue(academicClassId, out var classSummary))
                 {
+                    var summaryGradeCode = enrollment.ClassSection.AcademicClass?.GradeCode;
                     classSummary = new FeeGenerationClassSummaryDto
                     {
                         AcademicClassId = academicClassId,
-                        GradeCode = enrollment.ClassSection.AcademicClass?.GradeCode
+                        GradeCode = summaryGradeCode,
+                        GradeLabel = ConfigLabelHelper.Resolve(classLabelsByCode, summaryGradeCode)
                     };
                     classSummariesById[academicClassId] = classSummary;
                     studentIdsByClass[academicClassId] = new HashSet<Guid>();
@@ -144,12 +147,13 @@ namespace Application.FeeGenerationRuns
         // GET /api/feegenerationruns/{id}/classes/{academicClassId}. classInvoices must include
         // Enrollment/Student/ClassSection/AcademicClass (GetByPeriodForClassWithDetailsAsync) and
         // must already be scoped to the one class.
-        public static FeeGenerationClassGroupDto ToClassGroupDto(Guid academicClassId, string gradeCode, IReadOnlyList<FeeInvoice> classInvoices)
+        public static FeeGenerationClassGroupDto ToClassGroupDto(Guid academicClassId, string gradeCode, IReadOnlyList<FeeInvoice> classInvoices, IReadOnlyDictionary<string, string> classLabelsByCode = null)
         {
             var classGroup = new FeeGenerationClassGroupDto
             {
                 AcademicClassId = academicClassId,
-                GradeCode = gradeCode
+                GradeCode = gradeCode,
+                GradeLabel = ConfigLabelHelper.Resolve(classLabelsByCode, gradeCode)
             };
 
             var studentGroupsByEnrollmentId = new Dictionary<Guid, FeeGenerationStudentGroupDto>();
@@ -164,19 +168,21 @@ namespace Application.FeeGenerationRuns
 
                 if (!studentGroupsByEnrollmentId.TryGetValue(enrollment.Id, out var studentGroup))
                 {
+                    var studentSectionCode = enrollment.ClassSection?.SectionCode;
                     studentGroup = new FeeGenerationStudentGroupDto
                     {
                         EnrollmentId = enrollment.Id,
                         StudentId = enrollment.StudentId,
                         StudentName = BuildStudentName(enrollment.Student),
                         AdmissionNo = enrollment.Student?.AdmissionNo,
-                        SectionCode = enrollment.ClassSection?.SectionCode
+                        SectionCode = studentSectionCode,
+                        SectionLabel = ConfigLabelHelper.Resolve(classLabelsByCode, studentSectionCode)
                     };
                     studentGroupsByEnrollmentId[enrollment.Id] = studentGroup;
                     classGroup.Students.Add(studentGroup);
                 }
 
-                var invoiceDto = FeeInvoiceMapper.ToDto(invoice, includeLines: false);
+                var invoiceDto = FeeInvoiceMapper.ToDto(invoice, includeLines: false, labelsByCode: classLabelsByCode);
                 studentGroup.Invoices.Add(invoiceDto);
 
                 studentGroup.TotalNetAmount += invoice.NetAmount;

@@ -11,7 +11,14 @@ namespace Domain.Interfaces
     {
         Task<PagedResult<Employee>> GetPagedByFilterAsync(EmployeeFilter filter, int pageNumber, int pageSize, CancellationToken cancellationToken = default);
 
-        Task<Employee> GetByIdWithTeacherAsync(Guid id, CancellationToken cancellationToken = default);
+        // Replaces the old GetByIdWithTeacherAsync (2026-08-06, Teacher entity removed --
+        // TeachingLicenseNo/ExperienceYears/Specialization now live on this row directly, nothing
+        // left to Include for them). Manager is still a real nav that needs an explicit Include.
+        Task<Employee> GetByIdWithManagerAsync(Guid id, CancellationToken cancellationToken = default);
+
+        // Self-service (2026-08-06) -- resolves "which Employee am I" from the caller's own
+        // ApplicationUser id, for the "Me" endpoints in EmployeesController.
+        Task<Employee> GetByUserIdAsync(Guid userId, CancellationToken cancellationToken = default);
 
         Task<bool> EmployeeCodeExistsAsync(string employeeCode, CancellationToken cancellationToken = default);
 
@@ -106,5 +113,28 @@ namespace Domain.Interfaces
         Task<EmployeeLeaveBalance> GetLeaveBalanceByIdAsync(Guid leaveBalanceId, CancellationToken cancellationToken = default);
 
         Task AddLeaveBalanceAsync(EmployeeLeaveBalance leaveBalance, CancellationToken cancellationToken = default);
+
+        // TeacherAssignment (2026-08-06, moved here from the removed ITeacherRepository --
+        // TeacherId now FKs directly to Employee.Id, so assignments are this aggregate's children
+        // like every other Employee child collection).
+        Task<bool> HasAssignmentsAsync(Guid teacherId, CancellationToken cancellationToken = default);
+
+        Task<IReadOnlyList<TeacherAssignment>> GetAssignmentsAsync(Guid teacherId, CancellationToken cancellationToken = default);
+
+        Task<IReadOnlyList<TeacherAssignment>> GetAssignmentsByClassSubjectIdsAsync(IReadOnlyCollection<Guid> classSubjectIds, CancellationToken cancellationToken = default);
+
+        Task<IReadOnlyList<TeacherAssignment>> GetAssignmentsByAcademicClassAsync(Guid academicClassId, Guid? classSectionId, CancellationToken cancellationToken = default);
+
+        Task<TeacherAssignment> GetAssignmentByIdAsync(Guid assignmentId, CancellationToken cancellationToken = default);
+
+        Task<bool> AssignmentExistsAsync(Guid teacherId, Guid classSubjectId, Guid? classSectionId, CancellationToken cancellationToken = default);
+
+        Task<bool> ClassTeacherExistsForSectionAsync(Guid classSectionId, CancellationToken cancellationToken = default);
+
+        Task<bool> TeacherHasTimePeriodConflictAsync(Guid teacherId, Guid timePeriodId, CancellationToken cancellationToken = default);
+
+        Task AddAssignmentAsync(TeacherAssignment assignment, CancellationToken cancellationToken = default);
+
+        void RemoveAssignment(TeacherAssignment assignment);
     }
 }

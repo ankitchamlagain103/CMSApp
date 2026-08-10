@@ -27,7 +27,6 @@ namespace Application.Employees
         private readonly IIdentityService _identityService;
         private readonly CreateEmployeeCommandValidator _createValidator;
         private readonly UpdateEmployeeCommandValidator _updateValidator;
-        private readonly PromoteToTeacherCommandValidator _promoteValidator;
         private readonly AddEmployeeSalaryCommandValidator _addSalaryValidator;
         private readonly SalaryComponentInputValidator _componentValidator;
         private readonly SalaryDeductionInputValidator _deductionValidator;
@@ -51,7 +50,6 @@ namespace Application.Employees
             IIdentityService identityService,
             CreateEmployeeCommandValidator createValidator,
             UpdateEmployeeCommandValidator updateValidator,
-            PromoteToTeacherCommandValidator promoteValidator,
             AddEmployeeSalaryCommandValidator addSalaryValidator,
             SalaryComponentInputValidator componentValidator,
             SalaryDeductionInputValidator deductionValidator,
@@ -74,7 +72,6 @@ namespace Application.Employees
             _identityService = identityService;
             _createValidator = createValidator;
             _updateValidator = updateValidator;
-            _promoteValidator = promoteValidator;
             _addSalaryValidator = addSalaryValidator;
             _componentValidator = componentValidator;
             _deductionValidator = deductionValidator;
@@ -176,7 +173,10 @@ namespace Application.Employees
                 ProvinceCode = addressResult.ProvinceCode,
                 DistrictCode = addressResult.DistrictCode,
                 LocalLevelCode = addressResult.LocalLevelCode,
-                WardNo = command.WardNo
+                WardNo = command.WardNo,
+                TeachingLicenseNo = command.TeachingLicenseNo?.Trim(),
+                ExperienceYears = command.ExperienceYears,
+                Specialization = command.Specialization?.Trim()
             };
 
             var successMessage = "Employee created successfully.";
@@ -196,7 +196,8 @@ namespace Application.Employees
             await _unitOfWork.Employees.AddAsync(employee, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            var employeeDto = EmployeeMapper.ToDto(employee);
+            var orgLabels = await LoadOrgLabelMapAsync(cancellationToken);
+            var employeeDto = EmployeeMapper.ToDto(employee, orgLabelsByCode: orgLabels);
             var successResponse = CommonResponse<EmployeeDto>.Success(employeeDto, successMessage);
             return successResponse;
         }
@@ -243,7 +244,8 @@ namespace Application.Employees
             _unitOfWork.Employees.Update(employee);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            var employeeDto = EmployeeMapper.ToDto(employee);
+            var orgLabels = await LoadOrgLabelMapAsync(cancellationToken);
+            var employeeDto = EmployeeMapper.ToDto(employee, orgLabelsByCode: orgLabels);
             var successResponse = CommonResponse<EmployeeDto>.Success(employeeDto, "Portal account created -- an activation email has been sent to " + employee.Email + ".");
             return successResponse;
         }
@@ -281,14 +283,28 @@ namespace Application.Employees
 
         public async Task<CommonResponse<EmployeeDto>> GetEmployeeByIdAsync(Guid id, CancellationToken cancellationToken = default)
         {
-            var employee = await _unitOfWork.Employees.GetByIdWithTeacherAsync(id, cancellationToken);
+            var employee = await _unitOfWork.Employees.GetByIdWithManagerAsync(id, cancellationToken);
             if (employee == null)
             {
                 var notFoundResponse = CommonResponse<EmployeeDto>.Fail(ResponseCodes.NotFound, "Employee with id '" + id + "' was not found.");
                 return notFoundResponse;
             }
 
-            var employeeDto = EmployeeMapper.ToDto(employee);
+            var orgLabels = await LoadOrgLabelMapAsync(cancellationToken);
+            var employeeDto = EmployeeMapper.ToDto(employee, orgLabelsByCode: orgLabels);
+
+            // Service history: the assignments with their academic years, oldest first -- the
+            // first row (plus JoinDate) answers "teaching here since which year" (empty for
+            // non-teaching staff or teaching staff with no assignments yet). Ported from the
+            // removed TeacherService.GetTeacherByIdAsync.
+            var assignments = await _unitOfWork.Employees.GetAssignmentsAsync(id, cancellationToken);
+            var classLabels = await LoadClassLabelMapAsync(cancellationToken);
+            foreach (var assignment in assignments)
+            {
+                var historyDto = TeacherAssignmentMapper.ToServiceHistoryDto(assignment, classLabels);
+                employeeDto.ServiceHistory.Add(historyDto);
+            }
+
             var successResponse = CommonResponse<EmployeeDto>.Success(employeeDto);
             return successResponse;
         }
@@ -301,6 +317,7 @@ namespace Application.Employees
                 Phone = query.Phone,
                 EmployeeCategoryCode = query.EmployeeCategoryCode,
                 JobPositionCode = query.JobPositionCode,
+                QualificationCode = query.QualificationCode,
                 EmploymentStatus = query.EmploymentStatus,
                 Gender = query.Gender,
                 DateField = query.DateField,
@@ -309,11 +326,12 @@ namespace Application.Employees
             };
 
             var pagedEmployees = await _unitOfWork.Employees.GetPagedByFilterAsync(filter, query.Page, query.PageSize, cancellationToken);
+            var orgLabels = await LoadOrgLabelMapAsync(cancellationToken);
 
             var employeeDtos = new List<EmployeeDto>();
             foreach (var employee in pagedEmployees.Items)
             {
-                var employeeDto = EmployeeMapper.ToDto(employee);
+                var employeeDto = EmployeeMapper.ToDto(employee, orgLabelsByCode: orgLabels);
                 employeeDtos.Add(employeeDto);
             }
 
@@ -339,7 +357,7 @@ namespace Application.Employees
                 return validationFailureResponse;
             }
 
-            var employee = await _unitOfWork.Employees.GetByIdWithTeacherAsync(id, cancellationToken);
+            var employee = await _unitOfWork.Employees.GetByIdWithManagerAsync(id, cancellationToken);
             if (employee == null)
             {
                 var notFoundResponse = CommonResponse<EmployeeDto>.Fail(ResponseCodes.NotFound, "Employee with id '" + id + "' was not found.");
@@ -381,6 +399,9 @@ namespace Application.Employees
             employee.SsfNumber = command.SsfNumber?.Trim();
             employee.CitNumber = command.CitNumber?.Trim();
             employee.GratuityNumber = command.GratuityNumber?.Trim();
+            employee.TeachingLicenseNo = command.TeachingLicenseNo?.Trim();
+            employee.ExperienceYears = command.ExperienceYears;
+            employee.Specialization = command.Specialization?.Trim();
 
             var orgFieldsError = await ValidateOrgFieldsAsync(command.BranchCode, command.LevelCode, command.ManagerId, id, cancellationToken);
             if (orgFieldsError != null)
@@ -407,28 +428,26 @@ namespace Application.Employees
             _unitOfWork.Employees.Update(employee);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            var employeeDto = EmployeeMapper.ToDto(employee);
+            var orgLabels = await LoadOrgLabelMapAsync(cancellationToken);
+            var employeeDto = EmployeeMapper.ToDto(employee, orgLabelsByCode: orgLabels);
             var successResponse = CommonResponse<EmployeeDto>.Success(employeeDto, "Employee updated successfully.");
             return successResponse;
         }
 
         public async Task<CommonResponse<bool>> DeleteEmployeeAsync(Guid id, CancellationToken cancellationToken = default)
         {
-            var employee = await _unitOfWork.Employees.GetByIdWithTeacherAsync(id, cancellationToken);
+            var employee = await _unitOfWork.Employees.GetByIdWithManagerAsync(id, cancellationToken);
             if (employee == null)
             {
                 var notFoundResponse = CommonResponse<bool>.Fail(ResponseCodes.NotFound, "Employee with id '" + id + "' was not found.");
                 return notFoundResponse;
             }
 
-            if (employee.Teacher != null)
+            var hasAssignments = await _unitOfWork.Employees.HasAssignmentsAsync(id, cancellationToken);
+            if (hasAssignments)
             {
-                var hasAssignments = await _unitOfWork.Teachers.HasAssignmentsAsync(employee.Id, cancellationToken);
-                if (hasAssignments)
-                {
-                    var assignmentsConflictResponse = CommonResponse<bool>.Fail(ResponseCodes.Conflict, "This employee's teacher profile still has class assignments. Remove them first.");
-                    return assignmentsConflictResponse;
-                }
+                var assignmentsConflictResponse = CommonResponse<bool>.Fail(ResponseCodes.Conflict, "This employee still has class assignments. Remove them first.");
+                return assignmentsConflictResponse;
             }
 
             var hasSalaries = await _unitOfWork.Employees.HasSalariesAsync(id, cancellationToken);
@@ -445,52 +464,390 @@ namespace Application.Employees
             return successResponse;
         }
 
-        public async Task<CommonResponse<TeacherProfileDto>> PromoteToTeacherAsync(Guid employeeId, PromoteToTeacherCommand command, CancellationToken cancellationToken = default)
-        {
-            var validationResult = _promoteValidator.Validate(command);
-            if (!validationResult.IsValid)
-            {
-                var errorMessage = BuildValidationErrorMessage(validationResult);
-                var validationFailureResponse = CommonResponse<TeacherProfileDto>.Fail(ResponseCodes.ValidationError, errorMessage);
-                return validationFailureResponse;
-            }
+        // Class/subject/section/period assignments (2026-08-06, moved here from the removed
+        // TeacherService/ITeacherService -- TeacherId now FKs directly to Employee.Id, so these
+        // are just another Employee child collection, same as Loans/Qualifications/Documents.
 
-            var employee = await _unitOfWork.Employees.GetByIdWithTeacherAsync(employeeId, cancellationToken);
+        public async Task<CommonResponse<TeacherAssignmentDto>> AssignClassSubjectAsync(Guid employeeId, AssignTeacherCommand command, CancellationToken cancellationToken = default)
+        {
+            var employee = await _unitOfWork.Employees.GetByIdAsync(employeeId, cancellationToken);
             if (employee == null)
             {
-                var notFoundResponse = CommonResponse<TeacherProfileDto>.Fail(ResponseCodes.NotFound, "Employee with id '" + employeeId + "' was not found.");
+                var notFoundResponse = CommonResponse<TeacherAssignmentDto>.Fail(ResponseCodes.NotFound, "Employee with id '" + employeeId + "' was not found.");
                 return notFoundResponse;
             }
 
-            if (employee.Teacher != null)
+            var classSubject = await _unitOfWork.AcademicClasses.GetClassSubjectByIdAsync(command.ClassSubjectId, cancellationToken);
+            if (classSubject == null)
             {
-                var conflictResponse = CommonResponse<TeacherProfileDto>.Fail(ResponseCodes.Conflict, "This employee already has a teacher profile.");
-                return conflictResponse;
+                var subjectNotFoundResponse = CommonResponse<TeacherAssignmentDto>.Fail(ResponseCodes.NotFound, "Class subject with id '" + command.ClassSubjectId + "' was not found.");
+                return subjectNotFoundResponse;
             }
 
-            if (employee.EmployeeCategoryCode != EmployeeCategoryCodes.Academic
-                || (employee.JobPositionCode != JobPositionCodes.Teacher
-                    && employee.JobPositionCode != JobPositionCodes.Principal
-                    && employee.JobPositionCode != JobPositionCodes.VicePrincipal))
+            var (assignment, errorCode, errorMessage) = await TeacherAssignmentBuilder.BuildAsync(_unitOfWork, employeeId, classSubject, command.ClassSectionId, command.IsClassTeacher, command.TimePeriodId, cancellationToken);
+            if (errorCode != null)
             {
-                var ineligibleResponse = CommonResponse<TeacherProfileDto>.Fail(ResponseCodes.ValidationError, "Only Academic-category employees in a Teacher/Principal/Vice Principal position can have a teacher profile.");
-                return ineligibleResponse;
+                var errorResponse = CommonResponse<TeacherAssignmentDto>.Fail(errorCode, errorMessage);
+                return errorResponse;
             }
 
-            var teacher = new Teacher
-            {
-                Id = employee.Id,
-                TeachingLicenseNo = command.TeachingLicenseNo?.Trim(),
-                ExperienceYears = command.ExperienceYears,
-                Specialization = command.Specialization?.Trim(),
-                Employee = employee
-            };
-
-            await _unitOfWork.Teachers.AddAsync(teacher, cancellationToken);
+            await _unitOfWork.Employees.AddAssignmentAsync(assignment, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            var teacherProfileDto = EmployeeMapper.ToTeacherProfileDto(teacher);
-            var successResponse = CommonResponse<TeacherProfileDto>.Success(teacherProfileDto, "Teacher profile added successfully.");
+            var classLabels = await LoadClassLabelMapAsync(cancellationToken);
+            var assignmentDto = TeacherAssignmentMapper.ToAssignmentDto(assignment, classLabels);
+            var successResponse = CommonResponse<TeacherAssignmentDto>.Success(assignmentDto, "Teacher assigned successfully.");
+            return successResponse;
+        }
+
+        // Optimized multi-section counterpart to AssignClassSubjectAsync -- assigns the same
+        // ClassSubject/TimePeriodId to the employee across several sections in one call instead of
+        // repeating the single-assignment flow once per section.
+        public async Task<CommonResponse<TeacherAssignmentBulkResultDto>> AssignClassSubjectBulkAsync(Guid employeeId, AssignTeacherBulkCommand command, CancellationToken cancellationToken = default)
+        {
+            var employee = await _unitOfWork.Employees.GetByIdAsync(employeeId, cancellationToken);
+            if (employee == null)
+            {
+                var notFoundResponse = CommonResponse<TeacherAssignmentBulkResultDto>.Fail(ResponseCodes.NotFound, "Employee with id '" + employeeId + "' was not found.");
+                return notFoundResponse;
+            }
+
+            var requestedSectionIds = command.ClassSectionIds == null ? new List<Guid>() : command.ClassSectionIds.Distinct().ToList();
+            if (requestedSectionIds.Count == 0)
+            {
+                var noSectionsResponse = CommonResponse<TeacherAssignmentBulkResultDto>.Fail(ResponseCodes.ValidationError, "At least one ClassSectionId is required -- use the single-assignment endpoint with a null ClassSectionId to cover every section instead.");
+                return noSectionsResponse;
+            }
+
+            // A class teacher belongs to exactly one section -- rejected upfront as a request-shape
+            // error rather than per-item, since "class teacher of 3 sections at once" isn't a
+            // business conflict to skip past, it's a malformed request.
+            if (command.IsClassTeacher && requestedSectionIds.Count != 1)
+            {
+                var classTeacherShapeResponse = CommonResponse<TeacherAssignmentBulkResultDto>.Fail(ResponseCodes.ValidationError, "IsClassTeacher can only be set when assigning exactly one section.");
+                return classTeacherShapeResponse;
+            }
+
+            var classSubject = await _unitOfWork.AcademicClasses.GetClassSubjectByIdAsync(command.ClassSubjectId, cancellationToken);
+            if (classSubject == null)
+            {
+                var subjectNotFoundResponse = CommonResponse<TeacherAssignmentBulkResultDto>.Fail(ResponseCodes.NotFound, "Class subject with id '" + command.ClassSubjectId + "' was not found.");
+                return subjectNotFoundResponse;
+            }
+
+            var created = new List<TeacherAssignmentDto>();
+            var skipped = new List<TeacherAssignmentSkipDto>();
+            var classLabels = await LoadClassLabelMapAsync(cancellationToken);
+
+            // TimePeriodId is fixed for the whole call -- if it's set, every section beyond the
+            // first one is now a time-period conflict with the ones already staged (an employee
+            // can't teach several different sections during the identical period), since
+            // TeacherHasTimePeriodConflictAsync only sees rows already committed to the database,
+            // not ones Added-but-not-yet-SaveChanges'd within this same loop. Callers wanting
+            // several sections at genuinely different periods should use .../assignments/bulk-entry
+            // instead, where each row names its own TimePeriodId.
+            var timePeriodStaged = false;
+            foreach (var sectionId in requestedSectionIds)
+            {
+                if (command.TimePeriodId.HasValue && timePeriodStaged)
+                {
+                    var conflictSkip = new TeacherAssignmentSkipDto
+                    {
+                        ClassSectionId = sectionId,
+                        Reason = "Another section earlier in this same request already assigns this employee to that time period -- an employee can't teach two sections during the same period."
+                    };
+                    skipped.Add(conflictSkip);
+                    continue;
+                }
+
+                var (assignment, errorCode, errorMessage) = await TeacherAssignmentBuilder.BuildAsync(_unitOfWork, employeeId, classSubject, sectionId, command.IsClassTeacher, command.TimePeriodId, cancellationToken);
+                if (errorCode != null)
+                {
+                    var skip = new TeacherAssignmentSkipDto
+                    {
+                        ClassSectionId = sectionId,
+                        Reason = errorMessage
+                    };
+                    skipped.Add(skip);
+                    continue;
+                }
+
+                if (command.TimePeriodId.HasValue)
+                {
+                    timePeriodStaged = true;
+                }
+
+                await _unitOfWork.Employees.AddAssignmentAsync(assignment, cancellationToken);
+                created.Add(TeacherAssignmentMapper.ToAssignmentDto(assignment, classLabels));
+            }
+
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            var resultDto = new TeacherAssignmentBulkResultDto
+            {
+                Created = created,
+                Skipped = skipped
+            };
+            var successResponse = CommonResponse<TeacherAssignmentBulkResultDto>.Success(resultDto, created.Count + " assignment(s) created, " + skipped.Count + " skipped.");
+            return successResponse;
+        }
+
+        // General bulk-entry counterpart to AssignClassSubjectBulkAsync -- that endpoint fixes
+        // ClassSubjectId/TimePeriodId for the whole call and only varies the section list; this
+        // one lets each row name its own ClassSubjectId/ClassSectionId/TimePeriodId, so an
+        // employee's whole routine (several different classes/subjects/sections/periods) can be
+        // entered in one submission. Skip-list style, like every other bulk endpoint in this
+        // codebase -- a bad row is reported in Skipped, it never fails the whole request.
+        public async Task<CommonResponse<TeacherAssignmentBulkEntryResultDto>> AssignClassSubjectBulkEntryAsync(Guid employeeId, AssignTeacherBulkEntryCommand command, CancellationToken cancellationToken = default)
+        {
+            var employee = await _unitOfWork.Employees.GetByIdAsync(employeeId, cancellationToken);
+            if (employee == null)
+            {
+                var notFoundResponse = CommonResponse<TeacherAssignmentBulkEntryResultDto>.Fail(ResponseCodes.NotFound, "Employee with id '" + employeeId + "' was not found.");
+                return notFoundResponse;
+            }
+
+            if (command.Items == null || command.Items.Count == 0)
+            {
+                var noItemsResponse = CommonResponse<TeacherAssignmentBulkEntryResultDto>.Fail(ResponseCodes.ValidationError, "At least one item is required.");
+                return noItemsResponse;
+            }
+
+            var created = new List<TeacherAssignmentDto>();
+            var skipped = new List<TeacherAssignmentEntrySkipDto>();
+            var classSubjectCache = new Dictionary<Guid, ClassSubject>();
+            var classLabels = await LoadClassLabelMapAsync(cancellationToken);
+
+            // Tracks what's already been staged earlier in this same request -- AssignmentExistsAsync
+            // and ClassTeacherExistsForSectionAsync (called from TeacherAssignmentBuilder.BuildAsync)
+            // only see rows already committed to the database, not entities Added-but-not-yet-
+            // SaveChanges'd, so two rows in the same batch that collide with each other (not with
+            // existing data) would otherwise both pass those checks and hit a unique-index violation
+            // at save time instead.
+            var stagedKeys = new HashSet<(Guid ClassSubjectId, Guid ClassSectionKey)>();
+            var stagedClassTeacherSections = new HashSet<Guid>();
+
+            // Same reasoning as above -- TeacherHasTimePeriodConflictAsync (called from
+            // TeacherAssignmentBuilder.BuildAsync) only sees rows already committed to the
+            // database, so two rows in this same batch naming the same TimePeriodId for this
+            // (fixed, route-scoped) employee must be caught here.
+            var stagedTimePeriods = new HashSet<Guid>();
+
+            for (var itemIndex = 0; itemIndex < command.Items.Count; itemIndex++)
+            {
+                var item = command.Items[itemIndex];
+
+                if (item.ClassSubjectId == Guid.Empty)
+                {
+                    var skip = new TeacherAssignmentEntrySkipDto
+                    {
+                        ItemIndex = itemIndex,
+                        ClassSubjectId = item.ClassSubjectId,
+                        ClassSectionId = item.ClassSectionId,
+                        Reason = "ClassSubjectId is required."
+                    };
+                    skipped.Add(skip);
+                    continue;
+                }
+
+                if (!classSubjectCache.TryGetValue(item.ClassSubjectId, out var classSubject))
+                {
+                    classSubject = await _unitOfWork.AcademicClasses.GetClassSubjectByIdAsync(item.ClassSubjectId, cancellationToken);
+                    classSubjectCache[item.ClassSubjectId] = classSubject;
+                }
+
+                if (classSubject == null)
+                {
+                    var skip = new TeacherAssignmentEntrySkipDto
+                    {
+                        ItemIndex = itemIndex,
+                        ClassSubjectId = item.ClassSubjectId,
+                        ClassSectionId = item.ClassSectionId,
+                        Reason = "Class subject with id '" + item.ClassSubjectId + "' was not found."
+                    };
+                    skipped.Add(skip);
+                    continue;
+                }
+
+                if (item.TimePeriodId.HasValue && stagedTimePeriods.Contains(item.TimePeriodId.Value))
+                {
+                    var skip = new TeacherAssignmentEntrySkipDto
+                    {
+                        ItemIndex = itemIndex,
+                        ClassSubjectId = item.ClassSubjectId,
+                        ClassSectionId = item.ClassSectionId,
+                        Reason = "Another item earlier in this same request already assigns this employee to that time period."
+                    };
+                    skipped.Add(skip);
+                    continue;
+                }
+
+                var (assignment, errorCode, errorMessage) = await TeacherAssignmentBuilder.BuildAsync(_unitOfWork, employeeId, classSubject, item.ClassSectionId, item.IsClassTeacher, item.TimePeriodId, cancellationToken);
+                if (errorCode != null)
+                {
+                    var skip = new TeacherAssignmentEntrySkipDto
+                    {
+                        ItemIndex = itemIndex,
+                        ClassSubjectId = item.ClassSubjectId,
+                        ClassSectionId = item.ClassSectionId,
+                        Reason = errorMessage
+                    };
+                    skipped.Add(skip);
+                    continue;
+                }
+
+                var sectionKey = assignment.ClassSectionId.HasValue ? assignment.ClassSectionId.Value : Guid.Empty;
+                var stagedKey = (assignment.ClassSubjectId, sectionKey);
+                if (stagedKeys.Contains(stagedKey))
+                {
+                    var skip = new TeacherAssignmentEntrySkipDto
+                    {
+                        ItemIndex = itemIndex,
+                        ClassSubjectId = item.ClassSubjectId,
+                        ClassSectionId = item.ClassSectionId,
+                        Reason = "Duplicate of an earlier item in this same request."
+                    };
+                    skipped.Add(skip);
+                    continue;
+                }
+
+                if (assignment.IsClassTeacher && stagedClassTeacherSections.Contains(assignment.ClassSectionId.Value))
+                {
+                    var skip = new TeacherAssignmentEntrySkipDto
+                    {
+                        ItemIndex = itemIndex,
+                        ClassSubjectId = item.ClassSubjectId,
+                        ClassSectionId = item.ClassSectionId,
+                        Reason = "Another item earlier in this same request already makes this employee the class teacher for that section."
+                    };
+                    skipped.Add(skip);
+                    continue;
+                }
+
+                if (assignment.IsClassTeacher)
+                {
+                    stagedClassTeacherSections.Add(assignment.ClassSectionId.Value);
+                }
+
+                if (assignment.TimePeriodId.HasValue)
+                {
+                    stagedTimePeriods.Add(assignment.TimePeriodId.Value);
+                }
+
+                stagedKeys.Add(stagedKey);
+                await _unitOfWork.Employees.AddAssignmentAsync(assignment, cancellationToken);
+                created.Add(TeacherAssignmentMapper.ToAssignmentDto(assignment, classLabels));
+            }
+
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            var resultDto = new TeacherAssignmentBulkEntryResultDto
+            {
+                Created = created,
+                Skipped = skipped
+            };
+            var successResponse = CommonResponse<TeacherAssignmentBulkEntryResultDto>.Success(resultDto, created.Count + " assignment(s) created, " + skipped.Count + " skipped.");
+            return successResponse;
+        }
+
+        public async Task<CommonResponse<bool>> RemoveAssignmentAsync(Guid employeeId, Guid assignmentId, CancellationToken cancellationToken = default)
+        {
+            var assignment = await _unitOfWork.Employees.GetAssignmentByIdAsync(assignmentId, cancellationToken);
+            if (assignment == null || assignment.TeacherId != employeeId)
+            {
+                var notFoundResponse = CommonResponse<bool>.Fail(ResponseCodes.NotFound, "Assignment was not found on this employee.");
+                return notFoundResponse;
+            }
+
+            _unitOfWork.Employees.RemoveAssignment(assignment);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            var successResponse = CommonResponse<bool>.Success(true, "Assignment removed successfully.");
+            return successResponse;
+        }
+
+        public async Task<CommonResponse<List<TeacherAssignmentDto>>> GetAssignmentsAsync(Guid employeeId, CancellationToken cancellationToken = default)
+        {
+            var employee = await _unitOfWork.Employees.GetByIdAsync(employeeId, cancellationToken);
+            if (employee == null)
+            {
+                var notFoundResponse = CommonResponse<List<TeacherAssignmentDto>>.Fail(ResponseCodes.NotFound, "Employee with id '" + employeeId + "' was not found.");
+                return notFoundResponse;
+            }
+
+            var assignments = await _unitOfWork.Employees.GetAssignmentsAsync(employeeId, cancellationToken);
+            var classLabels = await LoadClassLabelMapAsync(cancellationToken);
+
+            var assignmentDtos = new List<TeacherAssignmentDto>();
+            foreach (var assignment in assignments)
+            {
+                var assignmentDto = TeacherAssignmentMapper.ToAssignmentDto(assignment, classLabels);
+                assignmentDtos.Add(assignmentDto);
+            }
+
+            var successResponse = CommonResponse<List<TeacherAssignmentDto>>.Success(assignmentDtos);
+            return successResponse;
+        }
+
+        // Merged Grade+Section+Subject map for TeacherAssignmentDto -- their code namespaces are
+        // distinct by convention, same reasoning every other merged label loader in this codebase
+        // relies on. Ported from the removed TeacherService.LoadClassLabelMapAsync.
+        private async Task<Dictionary<string, string>> LoadClassLabelMapAsync(CancellationToken cancellationToken)
+        {
+            var labelsByCode = ConfigLabelHelper.BuildLabelMap(await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.Grade, cancellationToken));
+            ConfigLabelHelper.MergeLabelMap(labelsByCode, await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.Section, cancellationToken));
+            ConfigLabelHelper.MergeLabelMap(labelsByCode, await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.Subject, cancellationToken));
+            return labelsByCode;
+        }
+
+        // ID card preview (2026-08-06, moved here from the removed TeacherService -- generalized
+        // to read TeachingLicenseNo/Specialization straight off this Employee row instead of
+        // through a separate Teacher profile). Template type stays DocumentTemplateType.TeacherIdCard
+        // (minimal-churn naming decision) even though it's now reachable for any Employee, not just
+        // ones categorized as teaching staff.
+        public async Task<CommonResponse<DocumentPreviewDto>> GetIdCardPreviewAsync(Guid employeeId, CancellationToken cancellationToken = default)
+        {
+            var employee = await _unitOfWork.Employees.GetByIdAsync(employeeId, cancellationToken);
+            if (employee == null)
+            {
+                var notFoundResponse = CommonResponse<DocumentPreviewDto>.Fail(ResponseCodes.NotFound, "Employee with id '" + employeeId + "' was not found.");
+                return notFoundResponse;
+            }
+
+            var documentTemplate = await _unitOfWork.DocumentTemplates.GetByTemplateTypeAsync(DocumentTemplateType.TeacherIdCard, cancellationToken);
+            if (documentTemplate == null)
+            {
+                var noTemplateResponse = CommonResponse<DocumentPreviewDto>.Fail(ResponseCodes.NotFound, "No document template is configured for '" + DocumentTemplateType.TeacherIdCard + "' yet.");
+                return noTemplateResponse;
+            }
+
+            var jobPositionLabels = ConfigLabelHelper.BuildLabelMap(await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.JobPosition, cancellationToken));
+
+            var placeholderValues = new Dictionary<string, string>
+            {
+                { "EmployeeCode", employee.EmployeeCode },
+                { "TeacherName", BuildFullName(employee.FirstName, employee.MiddleName, employee.LastName) },
+                // Value is the resolved label, not the raw code -- a printed ID card should read
+                // "Teacher", not "TEACHER"; the placeholder KEY stays "JobPositionCode" since
+                // that's the fixed name IDocumentTemplateService's placeholder catalog and any
+                // admin-edited template already reference.
+                { "JobPositionCode", ConfigLabelHelper.Resolve(jobPositionLabels, employee.JobPositionCode) },
+                { "TeachingLicenseNo", employee.TeachingLicenseNo },
+                { "Specialization", employee.Specialization },
+                { "JoinDate", employee.JoinDate.HasValue ? employee.JoinDate.Value.ToString("yyyy-MM-dd") : string.Empty },
+                { "Phone", employee.Phone },
+                { "Email", employee.Email }
+            };
+
+            var renderedHtml = TemplateRenderer.Render(documentTemplate.HtmlContent, placeholderValues);
+
+            var documentPreviewDto = new DocumentPreviewDto
+            {
+                TemplateType = DocumentTemplateType.TeacherIdCard,
+                Html = renderedHtml
+            };
+
+            var successResponse = CommonResponse<DocumentPreviewDto>.Success(documentPreviewDto);
             return successResponse;
         }
 
@@ -2039,7 +2396,8 @@ namespace Application.Employees
                 return noPayslipResponse;
             }
 
-            var persistedDetailDto = BuildPersistedPayslipDetail(employee, persistedSlip, monthIndex);
+            var jobPositionLabels = ConfigLabelHelper.BuildLabelMap(await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.JobPosition, cancellationToken));
+            var persistedDetailDto = BuildPersistedPayslipDetail(employee, persistedSlip, monthIndex, jobPositionLabels);
             var successResponse = CommonResponse<PayslipDetailDto>.Success(persistedDetailDto);
             return successResponse;
         }
@@ -2584,6 +2942,26 @@ namespace Application.Employees
 
         public async Task<CommonResponse<EmployeeQualificationDto>> AddQualificationAsync(Guid employeeId, AddEmployeeQualificationCommand command, CancellationToken cancellationToken = default)
         {
+            return await AddQualificationInternalAsync(employeeId, command, VerificationStatus.Approved, cancellationToken);
+        }
+
+        // Self-service (2026-08-07): the employee adding their own qualification -- starts
+        // Pending, unlike the admin route above, which auto-Approves (see
+        // EmployeeQualification.VerificationStatus's own doc comment).
+        public async Task<CommonResponse<EmployeeQualificationDto>> AddMyQualificationAsync(AddEmployeeQualificationCommand command, CancellationToken cancellationToken = default)
+        {
+            var (employeeId, errorMessage) = await ResolveCurrentEmployeeIdAsync(cancellationToken);
+            if (!employeeId.HasValue)
+            {
+                var notFoundResponse = CommonResponse<EmployeeQualificationDto>.Fail(ResponseCodes.NotFound, errorMessage);
+                return notFoundResponse;
+            }
+
+            return await AddQualificationInternalAsync(employeeId.Value, command, VerificationStatus.Pending, cancellationToken);
+        }
+
+        private async Task<CommonResponse<EmployeeQualificationDto>> AddQualificationInternalAsync(Guid employeeId, AddEmployeeQualificationCommand command, VerificationStatus verificationStatus, CancellationToken cancellationToken)
+        {
             var validationResult = _addQualificationValidator.Validate(command);
             if (!validationResult.IsValid)
             {
@@ -2615,14 +2993,23 @@ namespace Application.Employees
                 Institution = command.Institution?.Trim(),
                 CompletionYear = command.CompletionYear,
                 Score = command.Score?.Trim(),
-                Remarks = command.Remarks?.Trim()
+                Remarks = command.Remarks?.Trim(),
+                VerificationStatus = verificationStatus
             };
+
+            if (verificationStatus == VerificationStatus.Approved)
+            {
+                qualification.VerifiedBy = _currentUserService.UserName;
+                qualification.VerifiedTs = DateTimeOffset.UtcNow;
+            }
 
             await _unitOfWork.Employees.AddQualificationAsync(qualification, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            var qualificationDto = EmployeeMapper.ToQualificationDto(qualification);
-            var successResponse = CommonResponse<EmployeeQualificationDto>.Success(qualificationDto, "Qualification added successfully.");
+            var qualificationLabels = await LoadQualificationLabelMapAsync(cancellationToken);
+            var qualificationDto = EmployeeMapper.ToQualificationDto(qualification, qualificationLabels);
+            var successMessage = verificationStatus == VerificationStatus.Pending ? "Qualification added successfully. Pending HR verification." : "Qualification added successfully.";
+            var successResponse = CommonResponse<EmployeeQualificationDto>.Success(qualificationDto, successMessage);
             return successResponse;
         }
 
@@ -2642,6 +3029,53 @@ namespace Application.Employees
             return successResponse;
         }
 
+        // HR verification (2026-08-07) -- permission-gated (EMPLOYEE_QUALIFICATION_VERIFY/
+        // EMPLOYEE_QUALIFICATION_REJECT), granted to whichever role a school treats as "HR", same
+        // "not a hardcoded role" convention as the Accounts/HR dashboard summaries. One-shot: only
+        // a Pending record can be decided, mirroring LeaveRequest's manager/HR decision guard.
+        public async Task<CommonResponse<EmployeeQualificationDto>> VerifyQualificationAsync(Guid employeeId, Guid qualificationId, QualificationVerificationCommand command, CancellationToken cancellationToken = default)
+        {
+            return await RecordQualificationVerificationAsync(employeeId, qualificationId, VerificationStatus.Approved, command, cancellationToken);
+        }
+
+        public async Task<CommonResponse<EmployeeQualificationDto>> RejectQualificationAsync(Guid employeeId, Guid qualificationId, QualificationVerificationCommand command, CancellationToken cancellationToken = default)
+        {
+            return await RecordQualificationVerificationAsync(employeeId, qualificationId, VerificationStatus.Rejected, command, cancellationToken);
+        }
+
+        private async Task<CommonResponse<EmployeeQualificationDto>> RecordQualificationVerificationAsync(Guid employeeId, Guid qualificationId, VerificationStatus decision, QualificationVerificationCommand command, CancellationToken cancellationToken)
+        {
+            var qualification = await _unitOfWork.Employees.GetQualificationByIdAsync(qualificationId, cancellationToken);
+            if (qualification == null || qualification.EmployeeId != employeeId)
+            {
+                var notFoundResponse = CommonResponse<EmployeeQualificationDto>.Fail(ResponseCodes.NotFound, "Qualification was not found on this employee.");
+                return notFoundResponse;
+            }
+
+            if (qualification.VerificationStatus != VerificationStatus.Pending)
+            {
+                var conflictResponse = CommonResponse<EmployeeQualificationDto>.Fail(ResponseCodes.Conflict, "This qualification has already been " + qualification.VerificationStatus.ToString().ToLowerInvariant() + ".");
+                return conflictResponse;
+            }
+
+            qualification.VerificationStatus = decision;
+            qualification.VerificationRemarks = command?.Remarks?.Trim();
+            qualification.VerifiedTs = DateTimeOffset.UtcNow;
+            qualification.VerifiedBy = _currentUserService.UserName;
+
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            var notificationType = decision == VerificationStatus.Approved ? NotificationType.QualificationVerified : NotificationType.QualificationRejected;
+            var notificationTitle = decision == VerificationStatus.Approved ? "Qualification verified" : "Qualification rejected";
+            var notificationMessage = "Your qualification (" + qualification.QualificationCode + ") was " + decision.ToString().ToLowerInvariant() + (string.IsNullOrWhiteSpace(qualification.VerificationRemarks) ? "." : (": " + qualification.VerificationRemarks));
+            await _notificationService.CreateNotificationAsync(employeeId, notificationTitle, notificationMessage, notificationType, cancellationToken);
+
+            var qualificationLabels = await LoadQualificationLabelMapAsync(cancellationToken);
+            var qualificationDto = EmployeeMapper.ToQualificationDto(qualification, qualificationLabels);
+            var successResponse = CommonResponse<EmployeeQualificationDto>.Success(qualificationDto, "Qualification " + decision.ToString().ToLowerInvariant() + " successfully.");
+            return successResponse;
+        }
+
         public async Task<CommonResponse<List<EmployeeQualificationDto>>> GetQualificationsAsync(Guid employeeId, CancellationToken cancellationToken = default)
         {
             var employee = await _unitOfWork.Employees.GetByIdAsync(employeeId, cancellationToken);
@@ -2652,11 +3086,12 @@ namespace Application.Employees
             }
 
             var qualifications = await _unitOfWork.Employees.GetQualificationsAsync(employeeId, cancellationToken);
+            var qualificationLabels = await LoadQualificationLabelMapAsync(cancellationToken);
 
             var qualificationDtos = new List<EmployeeQualificationDto>();
             foreach (var qualification in qualifications)
             {
-                var qualificationDto = EmployeeMapper.ToQualificationDto(qualification);
+                var qualificationDto = EmployeeMapper.ToQualificationDto(qualification, qualificationLabels);
                 qualificationDtos.Add(qualificationDto);
             }
 
@@ -2664,7 +3099,39 @@ namespace Application.Employees
             return successResponse;
         }
 
+        public async Task<CommonResponse<List<EmployeeQualificationDto>>> GetMyQualificationsAsync(CancellationToken cancellationToken = default)
+        {
+            var (employeeId, errorMessage) = await ResolveCurrentEmployeeIdAsync(cancellationToken);
+            if (!employeeId.HasValue)
+            {
+                var notFoundResponse = CommonResponse<List<EmployeeQualificationDto>>.Fail(ResponseCodes.NotFound, errorMessage);
+                return notFoundResponse;
+            }
+
+            return await GetQualificationsAsync(employeeId.Value, cancellationToken);
+        }
+
         public async Task<CommonResponse<EmployeeDocumentDto>> UploadDocumentAsync(Guid employeeId, UploadEmployeeDocumentCommand command, Stream fileContent, string originalFileName, string contentType, long fileSizeBytes, CancellationToken cancellationToken = default)
+        {
+            return await UploadDocumentInternalAsync(employeeId, command, fileContent, originalFileName, contentType, fileSizeBytes, VerificationStatus.Approved, cancellationToken);
+        }
+
+        // Self-service (2026-08-07): the employee uploading their own document -- starts
+        // Pending, unlike the admin route above, which auto-Approves (see
+        // EmployeeDocument.VerificationStatus's own doc comment).
+        public async Task<CommonResponse<EmployeeDocumentDto>> UploadMyDocumentAsync(UploadEmployeeDocumentCommand command, Stream fileContent, string originalFileName, string contentType, long fileSizeBytes, CancellationToken cancellationToken = default)
+        {
+            var (employeeId, errorMessage) = await ResolveCurrentEmployeeIdAsync(cancellationToken);
+            if (!employeeId.HasValue)
+            {
+                var notFoundResponse = CommonResponse<EmployeeDocumentDto>.Fail(ResponseCodes.NotFound, errorMessage);
+                return notFoundResponse;
+            }
+
+            return await UploadDocumentInternalAsync(employeeId.Value, command, fileContent, originalFileName, contentType, fileSizeBytes, VerificationStatus.Pending, cancellationToken);
+        }
+
+        private async Task<CommonResponse<EmployeeDocumentDto>> UploadDocumentInternalAsync(Guid employeeId, UploadEmployeeDocumentCommand command, Stream fileContent, string originalFileName, string contentType, long fileSizeBytes, VerificationStatus verificationStatus, CancellationToken cancellationToken)
         {
             var validationResult = _uploadDocumentValidator.Validate(command);
             if (!validationResult.IsValid)
@@ -2719,8 +3186,15 @@ namespace Application.Employees
                 ContentType = contentType,
                 FileSizeBytes = fileSizeBytes,
                 ValidUntil = command.ValidUntil,
-                Remarks = command.Remarks?.Trim()
+                Remarks = command.Remarks?.Trim(),
+                VerificationStatus = verificationStatus
             };
+
+            if (verificationStatus == VerificationStatus.Approved)
+            {
+                document.VerifiedBy = _currentUserService.UserName;
+                document.VerifiedTs = DateTimeOffset.UtcNow;
+            }
 
             await _unitOfWork.Employees.AddDocumentAsync(document, cancellationToken);
             try
@@ -2734,8 +3208,57 @@ namespace Application.Employees
                 throw;
             }
 
-            var documentDto = EmployeeMapper.ToDocumentDto(document);
-            var successResponse = CommonResponse<EmployeeDocumentDto>.Success(documentDto, "Document uploaded successfully.");
+            var documentLabels = await LoadEmployeeDocumentLabelMapAsync(cancellationToken);
+            var documentDto = EmployeeMapper.ToDocumentDto(document, documentLabels);
+            var successMessage = verificationStatus == VerificationStatus.Pending ? "Document uploaded successfully. Pending HR verification." : "Document uploaded successfully.";
+            var successResponse = CommonResponse<EmployeeDocumentDto>.Success(documentDto, successMessage);
+            return successResponse;
+        }
+
+        // HR verification (2026-08-07) -- permission-gated (EMPLOYEE_DOCUMENT_VERIFY/
+        // EMPLOYEE_DOCUMENT_REJECT), granted to whichever role a school treats as "HR", same
+        // "not a hardcoded role" convention as the Accounts/HR dashboard summaries. One-shot: only
+        // a Pending record can be decided, mirroring LeaveRequest's manager/HR decision guard.
+        public async Task<CommonResponse<EmployeeDocumentDto>> VerifyDocumentAsync(Guid employeeId, Guid documentId, DocumentVerificationCommand command, CancellationToken cancellationToken = default)
+        {
+            return await RecordDocumentVerificationAsync(employeeId, documentId, VerificationStatus.Approved, command, cancellationToken);
+        }
+
+        public async Task<CommonResponse<EmployeeDocumentDto>> RejectDocumentAsync(Guid employeeId, Guid documentId, DocumentVerificationCommand command, CancellationToken cancellationToken = default)
+        {
+            return await RecordDocumentVerificationAsync(employeeId, documentId, VerificationStatus.Rejected, command, cancellationToken);
+        }
+
+        private async Task<CommonResponse<EmployeeDocumentDto>> RecordDocumentVerificationAsync(Guid employeeId, Guid documentId, VerificationStatus decision, DocumentVerificationCommand command, CancellationToken cancellationToken)
+        {
+            var document = await _unitOfWork.Employees.GetDocumentByIdAsync(documentId, cancellationToken);
+            if (document == null || document.EmployeeId != employeeId)
+            {
+                var notFoundResponse = CommonResponse<EmployeeDocumentDto>.Fail(ResponseCodes.NotFound, "Document was not found on this employee.");
+                return notFoundResponse;
+            }
+
+            if (document.VerificationStatus != VerificationStatus.Pending)
+            {
+                var conflictResponse = CommonResponse<EmployeeDocumentDto>.Fail(ResponseCodes.Conflict, "This document has already been " + document.VerificationStatus.ToString().ToLowerInvariant() + ".");
+                return conflictResponse;
+            }
+
+            document.VerificationStatus = decision;
+            document.VerificationRemarks = command?.Remarks?.Trim();
+            document.VerifiedTs = DateTimeOffset.UtcNow;
+            document.VerifiedBy = _currentUserService.UserName;
+
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            var notificationType = decision == VerificationStatus.Approved ? NotificationType.DocumentVerified : NotificationType.DocumentRejected;
+            var notificationTitle = decision == VerificationStatus.Approved ? "Document verified" : "Document rejected";
+            var notificationMessage = "Your document '" + document.DocumentName + "' was " + decision.ToString().ToLowerInvariant() + (string.IsNullOrWhiteSpace(document.VerificationRemarks) ? "." : (": " + document.VerificationRemarks));
+            await _notificationService.CreateNotificationAsync(employeeId, notificationTitle, notificationMessage, notificationType, cancellationToken);
+
+            var documentLabels = await LoadEmployeeDocumentLabelMapAsync(cancellationToken);
+            var documentDto = EmployeeMapper.ToDocumentDto(document, documentLabels);
+            var successResponse = CommonResponse<EmployeeDocumentDto>.Success(documentDto, "Document " + decision.ToString().ToLowerInvariant() + " successfully.");
             return successResponse;
         }
 
@@ -2749,16 +3272,29 @@ namespace Application.Employees
             }
 
             var documents = await _unitOfWork.Employees.GetDocumentsAsync(employeeId, cancellationToken);
+            var documentLabels = await LoadEmployeeDocumentLabelMapAsync(cancellationToken);
 
             var documentDtos = new List<EmployeeDocumentDto>();
             foreach (var document in documents)
             {
-                var documentDto = EmployeeMapper.ToDocumentDto(document);
+                var documentDto = EmployeeMapper.ToDocumentDto(document, documentLabels);
                 documentDtos.Add(documentDto);
             }
 
             var successResponse = CommonResponse<List<EmployeeDocumentDto>>.Success(documentDtos);
             return successResponse;
+        }
+
+        public async Task<CommonResponse<List<EmployeeDocumentDto>>> GetMyDocumentsAsync(CancellationToken cancellationToken = default)
+        {
+            var (employeeId, errorMessage) = await ResolveCurrentEmployeeIdAsync(cancellationToken);
+            if (!employeeId.HasValue)
+            {
+                var notFoundResponse = CommonResponse<List<EmployeeDocumentDto>>.Fail(ResponseCodes.NotFound, errorMessage);
+                return notFoundResponse;
+            }
+
+            return await GetDocumentsAsync(employeeId.Value, cancellationToken);
         }
 
         public async Task<CommonResponse<EmployeeDocumentFileDto>> GetDocumentFileAsync(Guid employeeId, Guid documentId, CancellationToken cancellationToken = default)
@@ -2786,6 +3322,18 @@ namespace Application.Employees
 
             var successResponse = CommonResponse<EmployeeDocumentFileDto>.Success(fileDto);
             return successResponse;
+        }
+
+        public async Task<CommonResponse<EmployeeDocumentFileDto>> GetMyDocumentFileAsync(Guid documentId, CancellationToken cancellationToken = default)
+        {
+            var (employeeId, errorMessage) = await ResolveCurrentEmployeeIdAsync(cancellationToken);
+            if (!employeeId.HasValue)
+            {
+                var notFoundResponse = CommonResponse<EmployeeDocumentFileDto>.Fail(ResponseCodes.NotFound, errorMessage);
+                return notFoundResponse;
+            }
+
+            return await GetDocumentFileAsync(employeeId.Value, documentId, cancellationToken);
         }
 
         public async Task<CommonResponse<bool>> DeleteDocumentAsync(Guid employeeId, Guid documentId, CancellationToken cancellationToken = default)
@@ -3510,12 +4058,14 @@ namespace Application.Employees
         // 2026-07-23: composite Employee Profile page.
         public async Task<CommonResponse<EmployeeProfileDto>> GetEmployeeProfileAsync(Guid employeeId, CancellationToken cancellationToken = default)
         {
-            var employee = await _unitOfWork.Employees.GetByIdWithTeacherAsync(employeeId, cancellationToken);
+            var employee = await _unitOfWork.Employees.GetByIdWithManagerAsync(employeeId, cancellationToken);
             if (employee == null)
             {
                 var notFoundResponse = CommonResponse<EmployeeProfileDto>.Fail(ResponseCodes.NotFound, "Employee with id '" + employeeId + "' was not found.");
                 return notFoundResponse;
             }
+
+            var orgLabels = await LoadOrgLabelMapAsync(cancellationToken);
 
             var profileDto = new EmployeeProfileDto
             {
@@ -3527,10 +4077,15 @@ namespace Application.Employees
                 Email = employee.Email,
                 EmployeeCode = employee.EmployeeCode,
                 LevelCode = employee.LevelCode,
+                LevelLabel = ConfigLabelHelper.Resolve(orgLabels, employee.LevelCode),
                 JobPositionCode = employee.JobPositionCode,
+                JobPositionLabel = ConfigLabelHelper.Resolve(orgLabels, employee.JobPositionCode),
                 EmployeeCategoryCode = employee.EmployeeCategoryCode,
+                EmployeeCategoryLabel = ConfigLabelHelper.Resolve(orgLabels, employee.EmployeeCategoryCode),
                 BranchCode = employee.BranchCode,
+                BranchLabel = ConfigLabelHelper.Resolve(orgLabels, employee.BranchCode),
                 ProvinceCode = employee.ProvinceCode,
+                ProvinceLabel = ConfigLabelHelper.Resolve(orgLabels, employee.ProvinceCode),
                 JoinDate = employee.JoinDate,
                 ServicePeriod = ResolveServicePeriod(employee.JoinDate),
                 ManagerId = employee.ManagerId,
@@ -3554,21 +4109,7 @@ namespace Application.Employees
                 }
             }
 
-            var today = DateTime.UtcNow.Date;
-            if (employee.DateOfBirth.HasValue)
-            {
-                var nextBirthday = RecurringDateHelper.ResolveNextOccurrence(employee.DateOfBirth.Value, today);
-                profileDto.UpcomingEvents.Add(new UpcomingEventDto { Type = "Birthday", Label = "Birthday", Date = nextBirthday });
-            }
-
-            if (employee.JoinDate.HasValue)
-            {
-                var nextAnniversary = RecurringDateHelper.ResolveNextOccurrence(employee.JoinDate.Value, today);
-                if (nextAnniversary.Year > employee.JoinDate.Value.Year)
-                {
-                    profileDto.UpcomingEvents.Add(new UpcomingEventDto { Type = "WorkAnniversary", Label = "Work Anniversary", Date = nextAnniversary });
-                }
-            }
+            profileDto.UpcomingEvents.AddRange(BuildBirthdayAnniversaryEvents(employee, DateTime.UtcNow.Date));
 
             var pendingFilter = new LeaveRequestFilter { EmployeeId = employeeId, IsPending = true };
             var pendingRequests = await _unitOfWork.LeaveRequests.GetPagedByFilterAsync(pendingFilter, 1, int.MaxValue, cancellationToken);
@@ -3579,6 +4120,361 @@ namespace Application.Employees
 
             var successResponse = CommonResponse<EmployeeProfileDto>.Success(profileDto);
             return successResponse;
+        }
+
+        // Window/cap for the Dashboard's "Upcoming Events" widget -- code constants, not config,
+        // same "dashboard-sized, not user-tunable" convention MaxAdvanceBillingMonths already uses.
+        private const int DashboardEventWindowDays = 30;
+        private const int DashboardEventMaxCount = 10;
+
+        // Composite "My Dashboard" page (2026-08-07) -- leave status, class routine + best-effort
+        // "next class", and upcoming holidays/events, all in one call.
+        public async Task<CommonResponse<EmployeeDashboardDto>> GetEmployeeDashboardAsync(Guid employeeId, CancellationToken cancellationToken = default)
+        {
+            var employee = await _unitOfWork.Employees.GetByIdAsync(employeeId, cancellationToken);
+            if (employee == null)
+            {
+                var notFoundResponse = CommonResponse<EmployeeDashboardDto>.Fail(ResponseCodes.NotFound, "Employee with id '" + employeeId + "' was not found.");
+                return notFoundResponse;
+            }
+
+            var dashboardDto = new EmployeeDashboardDto
+            {
+                EmployeeId = employee.Id,
+                EmployeeName = BuildFullName(employee.FirstName, employee.MiddleName, employee.LastName)
+            };
+
+            var fiscalYear = await _unitOfWork.FiscalYears.GetCurrentYearAsync(cancellationToken);
+            if (fiscalYear != null)
+            {
+                var balances = await _unitOfWork.Employees.GetLeaveBalancesByEmployeeIdAsync(employeeId, fiscalYear.Id, cancellationToken);
+                foreach (var balance in balances)
+                {
+                    dashboardDto.LeaveSummary.Add(new LeaveSummaryLineDto
+                    {
+                        LeaveTypeId = balance.LeaveTypeId,
+                        LeaveTypeName = balance.LeaveType != null ? balance.LeaveType.Name : null,
+                        Used = balance.Used,
+                        Allocated = balance.Allocated,
+                        Balance = balance.Balance
+                    });
+                }
+            }
+
+            var pendingFilter = new LeaveRequestFilter { EmployeeId = employeeId, IsPending = true };
+            var pendingRequests = await _unitOfWork.LeaveRequests.GetPagedByFilterAsync(pendingFilter, 1, int.MaxValue, cancellationToken);
+            foreach (var leaveRequest in pendingRequests.Items)
+            {
+                dashboardDto.PendingLeaveRequests.Add(EmployeeMapper.ToLeaveRequestDto(leaveRequest));
+            }
+
+            var assignments = await _unitOfWork.Employees.GetAssignmentsAsync(employeeId, cancellationToken);
+            var classLabels = await LoadClassLabelMapAsync(cancellationToken);
+            var routineEntries = new List<TeacherAssignmentDto>();
+            foreach (var assignment in assignments)
+            {
+                routineEntries.Add(TeacherAssignmentMapper.ToAssignmentDto(assignment, classLabels));
+            }
+
+            routineEntries.Sort(CompareAssignmentsByTimePeriod);
+            dashboardDto.ClassRoutine = routineEntries;
+
+            var nepalNow = NepalDateHelper.GetNepalNow();
+            foreach (var routineEntry in routineEntries)
+            {
+                if (routineEntry.TimePeriodStartTime.HasValue && routineEntry.TimePeriodStartTime.Value >= nepalNow.TimeOfDay)
+                {
+                    dashboardDto.NextClass = routineEntry;
+                    break;
+                }
+            }
+
+            var today = NepalDateHelper.GetNepalToday();
+            var windowEnd = today.AddDays(DashboardEventWindowDays - 1);
+            var upcomingEvents = BuildBirthdayAnniversaryEvents(employee, today);
+
+            var calendarEvents = await _unitOfWork.CalendarEvents.GetActiveByAdDateRangeAsync(today, windowEnd, cancellationToken);
+            foreach (var calendarEvent in calendarEvents)
+            {
+                if (calendarEvent.EventType != CalendarEventType.PublicHoliday && calendarEvent.EventType != CalendarEventType.InternalEvent)
+                {
+                    continue;
+                }
+
+                if (!IsEventScopedToEmployee(calendarEvent, employee))
+                {
+                    continue;
+                }
+
+                var eventType = calendarEvent.EventType == CalendarEventType.PublicHoliday ? "Holiday" : "Event";
+                upcomingEvents.Add(new UpcomingEventDto { Type = eventType, Label = calendarEvent.Title, Date = calendarEvent.AdDate });
+            }
+
+            var festivals = await _unitOfWork.CalendarEvents.GetActiveFestivalsByAdDateRangeAsync(today, windowEnd, cancellationToken);
+            foreach (var festival in festivals)
+            {
+                upcomingEvents.Add(new UpcomingEventDto { Type = "Festival", Label = festival.FestivalName, Date = festival.AdStartDate });
+            }
+
+            upcomingEvents.Sort(CompareUpcomingEventsByDate);
+            if (upcomingEvents.Count > DashboardEventMaxCount)
+            {
+                upcomingEvents.RemoveRange(DashboardEventMaxCount, upcomingEvents.Count - DashboardEventMaxCount);
+            }
+
+            dashboardDto.UpcomingEvents = upcomingEvents;
+
+            var successResponse = CommonResponse<EmployeeDashboardDto>.Success(dashboardDto);
+            return successResponse;
+        }
+
+        // Mirrors CalendarEvent.ProvinceCode/BranchCode's own scoping semantics (both null on the
+        // event means school-wide) -- an employee with no Province/Branch set only ever matches
+        // school-wide events.
+        private static bool IsEventScopedToEmployee(CalendarEvent calendarEvent, Employee employee)
+        {
+            if (calendarEvent.ProvinceCode != null && calendarEvent.ProvinceCode != employee.ProvinceCode)
+            {
+                return false;
+            }
+
+            if (calendarEvent.BranchCode != null && calendarEvent.BranchCode != employee.BranchCode)
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        // Shared by GetEmployeeProfileAsync and GetEmployeeDashboardAsync so the "next birthday /
+        // next work anniversary" figures can never disagree between the two pages.
+        private static List<UpcomingEventDto> BuildBirthdayAnniversaryEvents(Employee employee, DateTime today)
+        {
+            var events = new List<UpcomingEventDto>();
+
+            if (employee.DateOfBirth.HasValue)
+            {
+                var nextBirthday = RecurringDateHelper.ResolveNextOccurrence(employee.DateOfBirth.Value, today);
+                events.Add(new UpcomingEventDto { Type = "Birthday", Label = "Birthday", Date = nextBirthday });
+            }
+
+            if (employee.JoinDate.HasValue)
+            {
+                var nextAnniversary = RecurringDateHelper.ResolveNextOccurrence(employee.JoinDate.Value, today);
+                if (nextAnniversary.Year > employee.JoinDate.Value.Year)
+                {
+                    events.Add(new UpcomingEventDto { Type = "WorkAnniversary", Label = "Work Anniversary", Date = nextAnniversary });
+                }
+            }
+
+            return events;
+        }
+
+        // Routine order: whichever assignments have a period land first, ordered by start time;
+        // assignments with no period assigned yet fall back to subject code (same convention as
+        // StudentService.CompareTimetableEntries).
+        private static int CompareAssignmentsByTimePeriod(TeacherAssignmentDto first, TeacherAssignmentDto second)
+        {
+            if (first.TimePeriodStartTime.HasValue && second.TimePeriodStartTime.HasValue)
+            {
+                return first.TimePeriodStartTime.Value.CompareTo(second.TimePeriodStartTime.Value);
+            }
+
+            if (first.TimePeriodStartTime.HasValue != second.TimePeriodStartTime.HasValue)
+            {
+                return first.TimePeriodStartTime.HasValue ? -1 : 1;
+            }
+
+            return string.Compare(first.SubjectCode, second.SubjectCode, StringComparison.Ordinal);
+        }
+
+        private static int CompareUpcomingEventsByDate(UpcomingEventDto first, UpcomingEventDto second)
+        {
+            return first.Date.CompareTo(second.Date);
+        }
+
+        // Self-service "Me" endpoints (2026-08-06) -- for any login whose ApplicationUser is
+        // linked to an Employee row (Employee.UserId), regardless of which role they hold
+        // (Teacher, Accountant, HR, Principal, ...). These take no {id} route parameter at all --
+        // the caller's own employee record is resolved server-side from ICurrentUserService,
+        // so there's no id for a bad actor to substitute. Deliberately thin: each just resolves
+        // the current employee then delegates to the existing employeeId-taking method above, so
+        // there is exactly one implementation of each capability, not a parallel copy (same
+        // lesson the removed Teacher-alias layer taught the hard way). Wired into
+        // WebApi/appsettings.json's DefaultEnabledMenu (not a permission-row grant) -- self access
+        // to your own data isn't a privilege a role should need to be handed.
+
+        private async Task<(Guid? EmployeeId, string ErrorMessage)> ResolveCurrentEmployeeIdAsync(CancellationToken cancellationToken)
+        {
+            var userId = _currentUserService.UserId;
+            if (!userId.HasValue)
+            {
+                return (null, "No authenticated user.");
+            }
+
+            var employee = await _unitOfWork.Employees.GetByUserIdAsync(userId.Value, cancellationToken);
+            if (employee == null)
+            {
+                return (null, "Your account is not linked to an employee record.");
+            }
+
+            return (employee.Id, null);
+        }
+
+        public async Task<CommonResponse<EmployeeProfileDto>> GetMyProfileAsync(CancellationToken cancellationToken = default)
+        {
+            var (employeeId, errorMessage) = await ResolveCurrentEmployeeIdAsync(cancellationToken);
+            if (!employeeId.HasValue)
+            {
+                var notFoundResponse = CommonResponse<EmployeeProfileDto>.Fail(ResponseCodes.NotFound, errorMessage);
+                return notFoundResponse;
+            }
+
+            return await GetEmployeeProfileAsync(employeeId.Value, cancellationToken);
+        }
+
+        public async Task<CommonResponse<List<EmployeeLeaveBalanceDto>>> GetMyLeaveBalancesAsync(Guid? fiscalYearId, CancellationToken cancellationToken = default)
+        {
+            var (employeeId, errorMessage) = await ResolveCurrentEmployeeIdAsync(cancellationToken);
+            if (!employeeId.HasValue)
+            {
+                var notFoundResponse = CommonResponse<List<EmployeeLeaveBalanceDto>>.Fail(ResponseCodes.NotFound, errorMessage);
+                return notFoundResponse;
+            }
+
+            return await GetLeaveBalancesAsync(employeeId.Value, fiscalYearId, cancellationToken);
+        }
+
+        public async Task<CommonResponse<LeaveRequestDto>> CreateMyLeaveRequestAsync(CreateLeaveRequestCommand command, Stream attachmentContent, string attachmentFileName, string attachmentContentType, long attachmentFileSizeBytes, CancellationToken cancellationToken = default)
+        {
+            var (employeeId, errorMessage) = await ResolveCurrentEmployeeIdAsync(cancellationToken);
+            if (!employeeId.HasValue)
+            {
+                var notFoundResponse = CommonResponse<LeaveRequestDto>.Fail(ResponseCodes.NotFound, errorMessage);
+                return notFoundResponse;
+            }
+
+            return await CreateLeaveRequestAsync(employeeId.Value, command, attachmentContent, attachmentFileName, attachmentContentType, attachmentFileSizeBytes, cancellationToken);
+        }
+
+        public async Task<CommonResponse<List<LeaveRequestDto>>> GetMyLeaveRequestsAsync(LeaveApprovalStatus? managerStatus, LeaveApprovalStatus? hrStatus, bool? isPending, CancellationToken cancellationToken = default)
+        {
+            var (employeeId, errorMessage) = await ResolveCurrentEmployeeIdAsync(cancellationToken);
+            if (!employeeId.HasValue)
+            {
+                var notFoundResponse = CommonResponse<List<LeaveRequestDto>>.Fail(ResponseCodes.NotFound, errorMessage);
+                return notFoundResponse;
+            }
+
+            return await GetLeaveRequestsAsync(employeeId.Value, managerStatus, hrStatus, isPending, cancellationToken);
+        }
+
+        public async Task<CommonResponse<LeaveRequestDto>> GetMyLeaveRequestByIdAsync(Guid requestId, CancellationToken cancellationToken = default)
+        {
+            var (employeeId, errorMessage) = await ResolveCurrentEmployeeIdAsync(cancellationToken);
+            if (!employeeId.HasValue)
+            {
+                var notFoundResponse = CommonResponse<LeaveRequestDto>.Fail(ResponseCodes.NotFound, errorMessage);
+                return notFoundResponse;
+            }
+
+            return await GetLeaveRequestByIdAsync(employeeId.Value, requestId, cancellationToken);
+        }
+
+        public async Task<CommonResponse<bool>> CancelMyLeaveRequestAsync(Guid requestId, CancellationToken cancellationToken = default)
+        {
+            var (employeeId, errorMessage) = await ResolveCurrentEmployeeIdAsync(cancellationToken);
+            if (!employeeId.HasValue)
+            {
+                var notFoundResponse = CommonResponse<bool>.Fail(ResponseCodes.NotFound, errorMessage);
+                return notFoundResponse;
+            }
+
+            return await CancelLeaveRequestAsync(employeeId.Value, requestId, cancellationToken);
+        }
+
+        public async Task<CommonResponse<List<PayslipSummaryDto>>> GetMyPayslipsAsync(Guid? fiscalYearId, CancellationToken cancellationToken = default)
+        {
+            var (employeeId, errorMessage) = await ResolveCurrentEmployeeIdAsync(cancellationToken);
+            if (!employeeId.HasValue)
+            {
+                var notFoundResponse = CommonResponse<List<PayslipSummaryDto>>.Fail(ResponseCodes.NotFound, errorMessage);
+                return notFoundResponse;
+            }
+
+            return await GetPayslipsAsync(employeeId.Value, fiscalYearId, cancellationToken);
+        }
+
+        public async Task<CommonResponse<PayslipDetailDto>> GetMyPayslipDetailAsync(Guid fiscalYearId, int monthIndex, CancellationToken cancellationToken = default)
+        {
+            var (employeeId, errorMessage) = await ResolveCurrentEmployeeIdAsync(cancellationToken);
+            if (!employeeId.HasValue)
+            {
+                var notFoundResponse = CommonResponse<PayslipDetailDto>.Fail(ResponseCodes.NotFound, errorMessage);
+                return notFoundResponse;
+            }
+
+            return await GetPayslipDetailAsync(employeeId.Value, fiscalYearId, monthIndex, cancellationToken);
+        }
+
+        public async Task<CommonResponse<DocumentPreviewDto>> GetMyPayslipPreviewAsync(Guid? fiscalYearId, CancellationToken cancellationToken = default)
+        {
+            var (employeeId, errorMessage) = await ResolveCurrentEmployeeIdAsync(cancellationToken);
+            if (!employeeId.HasValue)
+            {
+                var notFoundResponse = CommonResponse<DocumentPreviewDto>.Fail(ResponseCodes.NotFound, errorMessage);
+                return notFoundResponse;
+            }
+
+            return await GetPayslipPreviewAsync(employeeId.Value, fiscalYearId, cancellationToken);
+        }
+
+        public async Task<CommonResponse<TaxPlanningDto>> GetMyTaxPlanningAsync(Guid? fiscalYearId, CancellationToken cancellationToken = default)
+        {
+            var (employeeId, errorMessage) = await ResolveCurrentEmployeeIdAsync(cancellationToken);
+            if (!employeeId.HasValue)
+            {
+                var notFoundResponse = CommonResponse<TaxPlanningDto>.Fail(ResponseCodes.NotFound, errorMessage);
+                return notFoundResponse;
+            }
+
+            return await GetTaxPlanningAsync(employeeId.Value, fiscalYearId, cancellationToken);
+        }
+
+        public async Task<CommonResponse<TaxDetailsGridDto>> GetMyTaxDetailsGridAsync(Guid? fiscalYearId, CancellationToken cancellationToken = default)
+        {
+            var (employeeId, errorMessage) = await ResolveCurrentEmployeeIdAsync(cancellationToken);
+            if (!employeeId.HasValue)
+            {
+                var notFoundResponse = CommonResponse<TaxDetailsGridDto>.Fail(ResponseCodes.NotFound, errorMessage);
+                return notFoundResponse;
+            }
+
+            return await GetTaxDetailsGridAsync(employeeId.Value, fiscalYearId, cancellationToken);
+        }
+
+        public async Task<CommonResponse<List<TeacherAssignmentDto>>> GetMyAssignmentsAsync(CancellationToken cancellationToken = default)
+        {
+            var (employeeId, errorMessage) = await ResolveCurrentEmployeeIdAsync(cancellationToken);
+            if (!employeeId.HasValue)
+            {
+                var notFoundResponse = CommonResponse<List<TeacherAssignmentDto>>.Fail(ResponseCodes.NotFound, errorMessage);
+                return notFoundResponse;
+            }
+
+            return await GetAssignmentsAsync(employeeId.Value, cancellationToken);
+        }
+
+        public async Task<CommonResponse<EmployeeDashboardDto>> GetMyDashboardAsync(CancellationToken cancellationToken = default)
+        {
+            var (employeeId, errorMessage) = await ResolveCurrentEmployeeIdAsync(cancellationToken);
+            if (!employeeId.HasValue)
+            {
+                var notFoundResponse = CommonResponse<EmployeeDashboardDto>.Fail(ResponseCodes.NotFound, errorMessage);
+                return notFoundResponse;
+            }
+
+            return await GetEmployeeDashboardAsync(employeeId.Value, cancellationToken);
         }
 
         // "3 years 4 months" -- whole months only (no day-level granularity, matching the
@@ -3633,7 +4529,7 @@ namespace Application.Employees
 
         // Maps a persisted SalarySlip (payroll-run redesign, 2026-07-16) onto the same
         // PayslipDetailDto shape the projection produces, so the UI needs no second model.
-        private static PayslipDetailDto BuildPersistedPayslipDetail(Employee employee, SalarySlip slip, int monthIndex)
+        private static PayslipDetailDto BuildPersistedPayslipDetail(Employee employee, SalarySlip slip, int monthIndex, IReadOnlyDictionary<string, string> jobPositionLabelsByCode = null)
         {
             var incomeLines = new List<MonthlyLineItemDto>();
             var deductionLines = new List<MonthlyLineItemDto>();
@@ -3670,6 +4566,7 @@ namespace Application.Employees
                 EmployeeName = BuildFullName(employee.FirstName, employee.MiddleName, employee.LastName),
                 EmployeeCode = employee.EmployeeCode,
                 JobPositionCode = employee.JobPositionCode,
+                JobPositionLabel = ConfigLabelHelper.Resolve(jobPositionLabelsByCode, employee.JobPositionCode),
                 PayMonthLabel = MonthlyBreakdownCalculator.GetMonthName(monthIndex) + "/" + fiscalYearCode,
                 MonthDays = slip.MonthDays,
                 PayDays = (int)Math.Round(slip.PayDays),
@@ -3694,6 +4591,36 @@ namespace Application.Employees
             ConfigLabelHelper.MergeLabelMap(labelsByCode, await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.DeductionType, cancellationToken));
             ConfigLabelHelper.MergeLabelMap(labelsByCode, await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.InsuranceType, cancellationToken));
             ConfigLabelHelper.MergeLabelMap(labelsByCode, await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.SalaryAdjustmentType, cancellationToken));
+            return labelsByCode;
+        }
+
+        // Merged label map for every "org chart" code an Employee/EmployeeProfile row carries --
+        // category, position, branch, province, level, district, local level (2026-08-05, part of
+        // moving Config code->label resolution server-side application-wide instead of leaving it
+        // to per-caller UI dropdown lookups -- see the same-day round in
+        // Docs/config_label_resolution_implementation_guide.md). Their code namespaces are
+        // distinct by convention, same reasoning LoadCompensationLabelMapAsync's own merge relies on.
+        private async Task<Dictionary<string, string>> LoadOrgLabelMapAsync(CancellationToken cancellationToken)
+        {
+            var labelsByCode = ConfigLabelHelper.BuildLabelMap(await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.EmployeeCategory, cancellationToken));
+            ConfigLabelHelper.MergeLabelMap(labelsByCode, await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.JobPosition, cancellationToken));
+            ConfigLabelHelper.MergeLabelMap(labelsByCode, await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.Branch, cancellationToken));
+            ConfigLabelHelper.MergeLabelMap(labelsByCode, await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.Province, cancellationToken));
+            ConfigLabelHelper.MergeLabelMap(labelsByCode, await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.EmployeeLevel, cancellationToken));
+            ConfigLabelHelper.MergeLabelMap(labelsByCode, await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.District, cancellationToken));
+            ConfigLabelHelper.MergeLabelMap(labelsByCode, await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.LocalLevel, cancellationToken));
+            return labelsByCode;
+        }
+
+        private async Task<Dictionary<string, string>> LoadQualificationLabelMapAsync(CancellationToken cancellationToken)
+        {
+            var labelsByCode = ConfigLabelHelper.BuildLabelMap(await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.EmployeeQualification, cancellationToken));
+            return labelsByCode;
+        }
+
+        private async Task<Dictionary<string, string>> LoadEmployeeDocumentLabelMapAsync(CancellationToken cancellationToken)
+        {
+            var labelsByCode = ConfigLabelHelper.BuildLabelMap(await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.DocumentType, cancellationToken));
             return labelsByCode;
         }
 

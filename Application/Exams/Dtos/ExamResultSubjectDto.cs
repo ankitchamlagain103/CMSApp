@@ -7,6 +7,7 @@ namespace Application.Exams.Dtos
     {
         public Guid ClassSubjectId { get; set; }
         public string SubjectCode { get; set; }
+        public string SubjectLabel { get; set; }
         public int? FullMarks { get; set; }
         public int? PassMarks { get; set; }
         public decimal ObtainedMarks { get; set; }

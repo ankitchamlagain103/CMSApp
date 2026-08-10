@@ -1,5 +1,14 @@
 # CMSApp — Student & Teacher Profile Enhancements (UI)
 
+**Superseded as of 2026-08-05 for the student side** — see
+`Docs/student_timetable_and_profile_optimization_implementation_guide.md`. `GET /api/students/{id}`
+no longer returns `currentEnrollment.subjects[]` or `enrollmentHistory[]` (both moved to their own
+endpoints, `GET .../timetable` and `GET .../enrollment-history`), and `guardians[]` on that same
+endpoint is now always empty (moved to `GET .../guardians`, which already existed). **`currentEnrollment`
+itself still exists** on the response, just without the `subjects[]` list — see §1 below for the
+fields that are still accurate. **§2 (`PUT` guardians three-way sync) and the teacher-side
+`serviceHistory` mention in §3 are unaffected.**
+
 **What shipped (2026-07-13)**: additions to the existing student/teacher endpoints — no new routes.
 
 1. `GET /api/students/{id}` now returns a **`currentEnrollment`** block: the student's current class/section/year, roll number, and the subjects they are studying.
