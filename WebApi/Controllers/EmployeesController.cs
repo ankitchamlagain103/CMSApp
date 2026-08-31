@@ -42,6 +42,17 @@ namespace WebApi.Controllers
             return Ok(response);
         }
 
+        // Minimal name/code-only search for picker UIs (Manager, leave Substitute, ...) --
+        // DefaultEnabledMenu-gated, no permission row, same "every authenticated user needs this
+        // read" reasoning as Calendar's GetToday/ConvertAdToBs. Deliberately placed before the
+        // {id:guid} route below so "lookup" is never captured as a Guid route value.
+        [HttpGet("lookup")]
+        public async Task<ActionResult<CommonResponse<List<EmployeeLookupDto>>>> GetEmployeesLookup([FromQuery] string search, [FromQuery] int limit, CancellationToken cancellationToken)
+        {
+            var response = await _employeeService.GetEmployeeLookupAsync(search, limit, cancellationToken);
+            return Ok(response);
+        }
+
         [HttpGet("{id:guid}")]
         public async Task<ActionResult<CommonResponse<EmployeeDto>>> GetEmployeeById(Guid id, CancellationToken cancellationToken)
         {
@@ -149,6 +160,23 @@ namespace WebApi.Controllers
         public async Task<ActionResult<CommonResponse<TeacherAssignmentBulkEntryResultDto>>> AssignClassSubjectBulkEntry(Guid id, [FromBody] AssignTeacherBulkEntryCommand command, CancellationToken cancellationToken)
         {
             var response = await _employeeService.AssignClassSubjectBulkEntryAsync(id, command, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            if (response.ResponseCode != ResponseCodes.Success)
+            {
+                return BadRequest(response);
+            }
+
+            return Ok(response);
+        }
+
+        [HttpPut("{id:guid}/assignments/{assignmentId:guid}/time-period")]
+        public async Task<ActionResult<CommonResponse<TeacherAssignmentDto>>> UpdateAssignmentTimePeriod(Guid id, Guid assignmentId, [FromBody] UpdateAssignmentTimePeriodCommand command, CancellationToken cancellationToken)
+        {
+            var response = await _employeeService.UpdateAssignmentTimePeriodAsync(id, assignmentId, command, cancellationToken);
             if (response.ResponseCode == ResponseCodes.NotFound)
             {
                 return NotFound(response);

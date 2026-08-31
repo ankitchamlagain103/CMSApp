@@ -54,5 +54,21 @@ namespace Application.Students
         // login at creation time. Always the fixed RoleNames.Student role. 409 Conflict if one
         // already exists.
         Task<CommonResponse<StudentDto>> RegisterUserAccountAsync(Guid studentId, CancellationToken cancellationToken = default);
+
+        // Student Portal self-service -- resolves "which Student am I" from the caller's own
+        // ApplicationUser id (Student.UserId, populated by RegisterUserAccountAsync/portal
+        // provisioning), no id parameter. Same resolve-then-delegate shape as
+        // IEmployeeService's "Me" methods: each one calls the existing id-taking method after
+        // resolving the caller's own studentId, so the response shapes stay byte-for-byte
+        // identical to the admin {id}-scoped routes.
+        Task<CommonResponse<StudentDto>> GetMyProfileAsync(CancellationToken cancellationToken = default);
+
+        Task<CommonResponse<StudentTimetableDto>> GetMyTimetableAsync(CancellationToken cancellationToken = default);
+
+        Task<CommonResponse<List<StudentEnrollmentHistoryDto>>> GetMyEnrollmentHistoryAsync(CancellationToken cancellationToken = default);
+
+        // Composite "My Dashboard" -- current class, fee due summary, recent results, upcoming
+        // events. See StudentDashboardDto's own doc comment.
+        Task<CommonResponse<StudentDashboardDto>> GetMyDashboardAsync(CancellationToken cancellationToken = default);
     }
 }

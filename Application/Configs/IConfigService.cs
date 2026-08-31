@@ -31,5 +31,11 @@ namespace Application.Configs
         // does a case-insensitive Label match (the LocalLevel searchable-lookup case). Both null
         // behaves exactly like the unfiltered call every existing caller already makes.
         Task<CommonResponse<List<DropdownItemDto>>> GetConfigsByTypeCodeAsync(int typeCode, string parentCode = null, string search = null, CancellationToken cancellationToken = default);
+
+        // 2026-08-27: a dropdown of every ConfigType "table" itself (Grade, Section, Subject, ...),
+        // one level up from GetConfigsByTypeCodeAsync above (which lists the options *within* one
+        // type). search does the same case-insensitive Name match GetConfigsByTypeCodeAsync's
+        // search does against Label.
+        Task<CommonResponse<List<DropdownItemDto>>> GetConfigTypesDropdownAsync(string search = null, CancellationToken cancellationToken = default);
     }
 }

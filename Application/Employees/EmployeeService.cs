@@ -347,6 +347,37 @@ namespace Application.Employees
             return successResponse;
         }
 
+        // Minimal, DefaultEnabledMenu-safe search-by-name/code lookup -- backs picker UIs (Manager,
+        // leave Substitute, ...) that only need an id + display name, not the full EmployeeDto
+        // (which carries PAN/SSF/CIT/bank-account fields and stays behind EMPLOYEE_LIST). See
+        // EmployeeLookupDto's own doc comment.
+        public async Task<CommonResponse<List<EmployeeLookupDto>>> GetEmployeeLookupAsync(string search, int limit, CancellationToken cancellationToken = default)
+        {
+            var effectiveLimit = limit <= 0 || limit > 50 ? 20 : limit;
+            var filter = new EmployeeFilter { Search = search };
+            var pagedEmployees = await _unitOfWork.Employees.GetPagedByFilterAsync(filter, 1, effectiveLimit, cancellationToken);
+            var jobPositionLabels = ConfigLabelHelper.BuildLabelMap(await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.JobPosition, cancellationToken));
+
+            var lookupDtos = new List<EmployeeLookupDto>();
+            foreach (var employee in pagedEmployees.Items)
+            {
+                var lookupDto = new EmployeeLookupDto
+                {
+                    Id = employee.Id,
+                    FirstName = employee.FirstName,
+                    MiddleName = employee.MiddleName,
+                    LastName = employee.LastName,
+                    EmployeeCode = employee.EmployeeCode,
+                    JobPositionCode = employee.JobPositionCode,
+                    JobPositionLabel = ConfigLabelHelper.Resolve(jobPositionLabels, employee.JobPositionCode)
+                };
+                lookupDtos.Add(lookupDto);
+            }
+
+            var successResponse = CommonResponse<List<EmployeeLookupDto>>.Success(lookupDtos);
+            return successResponse;
+        }
+
         public async Task<CommonResponse<EmployeeDto>> UpdateEmployeeAsync(Guid id, UpdateEmployeeCommand command, CancellationToken cancellationToken = default)
         {
             var validationResult = _updateValidator.Validate(command);
@@ -764,6 +795,56 @@ namespace Application.Employees
 
             var successResponse = CommonResponse<bool>.Success(true, "Assignment removed successfully.");
             return successResponse;
+        }
+
+        public async Task<CommonResponse<TeacherAssignmentDto>> UpdateAssignmentTimePeriodAsync(Guid employeeId, Guid assignmentId, UpdateAssignmentTimePeriodCommand command, CancellationToken cancellationToken = default)
+        {
+            var assignment = await _unitOfWork.Employees.GetAssignmentByIdAsync(assignmentId, cancellationToken);
+            if (assignment == null || assignment.TeacherId != employeeId)
+            {
+                var notFoundResponse = CommonResponse<TeacherAssignmentDto>.Fail(ResponseCodes.NotFound, "Assignment was not found on this employee.");
+                return notFoundResponse;
+            }
+
+            TimePeriod timePeriod = null;
+            if (command.TimePeriodId.HasValue)
+            {
+                timePeriod = await _unitOfWork.TimePeriods.GetByIdAsync(command.TimePeriodId.Value, cancellationToken);
+                if (timePeriod == null)
+                {
+                    var periodNotFoundResponse = CommonResponse<TeacherAssignmentDto>.Fail(ResponseCodes.ValidationError, "Time period with id '" + command.TimePeriodId.Value + "' was not found.");
+                    return periodNotFoundResponse;
+                }
+
+                if (timePeriod.Kind == PeriodKind.Break)
+                {
+                    var breakResponse = CommonResponse<TeacherAssignmentDto>.Fail(ResponseCodes.ValidationError, "'" + timePeriod.Name + "' is a break, not a teaching period.");
+                    return breakResponse;
+                }
+
+                var isMapped = await _unitOfWork.TimePeriods.IsMappedToClassAsync(assignment.ClassSubject.AcademicClassId, command.TimePeriodId.Value, cancellationToken);
+                if (!isMapped)
+                {
+                    var notMappedResponse = CommonResponse<TeacherAssignmentDto>.Fail(ResponseCodes.ValidationError, "'" + timePeriod.Name + "' is not mapped to this class -- map it first via the Time Periods screen.");
+                    return notMappedResponse;
+                }
+
+                var hasTimePeriodConflict = await _unitOfWork.Employees.TeacherHasTimePeriodConflictAsync(employeeId, command.TimePeriodId.Value, assignmentId, cancellationToken);
+                if (hasTimePeriodConflict)
+                {
+                    var conflictResponse = CommonResponse<TeacherAssignmentDto>.Fail(ResponseCodes.Conflict, "This employee is already assigned to another class/section during '" + timePeriod.Name + "'.");
+                    return conflictResponse;
+                }
+            }
+
+            assignment.TimePeriodId = command.TimePeriodId;
+            assignment.TimePeriod = timePeriod;
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            var classLabels = await LoadClassLabelMapAsync(cancellationToken);
+            var assignmentDto = TeacherAssignmentMapper.ToAssignmentDto(assignment, classLabels);
+            var successUpdateResponse = CommonResponse<TeacherAssignmentDto>.Success(assignmentDto, "Assignment period updated successfully.");
+            return successUpdateResponse;
         }
 
         public async Task<CommonResponse<List<TeacherAssignmentDto>>> GetAssignmentsAsync(Guid employeeId, CancellationToken cancellationToken = default)

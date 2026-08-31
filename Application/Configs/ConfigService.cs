@@ -312,6 +312,35 @@ namespace Application.Configs
             return successResponse;
         }
 
+        public async Task<CommonResponse<List<DropdownItemDto>>> GetConfigTypesDropdownAsync(string search = null, CancellationToken cancellationToken = default)
+        {
+            var configTypes = await _unitOfWork.ConfigTypes.GetAllAsync(cancellationToken);
+
+            var matchingConfigTypes = new List<ConfigType>();
+            foreach (var configType in configTypes)
+            {
+                var trimmedSearch = search?.Trim();
+                if (!string.IsNullOrWhiteSpace(trimmedSearch) && !configType.Name.Contains(trimmedSearch, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                matchingConfigTypes.Add(configType);
+            }
+
+            var orderedConfigTypes = matchingConfigTypes.OrderBy(configType => configType.Name).ToList();
+
+            var dropdownItemDtos = new List<DropdownItemDto>();
+            foreach (var configType in orderedConfigTypes)
+            {
+                var dropdownItemDto = ConfigMapper.ToDropdownItemDto(configType);
+                dropdownItemDtos.Add(dropdownItemDto);
+            }
+
+            var successResponse = CommonResponse<List<DropdownItemDto>>.Success(dropdownItemDtos);
+            return successResponse;
+        }
+
         // fee_frequency hook (2026-07-16): for FeeCategory options, AdditionalValue1 is the
         // normative billing frequency fee generation defaults from, so a missing/unknown value
         // is rejected here rather than surfacing later as a silently-Monthly category. Other

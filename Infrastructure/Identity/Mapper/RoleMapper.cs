@@ -10,7 +10,8 @@ namespace Infrastructure.Identity.Mapper
             {
                 Id = role.Id,
                 Name = role.Name,
-                Description = role.Description
+                Description = role.Description,
+                UserType = role.UserType
             };
 
             return roleDto;

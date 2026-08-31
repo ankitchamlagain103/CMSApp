@@ -190,28 +190,15 @@ namespace Application.Calendars
                 return monthFailureResponse;
             }
 
-            DateTime startAdDate;
-            DateTime endAdDate;
+            if (mode == "AD" && (query.Year < 1944 || query.Year > 2200))
+            {
+                var yearFailureResponse = CommonResponse<CalendarMonthViewDto>.Fail(ResponseCodes.ValidationError, "AD year must be between 1944 and 2200.");
+                return yearFailureResponse;
+            }
+
             try
             {
-                if (mode == "BS")
-                {
-                    var totalDays = await _conversionService.GetDaysInBsMonthAsync(query.Year, query.Month, cancellationToken);
-                    startAdDate = await _conversionService.ConvertBsToAdAsync(query.Year, query.Month, 1, cancellationToken);
-                    endAdDate = startAdDate.AddDays(totalDays - 1);
-                }
-                else
-                {
-                    if (query.Year < 1944 || query.Year > 2200)
-                    {
-                        var yearFailureResponse = CommonResponse<CalendarMonthViewDto>.Fail(ResponseCodes.ValidationError, "AD year must be between 1944 and 2200.");
-                        return yearFailureResponse;
-                    }
-
-                    startAdDate = new DateTime(query.Year, query.Month, 1);
-                    endAdDate = new DateTime(query.Year, query.Month, DateTime.DaysInMonth(query.Year, query.Month));
-                }
-
+                var (startAdDate, endAdDate) = await ResolveMonthAdRangeAsync(mode, query.Year, query.Month, cancellationToken);
                 var monthViewDto = await BuildMonthViewAsync(mode, query.Year, query.Month, startAdDate, endAdDate, cancellationToken);
                 var successResponse = CommonResponse<CalendarMonthViewDto>.Success(monthViewDto);
                 return successResponse;
@@ -221,6 +208,49 @@ namespace Application.Calendars
                 var conversionFailureResponse = CommonResponse<CalendarMonthViewDto>.Fail(ResponseCodes.ValidationError, calendarException.Message);
                 return conversionFailureResponse;
             }
+        }
+
+        // Same dual-calendar view as GetMonthViewAsync, but all 12 months of the requested year in
+        // one call -- BuildMonthViewAsync per month, reusing the same day-by-day event/festival/
+        // meeting join. Powers the calendar page's Year View toggle.
+        public async Task<CommonResponse<CalendarYearViewDto>> GetYearViewAsync(GetYearViewQuery query, CancellationToken cancellationToken = default)
+        {
+            var mode = string.IsNullOrWhiteSpace(query.Mode) ? "BS" : query.Mode.Trim().ToUpperInvariant();
+            if (mode != "BS" && mode != "AD")
+            {
+                var modeFailureResponse = CommonResponse<CalendarYearViewDto>.Fail(ResponseCodes.ValidationError, "Mode must be 'BS' or 'AD'.");
+                return modeFailureResponse;
+            }
+
+            if (mode == "AD" && (query.Year < 1944 || query.Year > 2200))
+            {
+                var yearFailureResponse = CommonResponse<CalendarYearViewDto>.Fail(ResponseCodes.ValidationError, "AD year must be between 1944 and 2200.");
+                return yearFailureResponse;
+            }
+
+            var yearViewDto = new CalendarYearViewDto
+            {
+                Mode = mode,
+                Year = query.Year
+            };
+
+            try
+            {
+                for (var month = 1; month <= 12; month++)
+                {
+                    var (startAdDate, endAdDate) = await ResolveMonthAdRangeAsync(mode, query.Year, month, cancellationToken);
+                    var monthViewDto = await BuildMonthViewAsync(mode, query.Year, month, startAdDate, endAdDate, cancellationToken);
+                    yearViewDto.Months.Add(monthViewDto);
+                }
+            }
+            catch (BsCalendarException calendarException)
+            {
+                var conversionFailureResponse = CommonResponse<CalendarYearViewDto>.Fail(ResponseCodes.ValidationError, calendarException.Message);
+                return conversionFailureResponse;
+            }
+
+            var successResponse = CommonResponse<CalendarYearViewDto>.Success(yearViewDto);
+            return successResponse;
         }
 
         public async Task<CommonResponse<DualDateDto>> GetTodayAsync(CancellationToken cancellationToken = default)
@@ -657,6 +687,28 @@ namespace Application.Calendars
         }
 
         // --- Private helpers ---
+
+        // Shared by GetMonthViewAsync and GetYearViewAsync (its 12-month loop) -- the AD date span
+        // a given BS or AD month covers. Callers are responsible for the mode/year validation
+        // (BsCalendarException propagates for an out-of-range BS year/month).
+        private async Task<(DateTime StartAdDate, DateTime EndAdDate)> ResolveMonthAdRangeAsync(string mode, int year, int month, CancellationToken cancellationToken)
+        {
+            DateTime startAdDate;
+            DateTime endAdDate;
+            if (mode == "BS")
+            {
+                var totalDays = await _conversionService.GetDaysInBsMonthAsync(year, month, cancellationToken);
+                startAdDate = await _conversionService.ConvertBsToAdAsync(year, month, 1, cancellationToken);
+                endAdDate = startAdDate.AddDays(totalDays - 1);
+            }
+            else
+            {
+                startAdDate = new DateTime(year, month, 1);
+                endAdDate = new DateTime(year, month, DateTime.DaysInMonth(year, month));
+            }
+
+            return (startAdDate, endAdDate);
+        }
 
         private async Task<CalendarMonthViewDto> BuildMonthViewAsync(string mode, int year, int month, DateTime startAdDate, DateTime endAdDate, CancellationToken cancellationToken)
         {

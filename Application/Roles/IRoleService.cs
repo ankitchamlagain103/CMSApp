@@ -25,6 +25,8 @@ namespace Application.Roles
 
         Task<CommonResponse<bool>> RemoveMenuFromRoleAsync(Guid roleId, int menuId, CancellationToken cancellationToken = default);
 
+        Task<CommonResponse<List<RoleClaimDto>>> SyncRoleMenuClaimsAsync(Guid roleId, SyncRoleMenuClaimsCommand command, CancellationToken cancellationToken = default);
+
         Task<CommonResponse<bool>> AssignRoleToUserAsync(AssignRoleToUserCommand command, CancellationToken cancellationToken = default);
 
         Task<CommonResponse<bool>> RemoveRoleFromUserAsync(Guid userId, Guid roleId, CancellationToken cancellationToken = default);

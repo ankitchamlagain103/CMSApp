@@ -62,6 +62,7 @@ namespace Application
             services.AddScoped<IDashboardWidgetProvider, AccountsSummaryWidgetProvider>();
             services.AddScoped<IDashboardWidgetProvider, HrSummaryWidgetProvider>();
             services.AddScoped<IDashboardWidgetProvider, MyDashboardWidgetProvider>();
+            services.AddScoped<IDashboardWidgetProvider, StudentDashboardWidgetProvider>();
         }
 
         private static void RegisterCalendarServices(IServiceCollection services)

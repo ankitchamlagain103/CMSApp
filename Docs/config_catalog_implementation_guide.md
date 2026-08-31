@@ -22,12 +22,37 @@ a `ConfigType`/`Config` behaves.
 | `PUT` | `/api/configs/{id}` | **Edit** a `Config` option — `code`/`label`/`order`/`additionalValue1..3`. |
 | `DELETE` | `/api/configs/{id}` | **Delete** a `Config` option. |
 | `GET` | `/api/configs/dropdown/{typeCode}?parentCode=&search=` | The read-only dropdown feed every form binds to — see "Dropdown endpoint" below. |
+| `GET` | `/api/configs/types/dropdown?search=` | A dropdown of the `ConfigType` "tables" themselves — see "Config type dropdown endpoint" below. |
 
-All ten routes go through the global `AuthorizedAction` filter like every other controller in this
-system — `GetConfigsByTypeCode` (the dropdown feed) is listed in `DefaultEnabledMenu` so any
-authenticated user can populate a dropdown with no permission grant; the other nine need the
-`CONFIG_TYPE_*`/`CONFIG_*` (or per-feature equivalent) permission rows granted to the caller's
-role, same as any other admin CRUD screen.
+All eleven routes go through the global `AuthorizedAction` filter like every other controller in
+this system — `GetConfigsByTypeCode` (the options-within-a-type dropdown feed) is listed in
+`DefaultEnabledMenu` so any authenticated user can populate a dropdown with no permission grant;
+the other ten need the `CONFIG_TYPE_*`/`CONFIG_*` (or per-feature equivalent) permission rows
+granted to the caller's role, same as any other admin CRUD screen — `GetConfigTypesDropdown` in
+particular is deliberately **not** in `DefaultEnabledMenu`: it's gated by the hidden
+`CONFIG_TYPE_DROPDOWN` permission (2026-08-27), granted only to whichever role needs a "pick a
+catalog" selector.
+
+## Config type dropdown endpoint (`GET /api/configs/types/dropdown?search=`)
+
+One level up from the options-within-a-type dropdown below: lists every `ConfigType` itself, not
+the options inside one. Returns the same `DropdownItemDto[]` shape as every other dropdown feed in
+the system (`Application/Common/Models/DropdownItemDto.cs`) — `value` is the type's `typeCode` as a
+string, `label` is its `Name`, `additionalValue1` is its `Description`, sorted by `Name`. `search`
+is an optional case-insensitive substring match against `Name` — omitting it returns every type.
+
+```
+GET /api/configs/types/dropdown?search=fee
+```
+```json
+{
+  "responseCode": "SUCCESS",
+  "data": [
+    { "value": "1010", "label": "Fee Category", "order": 0, "additionalValue1": null, "additionalValue2": null, "additionalValue3": null },
+    { "value": "1017", "label": "Fee Adjustment Type", "order": 0, "additionalValue1": null, "additionalValue2": null, "additionalValue3": null }
+  ]
+}
+```
 
 ## Editing a `ConfigType` (`PUT /api/configs/types/{id}`)
 

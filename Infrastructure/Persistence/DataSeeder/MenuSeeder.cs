@@ -39,6 +39,11 @@ namespace Infrastructure.Persistence.DataSeeder
             public bool IsHidden { get; set; }
             public bool IsQuickLink { get; set; }
             public bool IsDashboardWidget { get; set; }
+
+            // Defaults to Admin (every catalog row was Admin-only before the Student Portal, see
+            // MainMenu/SubMenu's own menuFor parameter) -- RoleService.ResolveMenuAudienceAsync
+            // compares this against the caller's own resolved audience.
+            public string MenuFor { get; set; } = MenuAudience.Admin;
         }
 
         public static async Task SeedAsync(IServiceProvider serviceProvider)
@@ -110,6 +115,10 @@ namespace Infrastructure.Persistence.DataSeeder
             catalog.Add(Permission("ROLE_LIST", "ROLE_CLAIM_LIST", "View Role Claims", "Roles", "GetRoleClaims", 8));
             catalog.Add(Permission("ROLE_LIST", "ROLE_USER_ASSIGN", "Assign Role To User", "Roles", "AssignRoleToUser", 9));
             catalog.Add(Permission("ROLE_LIST", "ROLE_USER_REMOVE", "Remove Role From User", "Roles", "RemoveRoleFromUser", 10));
+            // Full-replace sync (2026-08-24) -- one call to add+remove menu claims in one shot,
+            // same privilege-escalation guard as ROLE_CLAIM_ASSIGN. See
+            // Docs/role_menu_claims_sync_implementation_guide.md.
+            catalog.Add(Permission("ROLE_LIST", "ROLE_CLAIM_SYNC", "Sync Role Menu Claims", "Roles", "SyncRoleMenuClaims", 11));
 
             catalog.Add(MainMenu("CONFIG_MANAGEMENT", "Master Settings", "icons.Settings", 4, null));
             catalog.Add(SubMenu("CONFIG_MANAGEMENT", "CONFIG_TYPE_LIST", "Config Types", "/apps/config-type/list", null, "Configs", "GetConfigTypes", 1, isQuickLink: true));
@@ -122,6 +131,11 @@ namespace Infrastructure.Persistence.DataSeeder
             catalog.Add(Permission("CONFIG_TYPE_LIST", "CONFIG_UPDATE", "Update Config", "Configs", "UpdateConfig", 7));
             catalog.Add(Permission("CONFIG_TYPE_LIST", "CONFIG_DELETE", "Delete Config", "Configs", "DeleteConfig", 8));
             catalog.Add(Permission("CONFIG_TYPE_LIST", "CONFIG_DROPDOWN", "View Config Dropdown", "Configs", "GetConfigsByTypeCode", 9));
+            // Hidden, permission-only entry (2026-08-27) -- a dropdown of every ConfigType
+            // "table" (Grade, Section, Subject, ...) itself, distinct from CONFIG_DROPDOWN above
+            // (which lists the options *within* one type). Not in DefaultEnabledMenu on purpose --
+            // grant CONFIG_TYPE_DROPDOWN to whichever role needs a "pick a catalog" selector.
+            catalog.Add(Permission("CONFIG_TYPE_LIST", "CONFIG_TYPE_DROPDOWN", "View Config Type Dropdown", "Configs", "GetConfigTypesDropdown", 10));
             catalog.Add(SubMenu("CONFIG_MANAGEMENT", "APP_CONFIG_LIST", "App Configs", "/apps/appconfig/list", null, "AppConfigs", "GetAppConfigs", 2));
             catalog.Add(Permission("APP_CONFIG_LIST", "APP_CONFIG_CREATE", "Create App Config", "AppConfigs", "CreateAppConfig", 1));
             catalog.Add(Permission("APP_CONFIG_LIST", "APP_CONFIG_DETAIL", "View App Config Detail", "AppConfigs", "GetAppConfigById", 2));
@@ -200,6 +214,7 @@ namespace Infrastructure.Persistence.DataSeeder
             catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_ASSIGNMENT_BULK_ADD", "Assign Teacher (Bulk Sections)", "Employees", "AssignClassSubjectBulk", 63));
             catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_ASSIGNMENT_BULK_ENTRY_ADD", "Assign Teacher (Bulk Entry)", "Employees", "AssignClassSubjectBulkEntry", 64));
             catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_ASSIGNMENT_REMOVE", "Remove Teacher Assignment", "Employees", "RemoveAssignment", 65));
+            catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_ASSIGNMENT_UPDATE_PERIOD", "Update Teacher Assignment Period", "Employees", "UpdateAssignmentTimePeriod", 73));
             catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_ASSIGNMENT_LIST", "View Teacher Assignments", "Employees", "GetAssignments", 66));
             catalog.Add(Permission("EMPLOYEE_LIST", "EMPLOYEE_ID_CARD_PREVIEW", "Preview Employee ID Card", "Employees", "GetIdCardPreview", 67));
 
@@ -371,21 +386,40 @@ namespace Infrastructure.Persistence.DataSeeder
             catalog.Add(Permission("CALENDAR_CONFIG_LIST", "CALENDAR_LOCALIZATION", "View Calendar Localization", "CalendarConfiguration", "GetLocalizationData", 2));
             catalog.Add(Permission("CALENDAR_CONFIG_LIST", "BS_WEEKDAY_UPDATE", "Update Weekday", "CalendarConfiguration", "UpdateWeekday", 3));
 
-            catalog.Add(MainMenu("CALENDAR_MANAGEMENT", "Calendar", "icons.CalendarOutlined", 12, null));
-            catalog.Add(SubMenu("CALENDAR_MANAGEMENT", "CALENDAR_VIEW", "Calendar", "/apps/calendar", null, "Calendar", "GetMonthView", 1));
+            // menuFor: Both (2026-08-24) -- Month/Year view is a shared read surface, not an
+            // admin-only one: Teacher (Employee-linked UserType.User) and Student self-service
+            // logins both resolve MenuAudience.User (RoleService.ResolveMenuAudience), so an
+            // Admin-only tree would never show up in their nav even after granting the role
+            // claim. The event/festival CRUD permissions nested under CALENDAR_VIEW stay
+            // ungranted for Student/Teacher roles by default -- that's a Role Menu Access
+            // decision, not something MenuFor controls.
+            catalog.Add(MainMenu("CALENDAR_MANAGEMENT", "Calendar", "icons.CalendarOutlined", 12, null, menuFor: MenuAudience.Both));
+            catalog.Add(SubMenu("CALENDAR_MANAGEMENT", "CALENDAR_VIEW", "Calendar", "/apps/calendar", null, "Calendar", "GetMonthView", 1, menuFor: MenuAudience.Both));
             catalog.Add(Permission("CALENDAR_VIEW", "CALENDAR_TODAY", "View Today (Dual Date)", "Calendar", "GetToday", 1));
             catalog.Add(Permission("CALENDAR_VIEW", "CALENDAR_CONVERT_AD_BS", "Convert AD To BS", "Calendar", "ConvertAdToBs", 2));
             catalog.Add(Permission("CALENDAR_VIEW", "CALENDAR_CONVERT_BS_AD", "Convert BS To AD", "Calendar", "ConvertBsToAd", 3));
-            catalog.Add(Permission("CALENDAR_VIEW", "CALENDAR_EVENT_LIST", "View Calendar Events", "Calendar", "GetCalendarEvents", 4));
+            // MenuAudience.Both (2026-08-27): the Events & Holidays tab on the shared DualCalendar
+            // page is now also reachable from the Teacher/Student portal's MY_CALENDAR entry (see
+            // USER_PORTAL section) -- without Both here, RoleService's audience filter would strip
+            // this leaf out of a Teacher/Student's claims tree even after granting it, and the tab
+            // would never show for them.
+            catalog.Add(Permission("CALENDAR_VIEW", "CALENDAR_EVENT_LIST", "View Calendar Events", "Calendar", "GetCalendarEvents", 4, menuFor: MenuAudience.Both));
             catalog.Add(Permission("CALENDAR_VIEW", "CALENDAR_EVENT_CREATE", "Create Calendar Event", "Calendar", "CreateCalendarEvent", 5));
             catalog.Add(Permission("CALENDAR_VIEW", "CALENDAR_EVENT_DETAIL", "View Calendar Event Detail", "Calendar", "GetCalendarEventById", 6));
             catalog.Add(Permission("CALENDAR_VIEW", "CALENDAR_EVENT_UPDATE", "Update Calendar Event", "Calendar", "UpdateCalendarEvent", 7));
             catalog.Add(Permission("CALENDAR_VIEW", "CALENDAR_EVENT_DELETE", "Delete Calendar Event", "Calendar", "DeleteCalendarEvent", 8));
-            catalog.Add(Permission("CALENDAR_VIEW", "FESTIVAL_LIST", "View Festivals", "Calendar", "GetFestivals", 9));
+            // MenuAudience.Both (2026-08-27) -- same reasoning as CALENDAR_EVENT_LIST above; in
+            // Nepal a "festival" (Dashain, Tihar, ...) is usually also the public holiday, so this
+            // is part of the same Teacher/Student "Holiday and Events" view.
+            catalog.Add(Permission("CALENDAR_VIEW", "FESTIVAL_LIST", "View Festivals", "Calendar", "GetFestivals", 9, menuFor: MenuAudience.Both));
             catalog.Add(Permission("CALENDAR_VIEW", "FESTIVAL_CREATE", "Create Festival", "Calendar", "CreateFestival", 10));
             catalog.Add(Permission("CALENDAR_VIEW", "FESTIVAL_DETAIL", "View Festival Detail", "Calendar", "GetFestivalById", 11));
             catalog.Add(Permission("CALENDAR_VIEW", "FESTIVAL_UPDATE", "Update Festival", "Calendar", "UpdateFestival", 12));
             catalog.Add(Permission("CALENDAR_VIEW", "FESTIVAL_DELETE", "Delete Festival", "Calendar", "DeleteFestival", 13));
+            // Year View toggle (2026-08-24) -- GetYearView is already open to any authenticated
+            // user via DefaultEnabledMenu (same bypass as GetMonthView), so this claim only gates
+            // whether the frontend's Month/Year toggle button renders, not the API call itself.
+            catalog.Add(Permission("CALENDAR_VIEW", "CALENDAR_YEAR_VIEW", "View Calendar Year View", "Calendar", "GetYearView", 14));
             catalog.Add(SubMenu("CALENDAR_MANAGEMENT", "MEETING_LIST", "Meetings", "/apps/meeting/list", null, "Meetings", "GetMeetings", 2));
             catalog.Add(Permission("MEETING_LIST", "MEETING_SCHEDULE", "Schedule Meeting", "Meetings", "ScheduleMeeting", 1));
             catalog.Add(Permission("MEETING_LIST", "MEETING_DETAIL", "View Meeting Detail", "Meetings", "GetMeetingById", 2));
@@ -549,26 +583,64 @@ namespace Infrastructure.Persistence.DataSeeder
             // subject/date/time scheduling (see EXAM_CREATE_ROUTINE above). Their catalog rows
             // are retired below (BuildRetiredMenuCodes), not redefined here.
 
-            // My Workspace (2026-08-06) -- self-service nav destinations for any Employee-linked
-            // login (Teacher, Accountant, HR, Principal, ...), backed by EmployeesController's new
-            // "me/..." actions. These rows exist purely for the nav tree / admin catalog --
-            // AuthorizedAction never checks them for the "me" actions, since every one of those is
-            // listed in appsettings.json's DefaultEnabledMenu and works for any authenticated
-            // Employee-linked user regardless of grant. Grant these SUB_MENUs to whichever roles
-            // should actually SEE the links (same one-time role-claims step as any other menu) --
-            // access itself already works either way.
-            catalog.Add(MainMenu("MY_WORKSPACE", "My Workspace", "icons.UserOutlined", 16, null));
+            // User Portal (2026-08-24, unified from the separate My Workspace / Student Portal main
+            // menus below -- both were already the same "end-user self-service" concept, just
+            // split across two top-level nav groups for no functional reason; a login only ever
+            // gets one or the other, never both, per RoleService.ResolveMenuAudience +
+            // usePortalMode.js's exclusivity check on the frontend). Teacher/Employee self-service
+            // rows (backed by EmployeesController's "me/..." actions) and Student self-service rows
+            // (StudentsController's "me/..." actions) now sit side by side under one USER_PORTAL
+            // main menu, split by URL prefix (/apps/user-portal/teacher/... vs
+            // /apps/user-portal/student/...) instead of by main-menu code. These rows exist purely
+            // for the nav tree / admin catalog -- AuthorizedAction never checks them for the "me"
+            // actions, since every one of those is listed in appsettings.json's DefaultEnabledMenu
+            // and works for any authenticated Employee/Student-linked user regardless of grant.
+            // Grant these SUB_MENUs to whichever roles should actually SEE the links (same
+            // one-time role-claims step as any other menu) -- access itself already works either
+            // way.
+            //
+            // MenuAudience.User (2026-08-24, changed from the original Admin default on the old
+            // MY_WORKSPACE tree): Teacher self-service logins are plain UserType.User accounts,
+            // same as Student logins -- RoleService.ResolveMenuAudience resolves both the same way,
+            // so this tree has to be tagged User to still show up for them. See that method's own
+            // comment for the accepted trade-off (a promoted UserType.Admin employee would lose
+            // this from nav).
+            catalog.Add(MainMenu("USER_PORTAL", "User Portal", "icons.UserOutlined", 16, null, menuFor: MenuAudience.User));
             // Composite landing page (2026-08-07) -- leave summary/pending requests, class
             // routine + best-effort "next class", and upcoming holidays/events, one call
-            // (GetMyDashboard). Order 1 so it's the workspace's default/first tab.
-            catalog.Add(SubMenu("MY_WORKSPACE", "MY_DASHBOARD", "My Dashboard", "/apps/my-workspace/dashboard", null, "Employees", "GetMyDashboard", 1, isQuickLink: true, isDashboardWidget: true));
-            catalog.Add(SubMenu("MY_WORKSPACE", "MY_PROFILE", "My Profile", "/apps/my-workspace/profile", null, "Employees", "GetMyProfile", 2));
-            catalog.Add(SubMenu("MY_WORKSPACE", "MY_LEAVE", "Leave & Balance", "/apps/my-workspace/leave", null, "Employees", "GetMyLeaveBalances", 3, isQuickLink: true));
-            catalog.Add(SubMenu("MY_WORKSPACE", "MY_PAYSLIPS", "Payslip & Taxes", "/apps/my-workspace/payslips", null, "Employees", "GetMyPayslips", 4));
-            catalog.Add(SubMenu("MY_WORKSPACE", "MY_CLASSES", "My Classes", "/apps/my-workspace/classes", null, "Employees", "GetMyAssignments", 5));
+            // (GetMyDashboard). Order 1 so it's the portal's default/first tab.
+            catalog.Add(SubMenu("USER_PORTAL", "MY_DASHBOARD", "My Dashboard", "/apps/user-portal/teacher/dashboard", null, "Employees", "GetMyDashboard", 1, isQuickLink: true, isDashboardWidget: true, menuFor: MenuAudience.User));
+            catalog.Add(SubMenu("USER_PORTAL", "MY_PROFILE", "My Profile", "/apps/user-portal/teacher/profile", null, "Employees", "GetMyProfile", 2, menuFor: MenuAudience.User));
+            catalog.Add(SubMenu("USER_PORTAL", "MY_LEAVE", "Leave & Balance", "/apps/user-portal/teacher/leave", null, "Employees", "GetMyLeaveBalances", 3, isQuickLink: true, menuFor: MenuAudience.User));
+            catalog.Add(SubMenu("USER_PORTAL", "MY_PAYSLIPS", "Payslip & Taxes", "/apps/user-portal/teacher/payslips", null, "Employees", "GetMyPayslips", 4, menuFor: MenuAudience.User));
+            catalog.Add(SubMenu("USER_PORTAL", "MY_CLASSES", "My Classes", "/apps/user-portal/teacher/classes", null, "Employees", "GetMyAssignments", 5, menuFor: MenuAudience.User));
             // Teacher data scoping (2026-08-07) -- "my students" landing page; marks entry is
             // reached in-context from a class/exam here, not a separate top-level nav item.
-            catalog.Add(SubMenu("MY_WORKSPACE", "MY_STUDENTS", "My Students", "/apps/my-workspace/students", null, "Students", "GetMyStudents", 6));
+            catalog.Add(SubMenu("USER_PORTAL", "MY_STUDENTS", "My Students", "/apps/user-portal/teacher/students", null, "Students", "GetMyStudents", 6, menuFor: MenuAudience.User));
+
+            // Student side of the same User Portal -- backed by StudentsController's new "me/..."
+            // actions, same "rows exist for the nav tree only, AuthorizedAction never checks them
+            // since every action is DefaultEnabledMenu-listed" reasoning as the Teacher rows above
+            // -- grant these to the seeded Student role (or any future student-facing role) so the
+            // sidebar actually shows them; the API access itself already works either way.
+            catalog.Add(SubMenu("USER_PORTAL", "STUDENT_MY_DASHBOARD", "My Dashboard", "/apps/user-portal/student/dashboard", null, "Students", "GetMyDashboard", 7, isQuickLink: true, isDashboardWidget: true, menuFor: MenuAudience.User));
+            catalog.Add(SubMenu("USER_PORTAL", "STUDENT_MY_PROFILE", "My Profile", "/apps/user-portal/student/profile", null, "Students", "GetMyProfile", 8, menuFor: MenuAudience.User));
+            catalog.Add(SubMenu("USER_PORTAL", "STUDENT_MY_TIMETABLE", "My Timetable", "/apps/user-portal/student/timetable", null, "Students", "GetMyTimetable", 9, menuFor: MenuAudience.User));
+            catalog.Add(SubMenu("USER_PORTAL", "STUDENT_MY_ENROLLMENT_HISTORY", "My Enrollment History", "/apps/user-portal/student/history", null, "Students", "GetMyEnrollmentHistory", 10, menuFor: MenuAudience.User));
+
+            // Shared by both Teacher and Student (2026-08-27) -- not role-scoped data, so one row
+            // covers both sides of the portal, same as the admin CALENDAR_VIEW row it points at
+            // the same Controller/Action for (multiple menu rows sharing one Controller/Action
+            // pair is fine -- AuthorizedAction matches on that pair alone, never on which menu row
+            // found it). Every action GetMonthView reaches is already DefaultEnabledMenu-listed
+            // ("Calendar": "GetToday,ConvertAdToBs,ConvertBsToAd,GetMonthView,GetYearView,
+            // GetCalendarEvents,GetFestivals" in appsettings.json), so this row -- like the
+            // Teacher/Student rows above -- exists for the portal nav tree only; granting it (plus
+            // CALENDAR_VIEW/CALENDAR_EVENT_LIST/FESTIVAL_LIST below, now MenuAudience.Both so the
+            // audience filter in RoleService.GetRoleMenuClaimsAsync doesn't drop them from a
+            // Teacher/Student's claims tree) to the Teacher and Student roles is what actually
+            // makes the "Calendar" tabs render once they land on /apps/calendar.
+            catalog.Add(SubMenu("USER_PORTAL", "MY_CALENDAR", "Calendar", "/apps/calendar", null, "Calendar", "GetMonthView", 11, menuFor: MenuAudience.User));
 
             return catalog;
         }
@@ -687,13 +759,23 @@ namespace Infrastructure.Persistence.DataSeeder
                 "TEACHER_TAX_PLANNING",
                 "TEACHER_SALARY_ANNUAL_FORECAST",
                 "TEACHER_TAX_DETAILS_GRID",
-                "EMPLOYEE_TEACHER_PROMOTE"
+                "EMPLOYEE_TEACHER_PROMOTE",
+
+                // Retired 2026-08-24: My Workspace and Student Portal merged into one USER_PORTAL
+                // main menu (see the catalog entry above) -- both were the same "end-user
+                // self-service" concept split across two nav groups for no functional reason. All
+                // ten of their sub-menu rows (MY_DASHBOARD, MY_PROFILE, ..., STUDENT_MY_*) kept
+                // their codes and just got re-parented under USER_PORTAL in the sync pass above,
+                // so every existing role grant on them survives untouched -- only these two now-
+                // childless MAIN_MENU rows themselves are retired.
+                "MY_WORKSPACE",
+                "STUDENT_PORTAL"
             };
 
             return retiredCodes;
         }
 
-        private static MenuSeedDefinition MainMenu(string code, string displayName, string icon, int order, string url)
+        private static MenuSeedDefinition MainMenu(string code, string displayName, string icon, int order, string url, string menuFor = null)
         {
             var definition = new MenuSeedDefinition
             {
@@ -703,7 +785,8 @@ namespace Infrastructure.Persistence.DataSeeder
                 Icon = icon,
                 MenuType = MenuTypes.MainMenu,
                 Order = order,
-                IsHidden = false
+                IsHidden = false,
+                MenuFor = menuFor ?? MenuAudience.Admin
             };
 
             return definition;
@@ -719,7 +802,8 @@ namespace Infrastructure.Persistence.DataSeeder
             string action,
             int order,
             bool isQuickLink = false,
-            bool isDashboardWidget = false)
+            bool isDashboardWidget = false,
+            string menuFor = null)
         {
             var definition = new MenuSeedDefinition
             {
@@ -734,7 +818,8 @@ namespace Infrastructure.Persistence.DataSeeder
                 Order = order,
                 IsHidden = false,
                 IsQuickLink = isQuickLink,
-                IsDashboardWidget = isDashboardWidget
+                IsDashboardWidget = isDashboardWidget,
+                MenuFor = menuFor ?? MenuAudience.Admin
             };
 
             return definition;
@@ -747,7 +832,8 @@ namespace Infrastructure.Persistence.DataSeeder
             string controller,
             string action,
             int order,
-            bool isDashboardWidget = false)
+            bool isDashboardWidget = false,
+            string menuFor = null)
         {
             var definition = new MenuSeedDefinition
             {
@@ -759,7 +845,8 @@ namespace Infrastructure.Persistence.DataSeeder
                 ParentCode = parentCode,
                 Order = order,
                 IsHidden = true,
-                IsDashboardWidget = isDashboardWidget
+                IsDashboardWidget = isDashboardWidget,
+                MenuFor = menuFor ?? MenuAudience.Admin
             };
 
             return definition;
@@ -796,7 +883,7 @@ namespace Infrastructure.Persistence.DataSeeder
                     Code = definition.Code,
                     DisplayName = definition.DisplayName,
                     MenuType = definition.MenuType,
-                    MenuFor = MenuAudience.Admin
+                    MenuFor = definition.MenuFor
                 };
 
                 dbContext.Menus.Add(menu);
@@ -825,7 +912,7 @@ namespace Infrastructure.Persistence.DataSeeder
                 menu.Url = definition.Url;
                 menu.Icon = definition.Icon;
                 menu.MenuType = definition.MenuType;
-                menu.MenuFor = MenuAudience.Admin;
+                menu.MenuFor = definition.MenuFor;
                 menu.Controller = definition.Controller;
                 menu.Action = definition.Action;
                 menu.ParentId = parentId;

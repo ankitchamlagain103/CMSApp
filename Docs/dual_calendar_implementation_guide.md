@@ -24,14 +24,27 @@ Conversions outside the configured range fail with `VALIDATION_ERROR`, not a 500
 | `CALENDAR_CONFIG_LIST` | Setup → BS Calendar Setup (`/apps/calendar-config/list`) | `GET /api/calendar-configuration/bs-month-lengths` |
 | `BS_MONTH_LENGTH_UPSERT`, `CALENDAR_LOCALIZATION`, `BS_WEEKDAY_UPDATE` | hidden permissions under it | the other config endpoints |
 | `CALENDAR_VIEW` | Calendar → Calendar (`/apps/calendar`) | `GET /api/calendar/month-view` |
+| `CALENDAR_YEAR_VIEW` | hidden permission under it | `GET /api/calendar/year-view` — gates the page's Month/Year toggle button (2026-08-24) |
 | `CALENDAR_TODAY`, `CALENDAR_CONVERT_*`, `CALENDAR_EVENT_*`, `FESTIVAL_*` | hidden permissions under it | conversion utilities + event/festival CRUD |
+
+`CALENDAR_MANAGEMENT`/`CALENDAR_VIEW` are seeded `menuFor: BOTH` (2026-08-24, changed from the
+original Admin-only default) — a Teacher (Employee-linked `UserType.User` account) or Student
+self-service login resolves `MenuAudience.User`, so an Admin-only tree would never appear in
+their nav even after granting the role claim. Grant `CALENDAR_MANAGEMENT` → `CALENDAR_VIEW` →
+`CALENDAR_YEAR_VIEW` (skip the event/festival CRUD permissions) to the Student role and to
+whichever role your Teacher/Employee self-service accounts hold, via Role Menu Access, to give
+them Month + Year calendar view — nothing here is auto-granted by the seeder except to
+SuperAdmin.
 | `MEETING_LIST` | Calendar → Meetings (`/apps/meeting/list`) | `GET /api/meetings` |
 | `MEETING_SCHEDULE`, `MEETING_DETAIL`, `MEETING_UPDATE`, `MEETING_CANCEL`, `MEETING_RESPOND` | hidden permissions under it | the other meeting endpoints |
 
 **Open to any authenticated user without a permission grant** (via `DefaultEnabledMenu`):
 `GET /api/calendar/today`, both `/api/calendar/convert/*` endpoints,
-`GET /api/calendar-configuration/localization-data`, and `POST /api/meetings/respond` —
-these are utility calls every screen with a date picker or an RSVP button needs.
+`GET /api/calendar/month-view`, `GET /api/calendar/year-view`, `GET /api/calendar/events`,
+`GET /api/calendar/festivals`, `GET /api/calendar-configuration/localization-data`, and
+`POST /api/meetings/respond` — these are utility calls every screen with a date picker or an
+RSVP button needs. The `CALENDAR_VIEW`/`CALENDAR_YEAR_VIEW` menu claims above still gate the
+**frontend's** nav link / toggle button — the API itself doesn't check them.
 
 ---
 
@@ -113,6 +126,32 @@ computed against **Nepal time** (UTC+05:45) on the server, so highlight that cel
 Failures: `VALIDATION_ERROR` — bad mode/month, or a BS year with no configured month lengths
 ("BS month-length configuration is missing for BS year X…" — surface this verbatim, it tells
 the admin exactly what to do).
+
+### GET `/api/calendar/year-view?year=2083&mode=BS`
+(2026-08-24) All 12 months of the requested year in one call — `mode` = `BS` (default) or `AD`;
+`year` is read in that calendar. Each entry in `months` is shaped exactly like a `month-view`
+response (same `days` array, same event/festival/meeting joins), so a Year View screen can reuse
+the same per-day rendering logic as Month View, just smaller.
+
+```json
+{
+  "data": {
+    "mode": "BS", "year": 2083,
+    "months": [
+      { "mode": "BS", "year": 2083, "month": 1, "monthNameEn": "Baisakh", "monthNameNp": "वैशाख", "totalDays": 31, "startAdDate": "…", "endAdDate": "…", "days": [ /* same shape as month-view */ ] },
+      /* …11 more months, in order */
+    ]
+  }
+}
+```
+
+Failures: same as `month-view` — `VALIDATION_ERROR` on a bad mode or an AD year outside
+1944–2200 (checked once up front) or a BS year with missing month-length configuration
+(checked per-month; the first missing month fails the whole call).
+
+**Perf note**: this issues the same per-day AD↔BS conversion work as `month-view`, ×12 — expect
+it to be noticeably slower than a single month-view call. Cache it client-side the same way
+(`keepPreviousData`) and don't poll it.
 
 ### GET `/api/calendar/today`
 ### GET `/api/calendar/convert/ad-to-bs?adDate=2026-07-16`

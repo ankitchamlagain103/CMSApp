@@ -6,6 +6,7 @@ using Application.Roles.Dtos;
 using Application.Roles.Queries;
 using Application.Roles.Validators;
 using Domain.Constants;
+using Domain.Entities;
 using Domain.Enums;
 using FluentValidation.Results;
 using Infrastructure.Identity.Mapper;
@@ -23,6 +24,7 @@ namespace Infrastructure.Identity.Services
         private readonly UpdateRoleCommandValidator _updateRoleCommandValidator;
         private readonly AssignMenuToRoleCommandValidator _assignMenuToRoleCommandValidator;
         private readonly AssignRoleToUserCommandValidator _assignRoleToUserCommandValidator;
+        private readonly SyncRoleMenuClaimsCommandValidator _syncRoleMenuClaimsCommandValidator;
         private readonly ApplicationDbContext _dbContext;
         private readonly ICurrentUserService _currentUserService;
 
@@ -33,6 +35,7 @@ namespace Infrastructure.Identity.Services
             UpdateRoleCommandValidator updateRoleCommandValidator,
             AssignMenuToRoleCommandValidator assignMenuToRoleCommandValidator,
             AssignRoleToUserCommandValidator assignRoleToUserCommandValidator,
+            SyncRoleMenuClaimsCommandValidator syncRoleMenuClaimsCommandValidator,
             ApplicationDbContext dbContext,
             ICurrentUserService currentUserService)
         {
@@ -42,6 +45,7 @@ namespace Infrastructure.Identity.Services
             _updateRoleCommandValidator = updateRoleCommandValidator;
             _assignMenuToRoleCommandValidator = assignMenuToRoleCommandValidator;
             _assignRoleToUserCommandValidator = assignRoleToUserCommandValidator;
+            _syncRoleMenuClaimsCommandValidator = syncRoleMenuClaimsCommandValidator;
             _dbContext = dbContext;
             _currentUserService = currentUserService;
         }
@@ -64,10 +68,12 @@ namespace Infrastructure.Identity.Services
                 return conflictResponse;
             }
 
+            var userType = string.IsNullOrEmpty(command.UserType) ? MenuAudience.Both : command.UserType;
             var role = new ApplicationRole
             {
                 Name = command.Name,
-                Description = command.Description
+                Description = command.Description,
+                UserType = userType
             };
 
             var createResult = await _roleManager.CreateAsync(role);
@@ -165,6 +171,10 @@ namespace Infrastructure.Identity.Services
 
             role.Name = command.Name;
             role.Description = command.Description;
+            if (!string.IsNullOrEmpty(command.UserType))
+            {
+                role.UserType = command.UserType;
+            }
 
             var updateResult = await _roleManager.UpdateAsync(role);
             if (!updateResult.Succeeded)
@@ -236,28 +246,25 @@ namespace Infrastructure.Identity.Services
                 .Select(role => role.Id)
                 .ToListAsync(cancellationToken);
 
-            var callerAudience = await ResolveMenuAudienceAsync(user, cancellationToken);
+            var callerAudience = ResolveMenuAudience(user);
             var menuClaims = await GetRoleMenuClaimsAsync(user.Id, roleIds, callerAudience, cancellationToken);
             var successResponse = CommonResponse<List<MenuClaimDto>>.Success(menuClaims);
             return successResponse;
         }
 
-        // "Audience" here is derived from what kind of account this is, not the raw UserType --
-        // UserType.User covers both Employee self-service logins (provisioned via the portal
-        // account feature, see Employee.UserId) and Student portal logins, and those two need
-        // opposite default visibility. SuperAdmin/Admin are unambiguous. A User-type account
-        // linked to an Employee is treated as Admin/staff audience (they use the same admin
-        // panel API surface, just self-service-scoped); everything else (Student-linked, or
-        // unlinked) defaults to the User/portal audience.
-        private async Task<string> ResolveMenuAudienceAsync(ApplicationUser user, CancellationToken cancellationToken)
+        // "Audience" mirrors the account's own UserType directly -- SuperAdmin/Admin resolve
+        // Admin audience, everything else resolves User audience. Reversed 2026-08-24 from the
+        // original "Employee-linked account -> Admin audience" special case: Teacher self-service
+        // logins (Employee-linked) and Student self-service logins are both plain UserType.User
+        // accounts and both belong on the User side of the nav split, same as each other -- My
+        // Workspace's own menu tree moved to MenuAudience.User to match (see
+        // MenuSeeder.BuildMenuCatalog's "My Workspace" section). Accepted trade-off: an Employee
+        // account later promoted to UserType.Admin/SuperAdmin (e.g. a Principal who also
+        // administers the panel) would resolve Admin audience and stop seeing My Workspace in
+        // their nav -- no such account exists in this codebase's seed/sample data today.
+        private string ResolveMenuAudience(ApplicationUser user)
         {
             if (user.UserType == UserType.SuperAdmin || user.UserType == UserType.Admin)
-            {
-                return MenuAudience.Admin;
-            }
-
-            var isLinkedToEmployee = await _dbContext.Employees.AnyAsync(employee => employee.UserId == user.Id, cancellationToken);
-            if (isLinkedToEmployee)
             {
                 return MenuAudience.Admin;
             }
@@ -499,6 +506,170 @@ namespace Infrastructure.Identity.Services
             await _dbContext.SaveChangesAsync(cancellationToken);
 
             var successResponse = CommonResponse<bool>.Success(true, "Menu removed from role successfully.");
+            return successResponse;
+        }
+
+        // Full-replace sync: the caller sends the complete desired set of MenuIds for the role in
+        // one call, and this diffs it against what's currently assigned -- adding what's missing,
+        // removing what's no longer wanted -- in a single SaveChangesAsync. Added specifically so a
+        // "Save" button on a role-permissions screen doesn't have to reliably fire one
+        // POST/DELETE per individual checkbox change (a missed DELETE call for an unchecked menu
+        // was the actual root cause of claims appearing to "never get removed" -- see
+        // Docs/role_menu_claims_sync_implementation_guide.md).
+        public async Task<CommonResponse<List<RoleClaimDto>>> SyncRoleMenuClaimsAsync(Guid roleId, SyncRoleMenuClaimsCommand command, CancellationToken cancellationToken = default)
+        {
+            var validationResult = _syncRoleMenuClaimsCommandValidator.Validate(command);
+            if (!validationResult.IsValid)
+            {
+                var errorMessage = BuildValidationErrorMessage(validationResult);
+                var validationFailureResponse = CommonResponse<List<RoleClaimDto>>.Fail(ResponseCodes.ValidationError, errorMessage);
+                return validationFailureResponse;
+            }
+
+            var role = await _roleManager.FindByIdAsync(roleId.ToString());
+            if (role == null)
+            {
+                var roleNotFoundMessage = "Role with id '" + roleId + "' was not found.";
+                var roleNotFoundResponse = CommonResponse<List<RoleClaimDto>>.Fail(ResponseCodes.NotFound, roleNotFoundMessage);
+                return roleNotFoundResponse;
+            }
+
+            var requestedMenuIds = new List<int>();
+            foreach (var menuId in command.MenuIds)
+            {
+                if (!requestedMenuIds.Contains(menuId))
+                {
+                    requestedMenuIds.Add(menuId);
+                }
+            }
+
+            var requestedMenus = new List<Menu>();
+            if (requestedMenuIds.Count > 0)
+            {
+                requestedMenus = await _dbContext.Menus
+                    .Where(menu => requestedMenuIds.Contains(menu.Id))
+                    .ToListAsync(cancellationToken);
+
+                if (requestedMenus.Count != requestedMenuIds.Count)
+                {
+                    var foundMenuIds = new List<int>();
+                    foreach (var foundMenu in requestedMenus)
+                    {
+                        foundMenuIds.Add(foundMenu.Id);
+                    }
+
+                    var missingMenuIds = new List<int>();
+                    foreach (var requestedMenuId in requestedMenuIds)
+                    {
+                        if (!foundMenuIds.Contains(requestedMenuId))
+                        {
+                            missingMenuIds.Add(requestedMenuId);
+                        }
+                    }
+
+                    var missingMenuMessage = "Menu(s) with id(s) '" + string.Join(", ", missingMenuIds) + "' were not found.";
+                    var missingMenuResponse = CommonResponse<List<RoleClaimDto>>.Fail(ResponseCodes.NotFound, missingMenuMessage);
+                    return missingMenuResponse;
+                }
+            }
+
+            var existingClaims = await _dbContext.RoleClaims
+                .Where(roleClaim => roleClaim.RoleId == roleId)
+                .ToListAsync(cancellationToken);
+
+            var existingMenuIds = new List<int>();
+            foreach (var existingClaim in existingClaims)
+            {
+                existingMenuIds.Add(existingClaim.MenuId);
+            }
+
+            var menuIdsToAdd = new List<int>();
+            foreach (var requestedMenuId in requestedMenuIds)
+            {
+                if (!existingMenuIds.Contains(requestedMenuId))
+                {
+                    menuIdsToAdd.Add(requestedMenuId);
+                }
+            }
+
+            var claimsToRemove = new List<ApplicationRoleClaim>();
+            foreach (var existingClaim in existingClaims)
+            {
+                if (!requestedMenuIds.Contains(existingClaim.MenuId))
+                {
+                    claimsToRemove.Add(existingClaim);
+                }
+            }
+
+            // Same privilege-escalation guard as AssignMenuToRoleAsync -- only checked against
+            // menus being newly added, since removing a claim never hands out a permission.
+            var callerIsSuperAdmin = await IsCallerSuperAdminAsync();
+            if (!callerIsSuperAdmin && menuIdsToAdd.Count > 0)
+            {
+                var callerMenuIds = await GetCallerGrantedMenuIdsAsync(cancellationToken);
+                var forbiddenMenuIds = new List<int>();
+                foreach (var menuIdToAdd in menuIdsToAdd)
+                {
+                    if (!callerMenuIds.Contains(menuIdToAdd))
+                    {
+                        forbiddenMenuIds.Add(menuIdToAdd);
+                    }
+                }
+
+                if (forbiddenMenuIds.Count > 0)
+                {
+                    var forbiddenMenuNames = new List<string>();
+                    foreach (var requestedMenu in requestedMenus)
+                    {
+                        if (forbiddenMenuIds.Contains(requestedMenu.Id))
+                        {
+                            forbiddenMenuNames.Add(requestedMenu.DisplayName);
+                        }
+                    }
+
+                    var escalationMessage = "You cannot grant the following menus because you do not hold them yourself: " + string.Join(", ", forbiddenMenuNames) + ".";
+                    var escalationResponse = CommonResponse<List<RoleClaimDto>>.Fail(ResponseCodes.Forbidden, escalationMessage);
+                    return escalationResponse;
+                }
+            }
+
+            foreach (var menuIdToAdd in menuIdsToAdd)
+            {
+                var menuToAdd = requestedMenus.First(menu => menu.Id == menuIdToAdd);
+                var newRoleClaim = new ApplicationRoleClaim
+                {
+                    RoleId = roleId,
+                    MenuId = menuIdToAdd,
+                    Menu = menuToAdd,
+                    ApplicationRole = role,
+                    ClaimType = "Permission",
+                    ClaimValue = menuToAdd.Code
+                };
+
+                _dbContext.RoleClaims.Add(newRoleClaim);
+            }
+
+            foreach (var claimToRemove in claimsToRemove)
+            {
+                _dbContext.RoleClaims.Remove(claimToRemove);
+            }
+
+            await _dbContext.SaveChangesAsync(cancellationToken);
+
+            var finalClaims = await _dbContext.RoleClaims
+                .Where(roleClaim => roleClaim.RoleId == roleId)
+                .Include(roleClaim => roleClaim.Menu)
+                .OrderBy(roleClaim => roleClaim.MenuId)
+                .ToListAsync(cancellationToken);
+
+            var finalClaimDtos = new List<RoleClaimDto>();
+            foreach (var finalClaim in finalClaims)
+            {
+                var finalClaimDto = RoleClaimMapper.ToDto(finalClaim);
+                finalClaimDtos.Add(finalClaimDto);
+            }
+
+            var successResponse = CommonResponse<List<RoleClaimDto>>.Success(finalClaimDtos, "Role menu claims synced successfully.");
             return successResponse;
         }
 

@@ -564,6 +564,9 @@ namespace Infrastructure.Persistence.Repositories
         public async Task<TeacherAssignment> GetAssignmentByIdAsync(Guid assignmentId, CancellationToken cancellationToken = default)
         {
             var assignment = await DbContext.Set<TeacherAssignment>()
+                .Include(a => a.ClassSubject)
+                .Include(a => a.ClassSection)
+                .Include(a => a.TimePeriod)
                 .FirstOrDefaultAsync(a => a.Id == assignmentId, cancellationToken);
 
             return assignment;
@@ -601,6 +604,16 @@ namespace Infrastructure.Persistence.Repositories
             var hasConflict = await DbContext.Set<TeacherAssignment>()
                 .AnyAsync(assignment => assignment.TeacherId == teacherId
                     && assignment.TimePeriodId == timePeriodId, cancellationToken);
+
+            return hasConflict;
+        }
+
+        public async Task<bool> TeacherHasTimePeriodConflictAsync(Guid teacherId, Guid timePeriodId, Guid excludeAssignmentId, CancellationToken cancellationToken = default)
+        {
+            var hasConflict = await DbContext.Set<TeacherAssignment>()
+                .AnyAsync(assignment => assignment.TeacherId == teacherId
+                    && assignment.TimePeriodId == timePeriodId
+                    && assignment.Id != excludeAssignmentId, cancellationToken);
 
             return hasConflict;
         }

@@ -139,6 +139,14 @@ namespace Infrastructure.Persistence.Repositories
             return admissionNos;
         }
 
+        public async Task<Student> GetByUserIdAsync(Guid userId, CancellationToken cancellationToken = default)
+        {
+            var student = await DbSet
+                .FirstOrDefaultAsync(s => s.UserId == userId, cancellationToken);
+
+            return student;
+        }
+
         public async Task<IReadOnlyList<StudentGuardian>> GetGuardianLinksAsync(Guid studentId, CancellationToken cancellationToken = default)
         {
             var guardianLinks = await DbContext.Set<StudentGuardian>()

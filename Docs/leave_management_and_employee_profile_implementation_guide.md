@@ -89,6 +89,24 @@ bypasses those three caps for any leave type); two new seeded types, Bereavement
 Marriage Leave. See `leave_configurability_implementation_guide.md` for the full reference — this
 section's endpoint shapes are otherwise unchanged.
 
+**2026-08-24: `GET /api/leavetypes` moved to `DefaultEnabledMenu`.** Found while testing the
+self-service Apply Leave modal (`MyLeaveApplyModal`): a Teacher/self-service login had no
+`LEAVE_TYPE_LIST` grant, so the Leave Type dropdown 403'd every time — nobody could actually
+submit a leave request through the self-service flow. `LEAVE_TYPE_LIST`'s admin CRUD
+(create/update/delete/detail) stays permission-gated as before; only the read-only list moved,
+same "every page needs this, don't gate it behind a permission row" reasoning `Configs:
+GetConfigsByTypeCode`/`AcademicYears: GetAcademicYears` already established.
+
+**2026-08-24: new `GET /api/employees/lookup?search=&limit=`** — a minimal, `DefaultEnabledMenu`-
+gated employee search for picker UIs (`EmployeePicker.jsx`'s Manager/Substitute autocomplete),
+found in the same testing pass: the Substitute picker on this same Apply Leave modal called the
+full `GET /api/employees` list, which requires `EMPLOYEE_LIST` — another 403 for the same
+self-service caller, and even for an admin caller it was needlessly returning PAN/SSF/CIT/
+bank-account fields just to populate an autocomplete. Response: `EmployeeLookupDto[]` — `{ id,
+firstName, middleName, lastName, employeeCode, jobPositionCode, jobPositionLabel }`, nothing more.
+`GET /api/employees` itself is unchanged and still requires `EMPLOYEE_LIST` — this is an
+additional, narrower endpoint, not a replacement.
+
 ## Leave Balances — `/api/employees/{id}/leavebalances`
 
 ```

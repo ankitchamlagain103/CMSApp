@@ -133,6 +133,11 @@ namespace Domain.Interfaces
 
         Task<bool> TeacherHasTimePeriodConflictAsync(Guid teacherId, Guid timePeriodId, CancellationToken cancellationToken = default);
 
+        // Same conflict check, excluding the assignment being edited -- used when updating an
+        // existing assignment's own TimePeriodId, where that row itself must not count against
+        // itself as a "conflict".
+        Task<bool> TeacherHasTimePeriodConflictAsync(Guid teacherId, Guid timePeriodId, Guid excludeAssignmentId, CancellationToken cancellationToken = default);
+
         Task AddAssignmentAsync(TeacherAssignment assignment, CancellationToken cancellationToken = default);
 
         void RemoveAssignment(TeacherAssignment assignment);

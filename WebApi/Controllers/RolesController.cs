@@ -174,5 +174,22 @@ namespace WebApi.Controllers
 
             return Ok(response);
         }
+
+        [HttpPut("{roleId:guid}/claims")]
+        public async Task<ActionResult<CommonResponse<List<RoleClaimDto>>>> SyncRoleMenuClaims(Guid roleId, [FromBody] SyncRoleMenuClaimsCommand command, CancellationToken cancellationToken)
+        {
+            var response = await _roleService.SyncRoleMenuClaimsAsync(roleId, command, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            if (response.ResponseCode != ResponseCodes.Success)
+            {
+                return BadRequest(response);
+            }
+
+            return Ok(response);
+        }
     }
 }

@@ -334,19 +334,28 @@ Soft delete — the user vanishes from lists and can't log in, but the row survi
 
 `RoleDto`:
 ```json
-{ "id": "c2222222-0000-0000-0000-000000000001", "name": "Editor", "description": "Can edit content" }
+{ "id": "c2222222-0000-0000-0000-000000000001", "name": "Editor", "description": "Can edit content", "userType": "ADMIN" }
 ```
+`userType` (**2026-08-24**) is `Domain.Constants.MenuAudience` (`ADMIN`/`USER`/`BOTH`), **not**
+the `ApplicationUser.UserType` enum — it's a UI filtering hint for which menus make sense to
+offer in this role's permission-tree editor (an `ADMIN`-tagged role should only be offered
+`ADMIN`/`BOTH` menus; a `USER`-tagged role — a Teacher/Student self-service role — only
+`USER`/`BOTH`). It is **not** enforced by `AuthorizedAction` and does not affect what actually
+lands in a signed-in user's nav tree (that's still `Menu.MenuFor` + account-linkage audience, see
+`GET /api/roles/user-menus` below) — purely a frontend picker filter. Full reference:
+`role_menu_claims_sync_implementation_guide.md`.
 
 ## POST /api/roles
 
-**Request** (`name` required ≤256; `description` optional ≤500):
+**Request** (`name` required ≤256; `description` optional ≤500; `userType` optional, one of
+`ADMIN`/`USER`/`BOTH`, defaults to `BOTH` when omitted):
 ```json
-{ "name": "Editor", "description": "Can edit content" }
+{ "name": "Editor", "description": "Can edit content", "userType": "ADMIN" }
 ```
 
 **Response** (`200`):
 ```json
-{ "responseCode": "SUCCESS", "responseMessage": "Role created successfully.", "data": { "id": "c2222222-...", "name": "Editor", "description": "Can edit content" } }
+{ "responseCode": "SUCCESS", "responseMessage": "Role created successfully.", "data": { "id": "c2222222-...", "name": "Editor", "description": "Can edit content", "userType": "ADMIN" } }
 ```
 
 **Failures** (`400`): `CONFLICT` `"Role 'Editor' already exists."` or `VALIDATION_ERROR`.
@@ -361,7 +370,9 @@ Soft delete — the user vanishes from lists and can't log in, but the row survi
 
 ## PUT /api/roles/{id}
 
-**Request**: same body as create. Renaming re-checks uniqueness.
+**Request**: same body as create. Renaming re-checks uniqueness. `userType` omitted/empty leaves
+the role's current value unchanged (same "null = unchanged" convention as `UpdateUserCommand.RoleIds`);
+supply it explicitly to change it.
 
 **Response** (`200`): `data` = updated `RoleDto`, `"Role updated successfully."` **Failures**: `404 NOT_FOUND`; `400 CONFLICT` on duplicate name; `400 VALIDATION_ERROR`.
 
@@ -373,7 +384,7 @@ Soft delete — the user vanishes from lists and can't log in, but the row survi
 
 Identifies the caller from the JWT (no `userId` parameter). Returns every menu granted to any of the caller's roles, plus the parent `SUB_MENU`/`MAIN_MENU` nodes above them, assembled into a tree. This is the endpoint to call after login to render navigation. Any authenticated user may call it (listed in `DefaultEnabledMenu` — no permission row needed); a user whose roles have no grants gets an empty `data` array, not an error.
 
-**2026-08-07: audience filtering.** A granted menu now only appears in this tree if its `menuFor` (`ADMIN`/`USER`/`BOTH`) matches the caller's own **audience** — `BOTH` always passes. Audience is derived from account linkage, not the raw `userType` claim: SuperAdmin/Admin accounts, and any `User`-type account linked to an `Employee` record (self-service staff logins), are treated as `ADMIN` audience; everything else (a Student-linked account, or an unlinked `User`-type account) is `USER` audience. Today every seeded menu is tagged `ADMIN`, so this is currently a no-op for every staff/admin account and a defense-in-depth guard for Student accounts (which already see an empty tree today since the seeded `Student` role has zero grants) — it starts mattering the moment a real Student-portal menu is tagged `USER`. This does **not** change API authorization — `AuthorizedAction` is unaffected; this only controls what shows up in the nav tree. Full reference: `role_privilege_escalation_guard_implementation_guide.md`.
+**2026-08-07: audience filtering, reversed 2026-08-24.** A granted menu only appears in this tree if its `menuFor` (`ADMIN`/`USER`/`BOTH`) matches the caller's own **audience** — `BOTH` always passes. Audience mirrors the account's own `userType` directly: `SuperAdmin`/`Admin` accounts resolve `ADMIN` audience, everything else (including an Employee-linked self-service login, e.g. a Teacher, and every Student-linked login) resolves `USER` audience. **This was originally the opposite** — an Employee-linked account used to resolve `ADMIN` audience — but that was corrected: Teacher and Student self-service logins are both plain `UserType.User` accounts and belong on the same `USER` side of the split. `MY_WORKSPACE` (Employee/Teacher self-service) and `STUDENT_PORTAL` are both tagged `menuFor: USER` to match. This does **not** change API authorization — `AuthorizedAction` is unaffected; this only controls what shows up in the nav tree. Full reference: `role_menu_claims_sync_implementation_guide.md` (Round 2).
 
 **Response** (`200`, array of root menus, not paginated):
 ```json
@@ -468,6 +479,39 @@ Identifies the caller from the JWT (no `userId` parameter). Returns every menu g
 ## DELETE /api/roles/{roleId}/claims/{menuId}
 
 **Response** (`200`): `{ ..., "responseMessage": "Menu removed from role successfully.", "data": true }` **Failure**: `404 NOT_FOUND` `"This menu is not assigned to the role."`
+
+## PUT /api/roles/{roleId}/claims — sync a role's menu claims (2026-08-24)
+
+**Use this for a permission-tree "Save" button, not the two granular endpoints above.** Send the
+complete set of currently-checked menu ids on every save — the backend diffs it against what the
+role currently has and adds/removes accordingly, in one atomic call. This exists specifically to
+fix a reported bug where unchecking a menu and saving never removed its claim, because the
+frontend save action only called `PUT /api/roles/{id}` (name/description) and skipped firing the
+per-menu `DELETE` calls for unchecked rows.
+
+**Request**:
+```json
+{ "menuIds": [4, 5, 12, 18] }
+```
+`[]` clears every claim from the role. Duplicates are de-duplicated automatically.
+
+**Response** (`200`, `data` = the role's full claim list after the sync, same shape as `GET
+/api/roles/{roleId}/claims`):
+```json
+{
+  "responseCode": "SUCCESS",
+  "responseMessage": "Role menu claims synced successfully.",
+  "data": [
+    { "id": 12, "roleId": "c2222222-0000-0000-0000-000000000001", "menuId": 4, "menuCode": "USER_LIST", "menuDisplayName": "View Users" }
+  ]
+}
+```
+
+**Failures**: `404 NOT_FOUND` (role missing, or one or more `menuIds` don't exist); `400
+VALIDATION_ERROR` (`menuIds` null or contains a value `<= 0`); `400 FORBIDDEN`
+`"You cannot grant the following menus because you do not hold them yourself: <names>."` — same
+privilege-escalation guard as `POST /api/roles/claims`, checked only against newly-added menus.
+SuperAdmin is exempt. Full reference: `role_menu_claims_sync_implementation_guide.md`.
 
 ## Teacher data scoping — My Students & My Marks Entry (2026-08-07)
 
@@ -622,6 +666,24 @@ unfiltered call.
   "responseMessage": "Request processed successfully.",
   "data": [
     { "value": "DRAFT", "label": "Draft", "order": 1, "additionalValue1": null, "additionalValue2": null, "additionalValue3": null }
+  ]
+}
+```
+
+## GET /api/configs/types/dropdown?search= — dropdown of the ConfigType "tables" themselves
+
+Gated by the hidden `CONFIG_TYPE_DROPDOWN` permission (not in `DefaultEnabledMenu` — grant it to
+whichever role needs a "pick a catalog" selector, e.g. an admin screen letting a user choose which
+`ConfigType` to manage). One level up from the endpoint above, which lists the options *within* one
+type — this one lists every type. Same common `DropdownItemDto` shape: `value` = `typeCode` as a
+string, `label` = the type's `Name`, `additionalValue1` = its `Description`, sorted by `Name`.
+`search` (optional) is a case-insensitive substring match against `Name`.
+
+```json
+{
+  "responseCode": "SUCCESS",
+  "data": [
+    { "value": "1002", "label": "Section", "order": 0, "additionalValue1": null, "additionalValue2": null, "additionalValue3": null }
   ]
 }
 ```
@@ -1238,6 +1300,22 @@ today in Nepal time, or `null`), and `upcomingEvents` (Birthday/WorkAnniversary 
 10, Province/Branch-scoped like the calendar itself). No migration needed — reuses
 `Employee.UserId`, `CalendarEvent`, and `FestivalOccurrence`, all pre-existing.
 
+**Calendar Year View + Teacher/Student access (2026-08-24)**: added
+`GET /api/calendar/year-view?year=&mode=BS|AD` — all 12 months of the requested year, each shaped
+exactly like a `month-view` entry (full reference in `dual_calendar_implementation_guide.md`
+§2). Added to `DefaultEnabledMenu` alongside `GetMonthView` (no permission grant needed to call
+it). The calendar page's nav entries, `CALENDAR_MANAGEMENT`/`CALENDAR_VIEW`, changed from
+Admin-only to `menuFor: BOTH` so a Teacher (Employee-linked login) or Student self-service login
+can see "Calendar" in their sidebar once granted — both those account kinds resolve
+`MenuAudience.User` (`RoleService.ResolveMenuAudience`), same as the `USER_PORTAL`/My Workspace
+tree, and an Admin-only menu never shows up for them regardless of role claims. A new hidden leaf,
+`CALENDAR_YEAR_VIEW`, gates the frontend's Month/Year toggle button (the API itself doesn't check
+it). **No claims are auto-granted** — same as everywhere except SuperAdmin's full auto-grant, an
+admin grants `CALENDAR_MANAGEMENT` → `CALENDAR_VIEW` → `CALENDAR_YEAR_VIEW` to the Student role
+and to whichever role covers Teacher/Employee self-service logins, via Role Menu Access, to turn
+this on. Event/festival CRUD permissions nested under `CALENDAR_VIEW` are unaffected — grant those
+separately if a role should also manage them.
+
 ---
 
 # Leave Configurability (2026-07-24, revised same day)
@@ -1576,12 +1654,28 @@ beyond alphabetical; point a "see all results" action at the existing list endpo
 param instead. No migration — read-only over existing data. Full reference:
 `Docs/global_search_implementation_guide.md`.
 
+## Teacher & Student Portal — separate self-service navigation shells (2026-08-21)
+
+A distinct, non-admin-feeling shell for Teacher and Student logins. The Teacher side reuses the
+existing Employee self-service ("Me") endpoints unchanged. The Student side is new: four
+`me/...` routes on `StudentsController` (`GetMyProfile`, `GetMyTimetable`,
+`GetMyEnrollmentHistory`, `GetMyDashboard`), resolved from the JWT via a new
+`IStudentRepository.GetByUserIdAsync`, `DefaultEnabledMenu`-gated like every other "Me" route.
+`GetMyDashboard` returns a new composite `StudentDashboardDto` (current class, fee-due summary,
+recent exam results, upcoming events) and is also wired into the `GET /api/dashboard/widgets`
+registry as `STUDENT_MY_DASHBOARD`. New menu catalog: `STUDENT_PORTAL` main menu (My Dashboard/My
+Profile/My Timetable/My Enrollment History), the **first real `MenuFor = USER` audience** rows in
+this codebase — every menu before this round was hardcoded `MenuFor = ADMIN`
+(`MenuSeeder.MainMenu`/`SubMenu` now accept an optional `menuFor`, defaulting to Admin so nothing
+existing changes). No migration — `Menu.MenuFor` already existed as a column. Full reference:
+`Docs/teacher_student_portal_implementation_guide.md`.
+
 ---
 
 # Seeded data (first run against a migrated DB)
 
 - Roles `SuperAdmin` / `Admin` / `User`, one account per role (credentials from the `Seed` config section). A fourth role, `Student`, is also seeded (2026-07-27) with no seeded account and zero permissions — it's assigned automatically to every student portal account provisioned via `registerUserAccount`/`register-account`.
-- Main menus `DASHBOARD` / `USER_MANAGEMENT` / `CONFIG_MANAGEMENT` / `SETUP` / `STUDENT_MANAGEMENT` / `ACCOUNTS` (2026-08-03 — merges the former `FEE_MANAGEMENT`/`PAYROLL_MANAGEMENT` mains; holds Fee Generation, Salary Generation, Salary Calculator) / `EMPLOYEE_MANAGEMENT` / `CALENDAR_MANAGEMENT` / `LEAVE_MANAGEMENT` / `LOGS` (2026-07-28 — System Access Logs/Error Logs, moved out of `DASHBOARD`) / `EXAM_MANAGEMENT` (2026-07-28 — Exam Terms/Exams/Grade Scales/Marks Entry/Exam Results/Student Promotions; gained Exam Rooms/Hall Arrangements 2026-07-29) with permission leaves covering every protected endpoint (`ACADEMIC_MANAGEMENT`/`TEACHER_MANAGEMENT` retired 2026-07-16 — their contents live under `SETUP`/`EMPLOYEE_LIST`; `FEE_MANAGEMENT`/`PAYROLL_MANAGEMENT` retired 2026-08-03 — their contents live under `ACCOUNTS`); **all permissions granted to the SuperAdmin role** — and SuperAdmin-typed accounts additionally bypass the permission check entirely, so the seeded superadmin works everywhere immediately.
+- Main menus `DASHBOARD` / `USER_MANAGEMENT` / `CONFIG_MANAGEMENT` / `SETUP` / `STUDENT_MANAGEMENT` / `ACCOUNTS` (2026-08-03 — merges the former `FEE_MANAGEMENT`/`PAYROLL_MANAGEMENT` mains; holds Fee Generation, Salary Generation, Salary Calculator) / `EMPLOYEE_MANAGEMENT` / `CALENDAR_MANAGEMENT` / `LEAVE_MANAGEMENT` / `LOGS` (2026-07-28 — System Access Logs/Error Logs, moved out of `DASHBOARD`) / `MY_WORKSPACE` (2026-08-06, Employee/Teacher self-service) / `STUDENT_PORTAL` (2026-08-21, Student self-service — the first `MenuFor = USER` audience menu tree) / `EXAM_MANAGEMENT` (2026-07-28 — Exam Terms/Exams/Grade Scales/Marks Entry/Exam Results/Student Promotions; gained Exam Rooms/Hall Arrangements 2026-07-29) with permission leaves covering every protected endpoint (`ACADEMIC_MANAGEMENT`/`TEACHER_MANAGEMENT` retired 2026-07-16 — their contents live under `SETUP`/`EMPLOYEE_LIST`; `FEE_MANAGEMENT`/`PAYROLL_MANAGEMENT` retired 2026-08-03 — their contents live under `ACCOUNTS`); **all permissions granted to the SuperAdmin role** — and SuperAdmin-typed accounts additionally bypass the permission check entirely, so the seeded superadmin works everywhere immediately.
 - Config catalogs for student management (`typeCode` 1001–1007) plus discount/scholarship/fee-category types (`1008`/`1009`/`1010`, fee categories carrying their normative `fee_frequency`) plus employee-category/job-position/salary-component/deduction/insurance-type (`1011`–`1015`) plus salary/fee adjustment types (`1016`/`1017`) plus SSF rates (`1018`, employee/employer share percentages in `additionalValue1`) plus branch/province/employee-level (`1019`–`1021`, province seeded with Nepal's 7 federal provinces) plus district/local-level (`1022`/`1023`, all 77 districts and 80 of 753 local levels — see `employee_address_implementation_guide.md` before relying on the local-level list for real addresses); default guardian-relationship, teacher-qualification, document-type (teacher + student), discount/scholarship-type (with default rates), all 11 fee-category options, and all employee-side options (categories, positions, salary components, deductions, insurance types with tax-deduction caps); a baseline of app-config settings (`GENERAL`/`THEME`/`ANNOUNCEMENT`, including `FEE_DUE_DAY_OF_MONTH`); one placeholder `FY-SAMPLE` fiscal year with illustrative Individual/Couple tax slabs and retirement-exemption cap (verify before real payroll use); one default `DocumentTemplate` HTML row per type (Payslip/FeeReceipt/StudentIdCard/TeacherIdCard) so the preview endpoints work out of the box; BS calendar reference data (12 month names + 7 weekday names EN/NP with Saturday as the weekly holiday, and the BS 2000–2090 month-length table) so the dual-calendar endpoints work out of the box; baseline `LeaveType` rows (Annual/Sick/Casual, 18/12/12 days, illustrative — verify against actual policy); one illustrative full school day of `TimePeriod` rows (8 periods + Short Break + Lunch Break, 2026-08-03), **not** mapped to any class — that's an admin decision via `POST /api/timeperiods/map`, see `Docs/time_period_and_class_routine_implementation_guide.md`.
 - `Admin`/`User`/`Student` roles start with **zero** permissions; grant via `POST /api/roles/claims` while signed in as superadmin.
 

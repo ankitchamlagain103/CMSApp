@@ -3,6 +3,8 @@ using Application.Common.Interfaces;
 using Application.Common.Models;
 using Application.Common.Validation;
 using Application.DocumentTemplates;
+using Application.Employees.Dtos;
+using Application.Exams;
 using Application.Students.Commands;
 using Application.Students.Dtos;
 using Application.Students.Queries;
@@ -17,6 +19,13 @@ namespace Application.Students
 {
     public class StudentService : IStudentService
     {
+        // Same window/cap convention as EmployeeService.GetEmployeeDashboardAsync's own
+        // dashboard constants -- kept separate (not shared) since the two dashboards are
+        // unrelated features that happen to use the same numbers.
+        private const int DashboardEventWindowDays = 30;
+        private const int DashboardEventMaxCount = 10;
+        private const int DashboardResultMaxCount = 5;
+
         private readonly IUnitOfWork _unitOfWork;
         private readonly IFileStorageService _fileStorage;
         private readonly IIdentityService _identityService;
@@ -691,6 +700,182 @@ namespace Application.Students
             }
 
             return studentResponse;
+        }
+
+        // Student Portal self-service (resolve-then-delegate, same shape as
+        // IEmployeeService's own "Me" methods): each one resolves the caller's own studentId
+        // from the JWT, then calls the existing id-taking method unchanged -- response shapes
+        // stay byte-for-byte identical to the admin {id}-scoped routes.
+
+        private async Task<(Guid? StudentId, string ErrorMessage)> ResolveCurrentStudentIdAsync(CancellationToken cancellationToken)
+        {
+            var userId = _currentUserService.UserId;
+            if (!userId.HasValue)
+            {
+                return (null, "No authenticated user.");
+            }
+
+            var student = await _unitOfWork.Students.GetByUserIdAsync(userId.Value, cancellationToken);
+            if (student == null)
+            {
+                return (null, "Your account is not linked to a student record.");
+            }
+
+            return (student.Id, null);
+        }
+
+        public async Task<CommonResponse<StudentDto>> GetMyProfileAsync(CancellationToken cancellationToken = default)
+        {
+            var (studentId, errorMessage) = await ResolveCurrentStudentIdAsync(cancellationToken);
+            if (!studentId.HasValue)
+            {
+                var notFoundResponse = CommonResponse<StudentDto>.Fail(ResponseCodes.NotFound, errorMessage);
+                return notFoundResponse;
+            }
+
+            return await GetStudentByIdAsync(studentId.Value, cancellationToken);
+        }
+
+        public async Task<CommonResponse<StudentTimetableDto>> GetMyTimetableAsync(CancellationToken cancellationToken = default)
+        {
+            var (studentId, errorMessage) = await ResolveCurrentStudentIdAsync(cancellationToken);
+            if (!studentId.HasValue)
+            {
+                var notFoundResponse = CommonResponse<StudentTimetableDto>.Fail(ResponseCodes.NotFound, errorMessage);
+                return notFoundResponse;
+            }
+
+            return await GetTimetableAsync(studentId.Value, cancellationToken);
+        }
+
+        public async Task<CommonResponse<List<StudentEnrollmentHistoryDto>>> GetMyEnrollmentHistoryAsync(CancellationToken cancellationToken = default)
+        {
+            var (studentId, errorMessage) = await ResolveCurrentStudentIdAsync(cancellationToken);
+            if (!studentId.HasValue)
+            {
+                var notFoundResponse = CommonResponse<List<StudentEnrollmentHistoryDto>>.Fail(ResponseCodes.NotFound, errorMessage);
+                return notFoundResponse;
+            }
+
+            return await GetEnrollmentHistoryAsync(studentId.Value, cancellationToken);
+        }
+
+        public async Task<CommonResponse<StudentDashboardDto>> GetMyDashboardAsync(CancellationToken cancellationToken = default)
+        {
+            var (studentId, errorMessage) = await ResolveCurrentStudentIdAsync(cancellationToken);
+            if (!studentId.HasValue)
+            {
+                var notFoundResponse = CommonResponse<StudentDashboardDto>.Fail(ResponseCodes.NotFound, errorMessage);
+                return notFoundResponse;
+            }
+
+            var student = await _unitOfWork.Students.GetByIdAsync(studentId.Value, cancellationToken);
+            if (student == null)
+            {
+                var notFoundResponse = CommonResponse<StudentDashboardDto>.Fail(ResponseCodes.NotFound, "Student with id '" + studentId.Value + "' was not found.");
+                return notFoundResponse;
+            }
+
+            var dashboardDto = new StudentDashboardDto
+            {
+                StudentId = student.Id,
+                StudentName = BuildStudentFullName(student.FirstName, student.MiddleName, student.LastName)
+            };
+
+            dashboardDto.CurrentEnrollment = await BuildCurrentEnrollmentAsync(studentId.Value, cancellationToken);
+
+            var activeEnrollment = await ResolveActiveEnrollmentAsync(studentId.Value, cancellationToken);
+            if (activeEnrollment != null)
+            {
+                var openInvoices = await _unitOfWork.FeeInvoices.GetOpenByEnrollmentAsync(activeEnrollment.Id, cancellationToken);
+                DateTime? nextDueDate = null;
+                foreach (var invoice in openInvoices)
+                {
+                    var balance = invoice.NetAmount - invoice.PaidAmount;
+                    dashboardDto.TotalOutstandingAmount += balance;
+                    if (!nextDueDate.HasValue || invoice.DueDate < nextDueDate.Value)
+                    {
+                        nextDueDate = invoice.DueDate;
+                    }
+                }
+
+                dashboardDto.OpenInvoiceCount = openInvoices.Count;
+                dashboardDto.NextFeeDueDate = nextDueDate;
+
+                var recentResults = await _unitOfWork.ExamTerms.GetResultsPagedByFilterAsync(null, null, activeEnrollment.Id, 1, DashboardResultMaxCount, cancellationToken);
+                foreach (var result in recentResults.Items)
+                {
+                    dashboardDto.RecentResults.Add(ExamMapper.ToStudentResultDto(result));
+                }
+            }
+
+            var today = NepalDateHelper.GetNepalToday();
+            var windowEnd = today.AddDays(DashboardEventWindowDays - 1);
+            var upcomingEvents = new List<UpcomingEventDto>();
+
+            if (student.DateOfBirth.HasValue)
+            {
+                var nextBirthday = RecurringDateHelper.ResolveNextOccurrence(student.DateOfBirth.Value, today);
+                if (nextBirthday <= windowEnd)
+                {
+                    upcomingEvents.Add(new UpcomingEventDto { Type = "Birthday", Label = "Birthday", Date = nextBirthday });
+                }
+            }
+
+            var calendarEvents = await _unitOfWork.CalendarEvents.GetActiveByAdDateRangeAsync(today, windowEnd, cancellationToken);
+            foreach (var calendarEvent in calendarEvents)
+            {
+                if (calendarEvent.EventType != CalendarEventType.PublicHoliday && calendarEvent.EventType != CalendarEventType.InternalEvent)
+                {
+                    continue;
+                }
+
+                if (calendarEvent.ProvinceCode != null || calendarEvent.BranchCode != null)
+                {
+                    continue;
+                }
+
+                var eventType = calendarEvent.EventType == CalendarEventType.PublicHoliday ? "Holiday" : "Event";
+                upcomingEvents.Add(new UpcomingEventDto { Type = eventType, Label = calendarEvent.Title, Date = calendarEvent.AdDate });
+            }
+
+            var festivals = await _unitOfWork.CalendarEvents.GetActiveFestivalsByAdDateRangeAsync(today, windowEnd, cancellationToken);
+            foreach (var festival in festivals)
+            {
+                upcomingEvents.Add(new UpcomingEventDto { Type = "Festival", Label = festival.FestivalName, Date = festival.AdStartDate });
+            }
+
+            upcomingEvents.Sort((first, second) => DateTime.Compare(first.Date, second.Date));
+            if (upcomingEvents.Count > DashboardEventMaxCount)
+            {
+                upcomingEvents.RemoveRange(DashboardEventMaxCount, upcomingEvents.Count - DashboardEventMaxCount);
+            }
+
+            dashboardDto.UpcomingEvents = upcomingEvents;
+
+            var successResponse = CommonResponse<StudentDashboardDto>.Success(dashboardDto);
+            return successResponse;
+        }
+
+        private static string BuildStudentFullName(string firstName, string middleName, string lastName)
+        {
+            var parts = new List<string>();
+            if (!string.IsNullOrWhiteSpace(firstName))
+            {
+                parts.Add(firstName);
+            }
+
+            if (!string.IsNullOrWhiteSpace(middleName))
+            {
+                parts.Add(middleName);
+            }
+
+            if (!string.IsNullOrWhiteSpace(lastName))
+            {
+                parts.Add(lastName);
+            }
+
+            return string.Join(" ", parts);
         }
 
         private static StudentFilter BuildStudentFilter(GetStudentsQuery query)

@@ -84,6 +84,59 @@ namespace WebApi.Controllers
             return Ok(response);
         }
 
+        // Student Portal self-service (no {id} route parameter -- the caller's own Student is
+        // resolved from the JWT). DefaultEnabledMenu-gated, no permission row -- same "self
+        // access to your own data isn't a privilege" reasoning as every other "Me" route in this
+        // codebase.
+
+        [HttpGet("me/profile")]
+        public async Task<ActionResult<CommonResponse<StudentDto>>> GetMyProfile(CancellationToken cancellationToken)
+        {
+            var response = await _studentService.GetMyProfileAsync(cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            return Ok(response);
+        }
+
+        [HttpGet("me/timetable")]
+        public async Task<ActionResult<CommonResponse<StudentTimetableDto>>> GetMyTimetable(CancellationToken cancellationToken)
+        {
+            var response = await _studentService.GetMyTimetableAsync(cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            return Ok(response);
+        }
+
+        [HttpGet("me/enrollment-history")]
+        public async Task<ActionResult<CommonResponse<List<StudentEnrollmentHistoryDto>>>> GetMyEnrollmentHistory(CancellationToken cancellationToken)
+        {
+            var response = await _studentService.GetMyEnrollmentHistoryAsync(cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            return Ok(response);
+        }
+
+        [HttpGet("me/dashboard")]
+        public async Task<ActionResult<CommonResponse<StudentDashboardDto>>> GetMyDashboard(CancellationToken cancellationToken)
+        {
+            var response = await _studentService.GetMyDashboardAsync(cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            return Ok(response);
+        }
+
         [HttpPut("{id:guid}")]
         public async Task<ActionResult<CommonResponse<StudentDto>>> UpdateStudent(Guid id, [FromBody] UpdateStudentCommand command, CancellationToken cancellationToken)
         {

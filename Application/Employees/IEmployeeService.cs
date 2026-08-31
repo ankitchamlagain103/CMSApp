@@ -14,6 +14,10 @@ namespace Application.Employees
 
         Task<CommonResponse<PaginatedResponse<EmployeeDto>>> GetEmployeesAsync(GetEmployeesQuery query, CancellationToken cancellationToken = default);
 
+        // Minimal name/code-only search -- see EmployeeLookupDto's doc comment for why this is a
+        // separate, DefaultEnabledMenu-safe endpoint instead of just opening up GetEmployeesAsync.
+        Task<CommonResponse<List<EmployeeLookupDto>>> GetEmployeeLookupAsync(string search, int limit, CancellationToken cancellationToken = default);
+
         Task<CommonResponse<EmployeeDto>> UpdateEmployeeAsync(Guid id, UpdateEmployeeCommand command, CancellationToken cancellationToken = default);
 
         Task<CommonResponse<bool>> DeleteEmployeeAsync(Guid id, CancellationToken cancellationToken = default);
@@ -34,6 +38,12 @@ namespace Application.Employees
         Task<CommonResponse<TeacherAssignmentBulkEntryResultDto>> AssignClassSubjectBulkEntryAsync(Guid employeeId, AssignTeacherBulkEntryCommand command, CancellationToken cancellationToken = default);
 
         Task<CommonResponse<bool>> RemoveAssignmentAsync(Guid employeeId, Guid assignmentId, CancellationToken cancellationToken = default);
+
+        // Edits the TimePeriodId of an assignment that already exists -- create-time endpoints
+        // (AssignClassSubjectAsync and friends) 409 on a duplicate (teacher, classSubject, section)
+        // triple, so re-submitting just to add/change a period on an already-created assignment
+        // never worked; this is the actual way to do that.
+        Task<CommonResponse<TeacherAssignmentDto>> UpdateAssignmentTimePeriodAsync(Guid employeeId, Guid assignmentId, UpdateAssignmentTimePeriodCommand command, CancellationToken cancellationToken = default);
 
         Task<CommonResponse<List<TeacherAssignmentDto>>> GetAssignmentsAsync(Guid employeeId, CancellationToken cancellationToken = default);
 
