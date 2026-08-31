@@ -1,3 +1,5 @@
+using Domain.Enums;
+
 namespace Domain.Entities
 {
     // An uploaded verification/identity document for any staff member (citizenship, PAN card,
@@ -8,6 +10,13 @@ namespace Domain.Entities
     // IFileStorageService -- never a user-supplied path. ValidUntil is the expiry for documents
     // that have one (driving license, police report). Hard-deleted (the file is removed from
     // storage alongside the row).
+    //
+    // Verification (2026-08-07): a document submitted through the self-service "Me" route starts
+    // VerificationStatus.Pending; one entered through the existing admin route is auto-Approved
+    // (see EmployeeService.UploadDocumentInternalAsync). Only a Pending row can be verified/
+    // rejected (POST .../documents/{id}/verify|reject, permission-gated -- granted to whichever
+    // role a school treats as "HR", not a hardcoded role). VerifiedBy is a username string, same
+    // convention as LeaveRequest.ManagerDecisionBy/HrDecisionBy, not a Guid FK.
     public class EmployeeDocument : AuditableEntity
     {
         public Guid Id { get; set; }
@@ -20,6 +29,10 @@ namespace Domain.Entities
         public long FileSizeBytes { get; set; }
         public DateTime? ValidUntil { get; set; }
         public string Remarks { get; set; }
+        public VerificationStatus VerificationStatus { get; set; }
+        public string VerificationRemarks { get; set; }
+        public DateTimeOffset? VerifiedTs { get; set; }
+        public string VerifiedBy { get; set; }
         public virtual Employee Employee { get; set; }
     }
 }

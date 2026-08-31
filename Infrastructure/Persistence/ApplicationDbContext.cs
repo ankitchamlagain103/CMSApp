@@ -49,8 +49,6 @@ namespace Infrastructure.Persistence
 
         public DbSet<DocumentTemplate> DocumentTemplates => Set<DocumentTemplate>();
 
-        public DbSet<Teacher> Teachers => Set<Teacher>();
-
         public DbSet<EmployeeQualification> EmployeeQualifications => Set<EmployeeQualification>();
 
         public DbSet<TeacherAssignment> TeacherAssignments => Set<TeacherAssignment>();

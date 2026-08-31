@@ -67,7 +67,9 @@ namespace Application.Menus
                 ParentId = command.ParentId,
                 MenuFor = command.MenuFor,
                 Order = command.Order,
-                IsHidden = command.IsHidden
+                IsHidden = command.IsHidden,
+                IsQuickLink = command.IsQuickLink,
+                IsDashboardWidget = command.IsDashboardWidget
             };
 
             await _unitOfWork.Menus.AddAsync(menu, cancellationToken);
@@ -187,6 +189,8 @@ namespace Application.Menus
             menu.MenuFor = command.MenuFor;
             menu.Order = command.Order;
             menu.IsHidden = command.IsHidden;
+            menu.IsQuickLink = command.IsQuickLink;
+            menu.IsDashboardWidget = command.IsDashboardWidget;
 
             _unitOfWork.Menus.Update(menu);
             await _unitOfWork.SaveChangesAsync(cancellationToken);

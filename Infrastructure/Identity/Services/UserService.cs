@@ -23,6 +23,7 @@ namespace Infrastructure.Identity.Services
         private readonly RoleManager<ApplicationRole> _roleManager;
         private readonly CreateUserCommandValidator _createUserCommandValidator;
         private readonly UpdateUserCommandValidator _updateUserCommandValidator;
+        private readonly AssignMenuToUserCommandValidator _assignMenuToUserCommandValidator;
         private readonly IEmailService _emailService;
         private readonly IConfiguration _configuration;
         private readonly ApplicationDbContext _dbContext;
@@ -33,6 +34,7 @@ namespace Infrastructure.Identity.Services
             RoleManager<ApplicationRole> roleManager,
             CreateUserCommandValidator createUserCommandValidator,
             UpdateUserCommandValidator updateUserCommandValidator,
+            AssignMenuToUserCommandValidator assignMenuToUserCommandValidator,
             IEmailService emailService,
             IConfiguration configuration,
             ApplicationDbContext dbContext,
@@ -42,6 +44,7 @@ namespace Infrastructure.Identity.Services
             _roleManager = roleManager;
             _createUserCommandValidator = createUserCommandValidator;
             _updateUserCommandValidator = updateUserCommandValidator;
+            _assignMenuToUserCommandValidator = assignMenuToUserCommandValidator;
             _emailService = emailService;
             _configuration = configuration;
             _dbContext = dbContext;
@@ -429,6 +432,180 @@ namespace Infrastructure.Identity.Services
 
             var successResponse = CommonResponse<bool>.Success(true, "User deleted successfully.");
             return successResponse;
+        }
+
+        // Per-user menu overrides (2026-08-07) -- grants a menu directly to one user, bypassing
+        // roles. Additive on top of role grants (see AuthorizedAction.ValidateUserRoleClaimsAsync
+        // and RoleService.GetRoleMenuClaimsAsync, both updated to union in UserClaims). Mirrors
+        // RoleService.AssignMenuToRoleAsync's shape (including the same privilege-escalation
+        // guard) but writes ApplicationUserClaim instead of ApplicationRoleClaim -- RoleManager/
+        // UserManager's own claim APIs only know the base ClaimType/ClaimValue shape, not the
+        // custom MenuId column, same reasoning RoleService already documents for role claims.
+        public async Task<CommonResponse<UserClaimDto>> AssignMenuToUserAsync(AssignMenuToUserCommand command, CancellationToken cancellationToken = default)
+        {
+            var validationResult = _assignMenuToUserCommandValidator.Validate(command);
+            if (!validationResult.IsValid)
+            {
+                var errorMessage = BuildValidationErrorMessage(validationResult);
+                var validationFailureResponse = CommonResponse<UserClaimDto>.Fail(ResponseCodes.ValidationError, errorMessage);
+                return validationFailureResponse;
+            }
+
+            var user = await _userManager.FindByIdAsync(command.UserId.ToString());
+            if (user == null)
+            {
+                var userNotFoundMessage = "User with id '" + command.UserId + "' was not found.";
+                var userNotFoundResponse = CommonResponse<UserClaimDto>.Fail(ResponseCodes.NotFound, userNotFoundMessage);
+                return userNotFoundResponse;
+            }
+
+            var menu = await _dbContext.Menus.FirstOrDefaultAsync(m => m.Id == command.MenuId, cancellationToken);
+            if (menu == null)
+            {
+                var menuNotFoundMessage = "Menu with id '" + command.MenuId + "' was not found.";
+                var menuNotFoundResponse = CommonResponse<UserClaimDto>.Fail(ResponseCodes.NotFound, menuNotFoundMessage);
+                return menuNotFoundResponse;
+            }
+
+            // No privilege escalation: same guard as RoleService.AssignMenuToRoleAsync -- a
+            // caller can only hand out a permission they already hold themselves.
+            var callerIsSuperAdmin = await IsCallerSuperAdminAsync();
+            if (!callerIsSuperAdmin)
+            {
+                var callerMenuIds = await GetCallerGrantedMenuIdsAsync(cancellationToken);
+                if (!callerMenuIds.Contains(command.MenuId))
+                {
+                    var escalationMessage = "You cannot grant '" + menu.DisplayName + "' because you do not hold it yourself.";
+                    var escalationResponse = CommonResponse<UserClaimDto>.Fail(ResponseCodes.Forbidden, escalationMessage);
+                    return escalationResponse;
+                }
+            }
+
+            var alreadyAssigned = await _dbContext.UserClaims
+                .AnyAsync(userClaim => userClaim.UserId == command.UserId && userClaim.MenuId == command.MenuId, cancellationToken);
+            if (alreadyAssigned)
+            {
+                var conflictMessage = "This menu is already assigned directly to the user.";
+                var conflictResponse = CommonResponse<UserClaimDto>.Fail(ResponseCodes.Conflict, conflictMessage);
+                return conflictResponse;
+            }
+
+            var newUserClaim = new ApplicationUserClaim
+            {
+                UserId = command.UserId,
+                MenuId = command.MenuId,
+                Menu = menu,
+                ClaimType = "Permission",
+                ClaimValue = menu.Code
+            };
+
+            _dbContext.UserClaims.Add(newUserClaim);
+            await _dbContext.SaveChangesAsync(cancellationToken);
+
+            var userClaimDto = UserClaimMapper.ToDto(newUserClaim);
+            var successResponse = CommonResponse<UserClaimDto>.Success(userClaimDto, "Menu assigned to user successfully.");
+            return successResponse;
+        }
+
+        public async Task<CommonResponse<bool>> RemoveMenuFromUserAsync(Guid userId, int menuId, CancellationToken cancellationToken = default)
+        {
+            var userClaim = await _dbContext.UserClaims
+                .FirstOrDefaultAsync(userClaimRow => userClaimRow.UserId == userId && userClaimRow.MenuId == menuId, cancellationToken);
+
+            if (userClaim == null)
+            {
+                var notFoundMessage = "This menu is not assigned directly to the user.";
+                var notFoundResponse = CommonResponse<bool>.Fail(ResponseCodes.NotFound, notFoundMessage);
+                return notFoundResponse;
+            }
+
+            _dbContext.UserClaims.Remove(userClaim);
+            await _dbContext.SaveChangesAsync(cancellationToken);
+
+            var successResponse = CommonResponse<bool>.Success(true, "Menu removed from user successfully.");
+            return successResponse;
+        }
+
+        public async Task<CommonResponse<List<UserClaimDto>>> GetUserClaimsAsync(Guid userId, CancellationToken cancellationToken = default)
+        {
+            var user = await _userManager.FindByIdAsync(userId.ToString());
+            if (user == null)
+            {
+                var notFoundMessage = "User with id '" + userId + "' was not found.";
+                var notFoundResponse = CommonResponse<List<UserClaimDto>>.Fail(ResponseCodes.NotFound, notFoundMessage);
+                return notFoundResponse;
+            }
+
+            var userClaims = await _dbContext.UserClaims
+                .Where(userClaimRow => userClaimRow.UserId == userId)
+                .Include(userClaimRow => userClaimRow.Menu)
+                .OrderBy(userClaimRow => userClaimRow.MenuId)
+                .ToListAsync(cancellationToken);
+
+            var userClaimDtos = new List<UserClaimDto>();
+            foreach (var userClaim in userClaims)
+            {
+                var userClaimDto = UserClaimMapper.ToDto(userClaim);
+                userClaimDtos.Add(userClaimDto);
+            }
+
+            var successResponse = CommonResponse<List<UserClaimDto>>.Success(userClaimDtos);
+            return successResponse;
+        }
+
+        // Every MenuId granted to the caller -- via their roles' RoleClaims, unioned with their
+        // own direct UserClaims -- the caller's own "ceiling" for the privilege-escalation guard
+        // above. Mirrors RoleService.GetCallerGrantedMenuIdsAsync (duplicated rather than shared,
+        // same "small helper, one per service" convention IsCallerSuperAdminAsync already used
+        // twice over in this codebase).
+        private async Task<HashSet<int>> GetCallerGrantedMenuIdsAsync(CancellationToken cancellationToken)
+        {
+            var callerId = _currentUserService.UserId;
+            if (callerId == null)
+            {
+                return new HashSet<int>();
+            }
+
+            var caller = await _userManager.FindByIdAsync(callerId.Value.ToString());
+            if (caller == null)
+            {
+                return new HashSet<int>();
+            }
+
+            var callerMenuIds = new HashSet<int>();
+
+            var callerRoleNames = await _userManager.GetRolesAsync(caller);
+            var callerRoleIds = await _dbContext.Roles
+                .Where(role => callerRoleNames.Contains(role.Name))
+                .Select(role => role.Id)
+                .ToListAsync(cancellationToken);
+
+            if (callerRoleIds.Count > 0)
+            {
+                var roleMenuIds = await _dbContext.RoleClaims
+                    .Where(roleClaim => callerRoleIds.Contains(roleClaim.RoleId))
+                    .Select(roleClaim => roleClaim.MenuId)
+                    .Distinct()
+                    .ToListAsync(cancellationToken);
+
+                foreach (var roleMenuId in roleMenuIds)
+                {
+                    callerMenuIds.Add(roleMenuId);
+                }
+            }
+
+            var directMenuIds = await _dbContext.UserClaims
+                .Where(userClaimRow => userClaimRow.UserId == callerId.Value)
+                .Select(userClaimRow => userClaimRow.MenuId)
+                .Distinct()
+                .ToListAsync(cancellationToken);
+
+            foreach (var directMenuId in directMenuIds)
+            {
+                callerMenuIds.Add(directMenuId);
+            }
+
+            return callerMenuIds;
         }
 
         // Stores the list in a canonical "ip,ip,ip" form (tokens trimmed, empties dropped) so

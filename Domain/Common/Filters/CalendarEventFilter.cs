@@ -9,5 +9,7 @@ namespace Domain.Common.Filters
         public DateTime? ToAdDate { get; set; }
         public int? BsYear { get; set; }
         public bool? IsActive { get; set; }
+        public Guid? StudentId { get; set; }
+        public Guid? EmployeeId { get; set; }
     }
 }

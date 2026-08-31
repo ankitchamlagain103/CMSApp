@@ -60,7 +60,11 @@ namespace Application.Calendars
                 IconKey = calendarEvent.IconKey,
                 ColorCode = calendarEvent.ColorCode,
                 Language = calendarEvent.Language,
-                IsActive = calendarEvent.IsActive
+                IsActive = calendarEvent.IsActive,
+                ProvinceCode = calendarEvent.ProvinceCode,
+                BranchCode = calendarEvent.BranchCode,
+                StudentId = calendarEvent.StudentId,
+                EmployeeId = calendarEvent.EmployeeId
             };
 
             return eventDto;

@@ -79,7 +79,7 @@ namespace Application.Configs
 
             var paginatedResponse = new PaginatedResponse<ConfigTypeDto>
             {
-                Items = configTypeDtos,
+                Items = configTypeDtos.OrderBy(x => x.TypeCode),
                 Page = query.Page,
                 PageSize = query.PageSize,
                 TotalCount = pagedConfigTypes.TotalCount
@@ -297,14 +297,43 @@ namespace Application.Configs
             return successResponse;
         }
 
-        public async Task<CommonResponse<List<DropdownItemDto>>> GetConfigsByTypeCodeAsync(int typeCode, CancellationToken cancellationToken = default)
+        public async Task<CommonResponse<List<DropdownItemDto>>> GetConfigsByTypeCodeAsync(int typeCode, string parentCode = null, string search = null, CancellationToken cancellationToken = default)
         {
-            var configs = await _unitOfWork.Configs.GetByTypeCodeAsync(typeCode, cancellationToken);
+            var configs = await _unitOfWork.Configs.GetByTypeCodeAsync(typeCode, parentCode, search, cancellationToken);
 
             var dropdownItemDtos = new List<DropdownItemDto>();
             foreach (var config in configs)
             {
                 var dropdownItemDto = ConfigMapper.ToDropdownItemDto(config);
+                dropdownItemDtos.Add(dropdownItemDto);
+            }
+
+            var successResponse = CommonResponse<List<DropdownItemDto>>.Success(dropdownItemDtos);
+            return successResponse;
+        }
+
+        public async Task<CommonResponse<List<DropdownItemDto>>> GetConfigTypesDropdownAsync(string search = null, CancellationToken cancellationToken = default)
+        {
+            var configTypes = await _unitOfWork.ConfigTypes.GetAllAsync(cancellationToken);
+
+            var matchingConfigTypes = new List<ConfigType>();
+            foreach (var configType in configTypes)
+            {
+                var trimmedSearch = search?.Trim();
+                if (!string.IsNullOrWhiteSpace(trimmedSearch) && !configType.Name.Contains(trimmedSearch, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                matchingConfigTypes.Add(configType);
+            }
+
+            var orderedConfigTypes = matchingConfigTypes.OrderBy(configType => configType.Name).ToList();
+
+            var dropdownItemDtos = new List<DropdownItemDto>();
+            foreach (var configType in orderedConfigTypes)
+            {
+                var dropdownItemDto = ConfigMapper.ToDropdownItemDto(configType);
                 dropdownItemDtos.Add(dropdownItemDto);
             }
 

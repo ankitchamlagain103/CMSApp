@@ -44,6 +44,16 @@ namespace Infrastructure.Persistence.Repositories
                 eventsQuery = eventsQuery.Where(e => e.IsActive == filter.IsActive.Value);
             }
 
+            if (filter.StudentId.HasValue)
+            {
+                eventsQuery = eventsQuery.Where(e => e.StudentId == filter.StudentId.Value);
+            }
+
+            if (filter.EmployeeId.HasValue)
+            {
+                eventsQuery = eventsQuery.Where(e => e.EmployeeId == filter.EmployeeId.Value);
+            }
+
             var totalCount = await eventsQuery.CountAsync(cancellationToken);
             var skipCount = (pageNumber - 1) * pageSize;
             var items = await eventsQuery

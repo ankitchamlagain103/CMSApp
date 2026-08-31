@@ -18,12 +18,28 @@ namespace WebApi.Controllers
         private readonly IErrorLogService _errorLogService;
         private readonly ISystemAccessLogService _systemAccessLogService;
         private readonly IDashboardService _dashboardService;
+        private readonly IDashboardWidgetRegistryService _dashboardWidgetRegistryService;
 
-        public DashboardController(IErrorLogService errorLogService, ISystemAccessLogService systemAccessLogService, IDashboardService dashboardService)
+        public DashboardController(IErrorLogService errorLogService, ISystemAccessLogService systemAccessLogService, IDashboardService dashboardService, IDashboardWidgetRegistryService dashboardWidgetRegistryService)
         {
             _errorLogService = errorLogService;
             _systemAccessLogService = systemAccessLogService;
             _dashboardService = dashboardService;
+            _dashboardWidgetRegistryService = dashboardWidgetRegistryService;
+        }
+
+        // Generic dashboard widget registry (2026-08-07) -- returns exactly the widgets the
+        // caller's own role grants (Menu.IsDashboardWidget nodes in their GetUserRolesAsync tree),
+        // each resolved through its registered IDashboardWidgetProvider. Adding a new persona
+        // dashboard going forward means flagging a menu + registering one provider, not a new
+        // route/permission/controller action -- see role_privilege_escalation_guard_implementation_guide.md
+        // (Part 2, audience filtering) for how a widget can also be Student/Employee-scoped.
+        [HttpGet("widgets")]
+        public async Task<ActionResult<CommonResponse<List<DashboardWidgetResultDto>>>> GetWidgets([FromQuery] int take, CancellationToken cancellationToken)
+        {
+            var effectiveTake = take > 0 ? take : 5;
+            var response = await _dashboardWidgetRegistryService.GetWidgetsAsync(effectiveTake, cancellationToken);
+            return Ok(response);
         }
 
         [HttpGet("summary")]
@@ -93,6 +109,35 @@ namespace WebApi.Controllers
             if (response.ResponseCode == ResponseCodes.NotFound)
             {
                 return NotFound(response);
+            }
+
+            return Ok(response);
+        }
+
+        [HttpGet("accounts-summary")]
+        public async Task<ActionResult<CommonResponse<AccountsDashboardSummaryDto>>> GetAccountsSummary([FromQuery] int take, CancellationToken cancellationToken)
+        {
+            var effectiveTake = take > 0 ? take : 5;
+            var response = await _dashboardService.GetAccountsSummaryAsync(effectiveTake, cancellationToken);
+            return Ok(response);
+        }
+
+        [HttpGet("hr-summary")]
+        public async Task<ActionResult<CommonResponse<HrDashboardSummaryDto>>> GetHrSummary([FromQuery] int take, CancellationToken cancellationToken)
+        {
+            var effectiveTake = take > 0 ? take : 5;
+            var response = await _dashboardService.GetHrSummaryAsync(effectiveTake, cancellationToken);
+            return Ok(response);
+        }
+
+        [HttpGet("global-search")]
+        public async Task<ActionResult<CommonResponse<GlobalSearchResultDto>>> GlobalSearch([FromQuery] string query, [FromQuery] int limit, CancellationToken cancellationToken)
+        {
+            var effectiveLimit = limit > 0 ? limit : 5;
+            var response = await _dashboardService.GlobalSearchAsync(query, effectiveLimit, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.ValidationError)
+            {
+                return BadRequest(response);
             }
 
             return Ok(response);

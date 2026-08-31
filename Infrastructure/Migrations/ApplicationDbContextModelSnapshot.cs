@@ -64,6 +64,10 @@ namespace Infrastructure.Migrations
                         .HasDefaultValue(false)
                         .HasColumnName("is_deleted");
 
+                    b.Property<int>("Order")
+                        .HasColumnType("integer")
+                        .HasColumnName("order");
+
                     b.Property<int>("Status")
                         .HasColumnType("integer")
                         .HasColumnName("status");
@@ -392,6 +396,11 @@ namespace Infrastructure.Migrations
                         .HasColumnType("date")
                         .HasColumnName("ad_date");
 
+                    b.Property<string>("BranchCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("branch_code");
+
                     b.Property<int>("BsDay")
                         .HasColumnType("integer")
                         .HasColumnName("bs_day");
@@ -433,6 +442,10 @@ namespace Infrastructure.Migrations
                         .HasColumnType("character varying(1000)")
                         .HasColumnName("description");
 
+                    b.Property<Guid?>("EmployeeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("employee_id");
+
                     b.Property<int>("EventType")
                         .HasColumnType("integer")
                         .HasColumnName("event_type");
@@ -459,6 +472,15 @@ namespace Infrastructure.Migrations
                         .HasColumnType("character varying(10)")
                         .HasColumnName("language");
 
+                    b.Property<string>("ProvinceCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("province_code");
+
+                    b.Property<Guid?>("StudentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("student_id");
+
                     b.Property<string>("Title")
                         .IsRequired()
                         .HasMaxLength(200)
@@ -479,7 +501,13 @@ namespace Infrastructure.Migrations
                     b.HasIndex("AdDate")
                         .HasDatabaseName("ix_calendar_events_ad_date");
 
+                    b.HasIndex("EmployeeId")
+                        .HasDatabaseName("ix_calendar_events_employee_id");
+
                     b.HasIndex("IsDeleted");
+
+                    b.HasIndex("StudentId")
+                        .HasDatabaseName("ix_calendar_events_student_id");
 
                     b.HasIndex("BsYear", "BsMonth", "BsDay")
                         .HasDatabaseName("ix_calendar_events_bs_date");
@@ -594,6 +622,18 @@ namespace Infrastructure.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("full_marks");
 
+                    b.Property<bool>("HasPractical")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("has_practical");
+
+                    b.Property<bool>("HasTheory")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("has_theory");
+
                     b.Property<bool>("IsMandatory")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
@@ -608,6 +648,10 @@ namespace Infrastructure.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("practical_marks");
 
+                    b.Property<int?>("PracticalPassMarks")
+                        .HasColumnType("integer")
+                        .HasColumnName("practical_pass_marks");
+
                     b.Property<string>("SubjectCode")
                         .IsRequired()
                         .HasMaxLength(100)
@@ -617,6 +661,10 @@ namespace Infrastructure.Migrations
                     b.Property<int?>("TheoryMarks")
                         .HasColumnType("integer")
                         .HasColumnName("theory_marks");
+
+                    b.Property<int?>("TheoryPassMarks")
+                        .HasColumnType("integer")
+                        .HasColumnName("theory_pass_marks");
 
                     b.Property<string>("UpdatedBy")
                         .HasMaxLength(50)
@@ -645,7 +693,56 @@ namespace Infrastructure.Migrations
                             t.HasCheckConstraint("ck_class_subjects_mandatory_classwide", "is_mandatory = false OR class_section_id IS NULL");
 
                             t.HasCheckConstraint("ck_class_subjects_marks_range", "pass_marks IS NULL OR full_marks IS NULL OR pass_marks <= full_marks");
+
+                            t.HasCheckConstraint("ck_class_subjects_practical_marks_range", "practical_pass_marks IS NULL OR practical_marks IS NULL OR practical_pass_marks <= practical_marks");
+
+                            t.HasCheckConstraint("ck_class_subjects_theory_marks_range", "theory_pass_marks IS NULL OR theory_marks IS NULL OR theory_pass_marks <= theory_marks");
                         });
+                });
+
+            modelBuilder.Entity("Domain.Entities.ClassTimePeriod", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("AcademicClassId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("academic_class_id");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("CreatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_ts");
+
+                    b.Property<Guid>("TimePeriodId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("time_period_id");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateTimeOffset?>("UpdatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_ts");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TimePeriodId");
+
+                    b.HasIndex("AcademicClassId", "TimePeriodId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_class_time_periods_class_period");
+
+                    b.ToTable("class_time_periods", "dbo");
                 });
 
             modelBuilder.Entity("Domain.Entities.Config", b =>
@@ -835,6 +932,11 @@ namespace Infrastructure.Migrations
                         .HasColumnType("character varying(150)")
                         .HasColumnName("bank_name");
 
+                    b.Property<string>("BranchCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("branch_code");
+
                     b.Property<string>("CitNumber")
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)")
@@ -863,6 +965,11 @@ namespace Infrastructure.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("deleted_ts");
 
+                    b.Property<string>("DistrictCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("district_code");
+
                     b.Property<string>("Email")
                         .HasMaxLength(255)
                         .HasColumnType("character varying(255)")
@@ -883,6 +990,10 @@ namespace Infrastructure.Migrations
                     b.Property<int>("EmploymentStatus")
                         .HasColumnType("integer")
                         .HasColumnName("employment_status");
+
+                    b.Property<int?>("ExperienceYears")
+                        .HasColumnType("integer")
+                        .HasColumnName("experience_years");
 
                     b.Property<string>("FirstName")
                         .IsRequired()
@@ -921,6 +1032,20 @@ namespace Infrastructure.Migrations
                         .HasColumnType("character varying(100)")
                         .HasColumnName("last_name");
 
+                    b.Property<string>("LevelCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("level_code");
+
+                    b.Property<string>("LocalLevelCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("local_level_code");
+
+                    b.Property<Guid?>("ManagerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("manager_id");
+
                     b.Property<string>("MiddleName")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)")
@@ -940,15 +1065,35 @@ namespace Infrastructure.Migrations
                         .HasColumnType("character varying(20)")
                         .HasColumnName("phone");
 
+                    b.Property<string>("PhotoPath")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("photo_path");
+
                     b.Property<string>("ProvidentFundNumber")
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)")
                         .HasColumnName("provident_fund_number");
 
+                    b.Property<string>("ProvinceCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("province_code");
+
+                    b.Property<string>("Specialization")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)")
+                        .HasColumnName("specialization");
+
                     b.Property<string>("SsfNumber")
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)")
                         .HasColumnName("ssf_number");
+
+                    b.Property<string>("TeachingLicenseNo")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("teaching_license_no");
 
                     b.Property<string>("UpdatedBy")
                         .HasMaxLength(50)
@@ -963,6 +1108,10 @@ namespace Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("user_id");
 
+                    b.Property<int?>("WardNo")
+                        .HasColumnType("integer")
+                        .HasColumnName("ward_no");
+
                     b.HasKey("Id");
 
                     b.HasIndex("EmployeeCode")
@@ -970,6 +1119,9 @@ namespace Infrastructure.Migrations
                         .HasDatabaseName("ix_employees_employee_code");
 
                     b.HasIndex("IsDeleted");
+
+                    b.HasIndex("ManagerId")
+                        .HasDatabaseName("ix_employees_manager_id");
 
                     b.HasIndex("UserId")
                         .IsUnique()
@@ -1051,6 +1203,24 @@ namespace Infrastructure.Migrations
                         .HasColumnType("date")
                         .HasColumnName("valid_until");
 
+                    b.Property<string>("VerificationRemarks")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("verification_remarks");
+
+                    b.Property<int>("VerificationStatus")
+                        .HasColumnType("integer")
+                        .HasColumnName("verification_status");
+
+                    b.Property<string>("VerifiedBy")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("verified_by");
+
+                    b.Property<DateTimeOffset?>("VerifiedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("verified_ts");
+
                     b.HasKey("Id");
 
                     b.HasIndex("EmployeeId")
@@ -1106,6 +1276,73 @@ namespace Infrastructure.Migrations
                         .HasDatabaseName("ix_employee_insurance_premiums_salary_type");
 
                     b.ToTable("employee_insurance_premiums", "dbo");
+                });
+
+            modelBuilder.Entity("Domain.Entities.EmployeeLeaveBalance", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<decimal>("Allocated")
+                        .HasColumnType("decimal(6,2)")
+                        .HasColumnName("allocated");
+
+                    b.Property<decimal>("Balance")
+                        .HasColumnType("decimal(6,2)")
+                        .HasColumnName("balance");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("CreatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_ts");
+
+                    b.Property<Guid>("EmployeeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("employee_id");
+
+                    b.Property<Guid>("FiscalYearId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("fiscal_year_id");
+
+                    b.Property<Guid>("LeaveTypeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("leave_type_id");
+
+                    b.Property<decimal>("Pending")
+                        .HasColumnType("decimal(6,2)")
+                        .HasColumnName("pending");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateTimeOffset?>("UpdatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_ts");
+
+                    b.Property<decimal>("Used")
+                        .HasColumnType("decimal(6,2)")
+                        .HasColumnName("used");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FiscalYearId");
+
+                    b.HasIndex("LeaveTypeId");
+
+                    b.HasIndex("EmployeeId", "LeaveTypeId", "FiscalYearId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_employee_leave_balances_employee_type_year");
+
+                    b.ToTable("employee_leave_balances", "dbo");
                 });
 
             modelBuilder.Entity("Domain.Entities.EmployeeLoan", b =>
@@ -1253,6 +1490,24 @@ namespace Infrastructure.Migrations
                     b.Property<DateTimeOffset?>("UpdatedTs")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_ts");
+
+                    b.Property<string>("VerificationRemarks")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("verification_remarks");
+
+                    b.Property<int>("VerificationStatus")
+                        .HasColumnType("integer")
+                        .HasColumnName("verification_status");
+
+                    b.Property<string>("VerifiedBy")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("verified_by");
+
+                    b.Property<DateTimeOffset?>("VerifiedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("verified_ts");
 
                     b.HasKey("Id");
 
@@ -1690,6 +1945,183 @@ namespace Infrastructure.Migrations
                         .HasDatabaseName("ix_error_logs_fingerprint_hash");
 
                     b.ToTable("error_logs", "dbo");
+                });
+
+            modelBuilder.Entity("Domain.Entities.Exam", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid?>("CalendarEventId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("calendar_event_id");
+
+                    b.Property<Guid>("ClassSubjectId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("class_subject_id");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("CreatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_ts");
+
+                    b.Property<TimeSpan>("EndTime")
+                        .HasColumnType("interval")
+                        .HasColumnName("end_time");
+
+                    b.Property<DateTime>("ExamDate")
+                        .HasColumnType("date")
+                        .HasColumnName("exam_date");
+
+                    b.Property<Guid>("ExamTermId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("exam_term_id");
+
+                    b.Property<bool>("MarksLocked")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("marks_locked");
+
+                    b.Property<string>("Remarks")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("remarks");
+
+                    b.Property<TimeSpan>("StartTime")
+                        .HasColumnType("interval")
+                        .HasColumnName("start_time");
+
+                    b.Property<Guid?>("TimePeriodId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("time_period_id");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateTimeOffset?>("UpdatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_ts");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ClassSubjectId");
+
+                    b.HasIndex("ExamDate")
+                        .HasDatabaseName("ix_exams_exam_date");
+
+                    b.HasIndex("ExamTermId")
+                        .HasDatabaseName("ix_exams_exam_term_id");
+
+                    b.HasIndex("TimePeriodId");
+
+                    b.HasIndex("ExamTermId", "ClassSubjectId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_exams_term_subject");
+
+                    b.ToTable("exams", "dbo");
+                });
+
+            modelBuilder.Entity("Domain.Entities.ExamTerm", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("AcademicYearId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("academic_year_id");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("code");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("CreatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_ts");
+
+                    b.Property<string>("DeletedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("deleted_by");
+
+                    b.Property<DateTimeOffset?>("DeletedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_ts");
+
+                    b.Property<DateTime>("EndDate")
+                        .HasColumnType("date")
+                        .HasColumnName("end_date");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_deleted");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("name");
+
+                    b.Property<bool>("PublishResult")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("publish_result");
+
+                    b.Property<int>("Sequence")
+                        .HasColumnType("integer")
+                        .HasColumnName("sequence");
+
+                    b.Property<DateTime>("StartDate")
+                        .HasColumnType("date")
+                        .HasColumnName("start_date");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer")
+                        .HasColumnName("status");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateTimeOffset?>("UpdatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_ts");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AcademicYearId")
+                        .HasDatabaseName("ix_exam_terms_academic_year_id");
+
+                    b.HasIndex("Code")
+                        .IsUnique()
+                        .HasDatabaseName("ix_exam_terms_code");
+
+                    b.HasIndex("IsDeleted");
+
+                    b.ToTable("exam_terms", "dbo");
                 });
 
             modelBuilder.Entity("Domain.Entities.FeeAdjustment", b =>
@@ -2663,6 +3095,81 @@ namespace Infrastructure.Migrations
                     b.ToTable("fiscal_years", "dbo");
                 });
 
+            modelBuilder.Entity("Domain.Entities.GradeScale", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("CreatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_ts");
+
+                    b.Property<string>("DeletedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("deleted_by");
+
+                    b.Property<DateTimeOffset?>("DeletedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_ts");
+
+                    b.Property<string>("Grade")
+                        .IsRequired()
+                        .HasMaxLength(5)
+                        .HasColumnType("character varying(5)")
+                        .HasColumnName("grade");
+
+                    b.Property<decimal>("GradePoint")
+                        .HasColumnType("decimal(4,2)")
+                        .HasColumnName("grade_point");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_deleted");
+
+                    b.Property<decimal>("MaxPercent")
+                        .HasColumnType("decimal(5,2)")
+                        .HasColumnName("max_percent");
+
+                    b.Property<decimal>("MinPercent")
+                        .HasColumnType("decimal(5,2)")
+                        .HasColumnName("min_percent");
+
+                    b.Property<string>("Remarks")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("remarks");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateTimeOffset?>("UpdatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_ts");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Grade")
+                        .IsUnique()
+                        .HasDatabaseName("ix_grade_scales_grade");
+
+                    b.HasIndex("IsDeleted");
+
+                    b.ToTable("grade_scales", "dbo");
+                });
+
             modelBuilder.Entity("Domain.Entities.Guardian", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2741,6 +3248,279 @@ namespace Infrastructure.Migrations
                     b.HasIndex("IsDeleted");
 
                     b.ToTable("guardians", "dbo");
+                });
+
+            modelBuilder.Entity("Domain.Entities.LeaveRequest", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AttachmentContentType")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("attachment_content_type");
+
+                    b.Property<string>("AttachmentFileName")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)")
+                        .HasColumnName("attachment_file_name");
+
+                    b.Property<string>("AttachmentPath")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("attachment_path");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("CreatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_ts");
+
+                    b.Property<decimal>("Days")
+                        .HasColumnType("decimal(6,2)")
+                        .HasColumnName("days");
+
+                    b.Property<string>("DeletedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("deleted_by");
+
+                    b.Property<DateTimeOffset?>("DeletedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_ts");
+
+                    b.Property<Guid>("EmployeeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("employee_id");
+
+                    b.Property<DateTime>("FromDate")
+                        .HasColumnType("date")
+                        .HasColumnName("from_date");
+
+                    b.Property<string>("HrDecisionBy")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("hr_decision_by");
+
+                    b.Property<DateTimeOffset?>("HrDecisionTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("hr_decision_ts");
+
+                    b.Property<string>("HrRemarks")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("hr_remarks");
+
+                    b.Property<int>("HrStatus")
+                        .HasColumnType("integer")
+                        .HasColumnName("hr_status");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_deleted");
+
+                    b.Property<bool>("IsEmergency")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_emergency");
+
+                    b.Property<Guid>("LeaveTypeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("leave_type_id");
+
+                    b.Property<string>("ManagerDecisionBy")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("manager_decision_by");
+
+                    b.Property<DateTimeOffset?>("ManagerDecisionTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("manager_decision_ts");
+
+                    b.Property<string>("ManagerRemarks")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("manager_remarks");
+
+                    b.Property<int>("ManagerStatus")
+                        .HasColumnType("integer")
+                        .HasColumnName("manager_status");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("reason");
+
+                    b.Property<Guid?>("SubstituteEmployeeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("substitute_employee_id");
+
+                    b.Property<DateTime>("ToDate")
+                        .HasColumnType("date")
+                        .HasColumnName("to_date");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateTimeOffset?>("UpdatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_ts");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EmployeeId")
+                        .HasDatabaseName("ix_leave_requests_employee_id");
+
+                    b.HasIndex("IsDeleted");
+
+                    b.HasIndex("LeaveTypeId");
+
+                    b.HasIndex("SubstituteEmployeeId");
+
+                    b.HasIndex("FromDate", "ToDate")
+                        .HasDatabaseName("ix_leave_requests_date_range");
+
+                    b.ToTable("leave_requests", "dbo");
+                });
+
+            modelBuilder.Entity("Domain.Entities.LeaveSubstitute", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("CreatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_ts");
+
+                    b.Property<Guid>("EmployeeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("employee_id");
+
+                    b.Property<Guid>("LeaveRequestId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("leave_request_id");
+
+                    b.Property<string>("Responsibility")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)")
+                        .HasColumnName("responsibility");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateTimeOffset?>("UpdatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_ts");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EmployeeId");
+
+                    b.HasIndex("LeaveRequestId")
+                        .HasDatabaseName("ix_leave_substitutes_leave_request_id");
+
+                    b.ToTable("leave_substitutes", "dbo");
+                });
+
+            modelBuilder.Entity("Domain.Entities.LeaveType", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<bool>("CarryForward")
+                        .HasColumnType("boolean")
+                        .HasColumnName("carry_forward");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("CreatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_ts");
+
+                    b.Property<decimal>("DaysPerYear")
+                        .HasColumnType("decimal(6,2)")
+                        .HasColumnName("days_per_year");
+
+                    b.Property<string>("DeletedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("deleted_by");
+
+                    b.Property<DateTimeOffset?>("DeletedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_ts");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_deleted");
+
+                    b.Property<bool>("IsPaid")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_paid");
+
+                    b.Property<int?>("MaxConsecutiveDays")
+                        .HasColumnType("integer")
+                        .HasColumnName("max_consecutive_days");
+
+                    b.Property<decimal?>("MaxDaysPerMonth")
+                        .HasColumnType("decimal(6,2)")
+                        .HasColumnName("max_days_per_month");
+
+                    b.Property<decimal?>("MaxDaysPerWeek")
+                        .HasColumnType("decimal(6,2)")
+                        .HasColumnName("max_days_per_week");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("name");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateTimeOffset?>("UpdatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_ts");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IsDeleted");
+
+                    b.HasIndex("Name")
+                        .IsUnique()
+                        .HasDatabaseName("ix_leave_types_name");
+
+                    b.ToTable("leave_types", "dbo");
                 });
 
             modelBuilder.Entity("Domain.Entities.Meeting", b =>
@@ -2958,6 +3738,12 @@ namespace Infrastructure.Migrations
                         .HasColumnType("character varying(100)")
                         .HasColumnName("icon");
 
+                    b.Property<bool>("IsDashboardWidget")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_dashboard_widget");
+
                     b.Property<bool>("IsDeleted")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
@@ -2969,6 +3755,12 @@ namespace Infrastructure.Migrations
                         .HasColumnType("boolean")
                         .HasDefaultValue(false)
                         .HasColumnName("is_hidden");
+
+                    b.Property<bool>("IsQuickLink")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_quick_link");
 
                     b.Property<string>("MenuFor")
                         .IsRequired()
@@ -3016,6 +3808,66 @@ namespace Infrastructure.Migrations
                         .HasDatabaseName("ix_menus_parent_id");
 
                     b.ToTable("menus", "dbo");
+                });
+
+            modelBuilder.Entity("Domain.Entities.Notification", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("CreatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_ts");
+
+                    b.Property<Guid>("EmployeeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("employee_id");
+
+                    b.Property<bool>("IsRead")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_read");
+
+                    b.Property<string>("Message")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("message");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("title");
+
+                    b.Property<int>("Type")
+                        .HasColumnType("integer")
+                        .HasColumnName("type");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateTimeOffset?>("UpdatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_ts");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EmployeeId", "IsRead")
+                        .HasDatabaseName("ix_notifications_employee_id_is_read");
+
+                    b.ToTable("notifications", "dbo");
                 });
 
             modelBuilder.Entity("Domain.Entities.PayrollRun", b =>
@@ -3493,6 +4345,10 @@ namespace Infrastructure.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_ts");
 
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
                     b.HasKey("Id");
 
                     b.HasIndex("AdmissionNo")
@@ -3500,6 +4356,11 @@ namespace Infrastructure.Migrations
                         .HasDatabaseName("ix_students_admission_no");
 
                     b.HasIndex("IsDeleted");
+
+                    b.HasIndex("UserId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_students_user_id")
+                        .HasFilter("user_id IS NOT NULL");
 
                     b.ToTable("students", "dbo");
                 });
@@ -3658,6 +4519,117 @@ namespace Infrastructure.Migrations
                     b.ToTable("student_documents", "dbo");
                 });
 
+            modelBuilder.Entity("Domain.Entities.StudentExamMark", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("CreatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_ts");
+
+                    b.Property<Guid>("EnrollmentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("enrollment_id");
+
+                    b.Property<Guid>("ExamId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("exam_id");
+
+                    b.Property<string>("Grade")
+                        .HasMaxLength(5)
+                        .HasColumnType("character varying(5)")
+                        .HasColumnName("grade");
+
+                    b.Property<decimal?>("GradePoint")
+                        .HasColumnType("decimal(4,2)")
+                        .HasColumnName("grade_point");
+
+                    b.Property<decimal?>("InternalMarks")
+                        .HasColumnType("decimal(5,2)")
+                        .HasColumnName("internal_marks");
+
+                    b.Property<bool>("IsAbsent")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_absent");
+
+                    b.Property<bool>("IsPublished")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_published");
+
+                    b.Property<bool>("PracticalAbsent")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("practical_absent");
+
+                    b.Property<decimal>("PracticalGraceMarks")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("decimal(5,2)")
+                        .HasDefaultValue(0m)
+                        .HasColumnName("practical_grace_marks");
+
+                    b.Property<decimal?>("PracticalObtainedMarks")
+                        .HasColumnType("decimal(5,2)")
+                        .HasColumnName("practical_obtained_marks");
+
+                    b.Property<string>("Remarks")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("remarks");
+
+                    b.Property<bool>("TheoryAbsent")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("theory_absent");
+
+                    b.Property<decimal>("TheoryGraceMarks")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("decimal(5,2)")
+                        .HasDefaultValue(0m)
+                        .HasColumnName("theory_grace_marks");
+
+                    b.Property<decimal?>("TheoryObtainedMarks")
+                        .HasColumnType("decimal(5,2)")
+                        .HasColumnName("theory_obtained_marks");
+
+                    b.Property<decimal>("TotalMarks")
+                        .HasColumnType("decimal(5,2)")
+                        .HasColumnName("total_marks");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateTimeOffset?>("UpdatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_ts");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EnrollmentId");
+
+                    b.HasIndex("ExamId", "EnrollmentId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_student_exam_marks_exam_enrollment");
+
+                    b.ToTable("student_exam_marks", "dbo");
+                });
+
             modelBuilder.Entity("Domain.Entities.StudentGuardian", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3713,6 +4685,166 @@ namespace Infrastructure.Migrations
                         .HasDatabaseName("ix_student_guardians_student_guardian");
 
                     b.ToTable("student_guardians", "dbo");
+                });
+
+            modelBuilder.Entity("Domain.Entities.StudentPromotion", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("CreatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_ts");
+
+                    b.Property<Guid>("FromEnrollmentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("from_enrollment_id");
+
+                    b.Property<DateTime>("PromotionDate")
+                        .HasColumnType("date")
+                        .HasColumnName("promotion_date");
+
+                    b.Property<int>("PromotionType")
+                        .HasColumnType("integer")
+                        .HasColumnName("promotion_type");
+
+                    b.Property<string>("Remarks")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("remarks");
+
+                    b.Property<Guid>("StudentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("student_id");
+
+                    b.Property<Guid>("ToEnrollmentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("to_enrollment_id");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateTimeOffset?>("UpdatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_ts");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FromEnrollmentId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_student_promotions_from_enrollment_id");
+
+                    b.HasIndex("StudentId")
+                        .HasDatabaseName("ix_student_promotions_student_id");
+
+                    b.HasIndex("ToEnrollmentId");
+
+                    b.ToTable("student_promotions", "dbo");
+                });
+
+            modelBuilder.Entity("Domain.Entities.StudentResult", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("CreatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_ts");
+
+                    b.Property<string>("DeletedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("deleted_by");
+
+                    b.Property<DateTimeOffset?>("DeletedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_ts");
+
+                    b.Property<Guid>("EnrollmentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("enrollment_id");
+
+                    b.Property<Guid>("ExamTermId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("exam_term_id");
+
+                    b.Property<decimal>("GPA")
+                        .HasColumnType("decimal(4,2)")
+                        .HasColumnName("gpa");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_deleted");
+
+                    b.Property<decimal>("ObtainedMarks")
+                        .HasColumnType("decimal(7,2)")
+                        .HasColumnName("obtained_marks");
+
+                    b.Property<decimal>("Percentage")
+                        .HasColumnType("decimal(5,2)")
+                        .HasColumnName("percentage");
+
+                    b.Property<DateTime?>("PublishedDate")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("published_date");
+
+                    b.Property<int?>("Rank")
+                        .HasColumnType("integer")
+                        .HasColumnName("rank");
+
+                    b.Property<string>("Remarks")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("remarks");
+
+                    b.Property<int>("ResultStatus")
+                        .HasColumnType("integer")
+                        .HasColumnName("result_status");
+
+                    b.Property<decimal>("TotalMarks")
+                        .HasColumnType("decimal(7,2)")
+                        .HasColumnName("total_marks");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateTimeOffset?>("UpdatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_ts");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExamTermId");
+
+                    b.HasIndex("IsDeleted");
+
+                    b.HasIndex("EnrollmentId", "ExamTermId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_student_results_enrollment_term");
+
+                    b.ToTable("student_results", "dbo");
                 });
 
             modelBuilder.Entity("Domain.Entities.StudentScholarship", b =>
@@ -3923,50 +5055,6 @@ namespace Infrastructure.Migrations
                         });
                 });
 
-            modelBuilder.Entity("Domain.Entities.Teacher", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<string>("CreatedBy")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)")
-                        .HasColumnName("created_by");
-
-                    b.Property<DateTimeOffset>("CreatedTs")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_ts");
-
-                    b.Property<int?>("ExperienceYears")
-                        .HasColumnType("integer")
-                        .HasColumnName("experience_years");
-
-                    b.Property<string>("Specialization")
-                        .HasMaxLength(255)
-                        .HasColumnType("character varying(255)")
-                        .HasColumnName("specialization");
-
-                    b.Property<string>("TeachingLicenseNo")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("teaching_license_no");
-
-                    b.Property<string>("UpdatedBy")
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)")
-                        .HasColumnName("updated_by");
-
-                    b.Property<DateTimeOffset?>("UpdatedTs")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_ts");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("teachers", "dbo");
-                });
-
             modelBuilder.Entity("Domain.Entities.TeacherAssignment", b =>
                 {
                     b.Property<Guid>("Id")
@@ -4002,6 +5090,10 @@ namespace Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("teacher_id");
 
+                    b.Property<Guid?>("TimePeriodId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("time_period_id");
+
                     b.Property<string>("UpdatedBy")
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)")
@@ -4017,11 +5109,89 @@ namespace Infrastructure.Migrations
 
                     b.HasIndex("ClassSubjectId");
 
+                    b.HasIndex("TimePeriodId");
+
                     b.HasIndex("TeacherId", "ClassSubjectId", "ClassSectionId")
                         .IsUnique()
                         .HasDatabaseName("ix_teacher_assignments_teacher_subject_section");
 
                     b.ToTable("teacher_assignments", "dbo");
+                });
+
+            modelBuilder.Entity("Domain.Entities.TimePeriod", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("CreatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_ts");
+
+                    b.Property<string>("DeletedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("deleted_by");
+
+                    b.Property<DateTimeOffset?>("DeletedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_ts");
+
+                    b.Property<TimeSpan>("EndTime")
+                        .HasColumnType("interval")
+                        .HasColumnName("end_time");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_deleted");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("integer")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("name");
+
+                    b.Property<int>("Order")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0)
+                        .HasColumnName("order");
+
+                    b.Property<TimeSpan>("StartTime")
+                        .HasColumnType("interval")
+                        .HasColumnName("start_time");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateTimeOffset?>("UpdatedTs")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_ts");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IsDeleted");
+
+                    b.HasIndex("Name")
+                        .IsUnique()
+                        .HasDatabaseName("ix_time_periods_name");
+
+                    b.ToTable("time_periods", "dbo");
                 });
 
             modelBuilder.Entity("Infrastructure.Identity.ApplicationRole", b =>
@@ -4069,6 +5239,13 @@ namespace Infrastructure.Migrations
                     b.Property<DateTimeOffset?>("UpdatedTs")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_ts");
+
+                    b.Property<string>("UserType")
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("BOTH")
+                        .HasColumnName("user_type");
 
                     b.HasKey("Id");
 
@@ -4551,6 +5728,23 @@ namespace Infrastructure.Migrations
                     b.Navigation("AcademicYear");
                 });
 
+            modelBuilder.Entity("Domain.Entities.CalendarEvent", b =>
+                {
+                    b.HasOne("Domain.Entities.Employee", "Employee")
+                        .WithMany()
+                        .HasForeignKey("EmployeeId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Domain.Entities.Student", "Student")
+                        .WithMany()
+                        .HasForeignKey("StudentId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Employee");
+
+                    b.Navigation("Student");
+                });
+
             modelBuilder.Entity("Domain.Entities.ClassSection", b =>
                 {
                     b.HasOne("Domain.Entities.AcademicClass", "AcademicClass")
@@ -4580,6 +5774,25 @@ namespace Infrastructure.Migrations
                     b.Navigation("ClassSection");
                 });
 
+            modelBuilder.Entity("Domain.Entities.ClassTimePeriod", b =>
+                {
+                    b.HasOne("Domain.Entities.AcademicClass", "AcademicClass")
+                        .WithMany()
+                        .HasForeignKey("AcademicClassId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Domain.Entities.TimePeriod", "TimePeriod")
+                        .WithMany()
+                        .HasForeignKey("TimePeriodId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("AcademicClass");
+
+                    b.Navigation("TimePeriod");
+                });
+
             modelBuilder.Entity("Domain.Entities.Config", b =>
                 {
                     b.HasOne("Domain.Entities.ConfigType", "ConfigType")
@@ -4590,6 +5803,16 @@ namespace Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("ConfigType");
+                });
+
+            modelBuilder.Entity("Domain.Entities.Employee", b =>
+                {
+                    b.HasOne("Domain.Entities.Employee", "Manager")
+                        .WithMany()
+                        .HasForeignKey("ManagerId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Manager");
                 });
 
             modelBuilder.Entity("Domain.Entities.EmployeeDocument", b =>
@@ -4612,6 +5835,33 @@ namespace Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("EmployeeSalary");
+                });
+
+            modelBuilder.Entity("Domain.Entities.EmployeeLeaveBalance", b =>
+                {
+                    b.HasOne("Domain.Entities.Employee", "Employee")
+                        .WithMany("LeaveBalances")
+                        .HasForeignKey("EmployeeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Domain.Entities.FiscalYear", "FiscalYear")
+                        .WithMany()
+                        .HasForeignKey("FiscalYearId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Domain.Entities.LeaveType", "LeaveType")
+                        .WithMany()
+                        .HasForeignKey("LeaveTypeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Employee");
+
+                    b.Navigation("FiscalYear");
+
+                    b.Navigation("LeaveType");
                 });
 
             modelBuilder.Entity("Domain.Entities.EmployeeLoan", b =>
@@ -4724,6 +5974,43 @@ namespace Infrastructure.Migrations
                     b.Navigation("ClassSubject");
 
                     b.Navigation("Enrollment");
+                });
+
+            modelBuilder.Entity("Domain.Entities.Exam", b =>
+                {
+                    b.HasOne("Domain.Entities.ClassSubject", "ClassSubject")
+                        .WithMany()
+                        .HasForeignKey("ClassSubjectId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Domain.Entities.ExamTerm", "ExamTerm")
+                        .WithMany("Exams")
+                        .HasForeignKey("ExamTermId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Domain.Entities.TimePeriod", "TimePeriod")
+                        .WithMany()
+                        .HasForeignKey("TimePeriodId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("ClassSubject");
+
+                    b.Navigation("ExamTerm");
+
+                    b.Navigation("TimePeriod");
+                });
+
+            modelBuilder.Entity("Domain.Entities.ExamTerm", b =>
+                {
+                    b.HasOne("Domain.Entities.AcademicYear", "AcademicYear")
+                        .WithMany()
+                        .HasForeignKey("AcademicYearId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("AcademicYear");
                 });
 
             modelBuilder.Entity("Domain.Entities.FeeAdjustment", b =>
@@ -4840,6 +6127,51 @@ namespace Infrastructure.Migrations
                     b.Navigation("FeeStructure");
                 });
 
+            modelBuilder.Entity("Domain.Entities.LeaveRequest", b =>
+                {
+                    b.HasOne("Domain.Entities.Employee", "Employee")
+                        .WithMany("LeaveRequests")
+                        .HasForeignKey("EmployeeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Domain.Entities.LeaveType", "LeaveType")
+                        .WithMany()
+                        .HasForeignKey("LeaveTypeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Domain.Entities.Employee", "SubstituteEmployee")
+                        .WithMany()
+                        .HasForeignKey("SubstituteEmployeeId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Employee");
+
+                    b.Navigation("LeaveType");
+
+                    b.Navigation("SubstituteEmployee");
+                });
+
+            modelBuilder.Entity("Domain.Entities.LeaveSubstitute", b =>
+                {
+                    b.HasOne("Domain.Entities.Employee", "Employee")
+                        .WithMany()
+                        .HasForeignKey("EmployeeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Domain.Entities.LeaveRequest", "LeaveRequest")
+                        .WithMany("Substitutes")
+                        .HasForeignKey("LeaveRequestId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Employee");
+
+                    b.Navigation("LeaveRequest");
+                });
+
             modelBuilder.Entity("Domain.Entities.MeetingAttendee", b =>
                 {
                     b.HasOne("Domain.Entities.Meeting", "Meeting")
@@ -4856,9 +6188,20 @@ namespace Infrastructure.Migrations
                     b.HasOne("Domain.Entities.Menu", "MainMenu")
                         .WithMany("Childrens")
                         .HasForeignKey("ParentId")
-                        .OnDelete(DeleteBehavior.Restrict);
+                        .OnDelete(DeleteBehavior.Cascade);
 
                     b.Navigation("MainMenu");
+                });
+
+            modelBuilder.Entity("Domain.Entities.Notification", b =>
+                {
+                    b.HasOne("Domain.Entities.Employee", "Employee")
+                        .WithMany()
+                        .HasForeignKey("EmployeeId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Employee");
                 });
 
             modelBuilder.Entity("Domain.Entities.PayrollRun", b =>
@@ -4951,6 +6294,25 @@ namespace Infrastructure.Migrations
                     b.Navigation("Student");
                 });
 
+            modelBuilder.Entity("Domain.Entities.StudentExamMark", b =>
+                {
+                    b.HasOne("Domain.Entities.Enrollment", "Enrollment")
+                        .WithMany()
+                        .HasForeignKey("EnrollmentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Domain.Entities.Exam", "Exam")
+                        .WithMany("Marks")
+                        .HasForeignKey("ExamId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Enrollment");
+
+                    b.Navigation("Exam");
+                });
+
             modelBuilder.Entity("Domain.Entities.StudentGuardian", b =>
                 {
                     b.HasOne("Domain.Entities.Guardian", "Guardian")
@@ -4968,6 +6330,52 @@ namespace Infrastructure.Migrations
                     b.Navigation("Guardian");
 
                     b.Navigation("Student");
+                });
+
+            modelBuilder.Entity("Domain.Entities.StudentPromotion", b =>
+                {
+                    b.HasOne("Domain.Entities.Enrollment", "FromEnrollment")
+                        .WithMany()
+                        .HasForeignKey("FromEnrollmentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Domain.Entities.Student", "Student")
+                        .WithMany()
+                        .HasForeignKey("StudentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Domain.Entities.Enrollment", "ToEnrollment")
+                        .WithMany()
+                        .HasForeignKey("ToEnrollmentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("FromEnrollment");
+
+                    b.Navigation("Student");
+
+                    b.Navigation("ToEnrollment");
+                });
+
+            modelBuilder.Entity("Domain.Entities.StudentResult", b =>
+                {
+                    b.HasOne("Domain.Entities.Enrollment", "Enrollment")
+                        .WithMany()
+                        .HasForeignKey("EnrollmentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Domain.Entities.ExamTerm", "ExamTerm")
+                        .WithMany()
+                        .HasForeignKey("ExamTermId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Enrollment");
+
+                    b.Navigation("ExamTerm");
                 });
 
             modelBuilder.Entity("Domain.Entities.StudentScholarship", b =>
@@ -4992,17 +6400,6 @@ namespace Infrastructure.Migrations
                     b.Navigation("FiscalYear");
                 });
 
-            modelBuilder.Entity("Domain.Entities.Teacher", b =>
-                {
-                    b.HasOne("Domain.Entities.Employee", "Employee")
-                        .WithOne("Teacher")
-                        .HasForeignKey("Domain.Entities.Teacher", "Id")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("Employee");
-                });
-
             modelBuilder.Entity("Domain.Entities.TeacherAssignment", b =>
                 {
                     b.HasOne("Domain.Entities.ClassSection", "ClassSection")
@@ -5016,17 +6413,24 @@ namespace Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.HasOne("Domain.Entities.Teacher", "Teacher")
+                    b.HasOne("Domain.Entities.Employee", "Employee")
                         .WithMany("Assignments")
                         .HasForeignKey("TeacherId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("Domain.Entities.TimePeriod", "TimePeriod")
+                        .WithMany()
+                        .HasForeignKey("TimePeriodId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.Navigation("ClassSection");
 
                     b.Navigation("ClassSubject");
 
-                    b.Navigation("Teacher");
+                    b.Navigation("Employee");
+
+                    b.Navigation("TimePeriod");
                 });
 
             modelBuilder.Entity("Infrastructure.Identity.ApplicationRoleClaim", b =>
@@ -5141,15 +6545,19 @@ namespace Infrastructure.Migrations
 
             modelBuilder.Entity("Domain.Entities.Employee", b =>
                 {
+                    b.Navigation("Assignments");
+
                     b.Navigation("Documents");
+
+                    b.Navigation("LeaveBalances");
+
+                    b.Navigation("LeaveRequests");
 
                     b.Navigation("Loans");
 
                     b.Navigation("Qualifications");
 
                     b.Navigation("Salaries");
-
-                    b.Navigation("Teacher");
                 });
 
             modelBuilder.Entity("Domain.Entities.EmployeeSalary", b =>
@@ -5170,6 +6578,16 @@ namespace Infrastructure.Migrations
                     b.Navigation("FeeSelections");
 
                     b.Navigation("Scholarships");
+                });
+
+            modelBuilder.Entity("Domain.Entities.Exam", b =>
+                {
+                    b.Navigation("Marks");
+                });
+
+            modelBuilder.Entity("Domain.Entities.ExamTerm", b =>
+                {
+                    b.Navigation("Exams");
                 });
 
             modelBuilder.Entity("Domain.Entities.FeeInvoice", b =>
@@ -5199,6 +6617,11 @@ namespace Infrastructure.Migrations
                     b.Navigation("StudentLinks");
                 });
 
+            modelBuilder.Entity("Domain.Entities.LeaveRequest", b =>
+                {
+                    b.Navigation("Substitutes");
+                });
+
             modelBuilder.Entity("Domain.Entities.Meeting", b =>
                 {
                     b.Navigation("Attendees");
@@ -5226,11 +6649,6 @@ namespace Infrastructure.Migrations
                     b.Navigation("Enrollments");
 
                     b.Navigation("GuardianLinks");
-                });
-
-            modelBuilder.Entity("Domain.Entities.Teacher", b =>
-                {
-                    b.Navigation("Assignments");
                 });
 
             modelBuilder.Entity("Infrastructure.Identity.ApplicationRole", b =>

@@ -28,5 +28,32 @@ namespace Domain.Constants
         public const int SalaryAdjustmentType = 1016;
         public const int FeeAdjustmentType = 1017;
         public const int SsfRate = 1018;
+
+        // Employee "org" fields (2026-07-23) -- Branch stays type-only (school-specific, admin
+        // created via POST /api/configs, same split as Grade/Section); Province and Level are
+        // seeded with a default option set since they're near-universal (Nepal's 7 federal
+        // provinces; a generic Junior/Mid/Senior/Lead/Executive ladder).
+        public const int Branch = 1019;
+        public const int Province = 1020;
+        public const int EmployeeLevel = 1021;
+
+        // Employee address chain (2026-07-24), extending Province into a full Nepal address.
+        // District.AdditionalValue1 = its ProvinceCode. LocalLevel.AdditionalValue1 =
+        // its DistrictCode, AdditionalValue2 = its ProvinceCode (denormalized, so a UI can
+        // reverse-map both levels from one LocalLevel option without a second lookup),
+        // AdditionalValue3 = its type (Domain/Constants/LocalLevelTypeCodes). Both near-universal
+        // like Province, so both get seeded default option rows by ConfigCatalogSeeder.
+        public const int District = 1022;
+        public const int LocalLevel = 1023;
+
+        // ConfigTypeCodes.ClassPeriod (1024, "Exam Period" then "Class Period") existed briefly
+        // 2026-07-30..2026-08-03 and was removed the same day it was renamed: a flat Config
+        // option list can't express "certain classes run different period structures," a real
+        // relationship. Replaced by the Domain/Entities/TimePeriod + ClassTimePeriod tables (see
+        // TimePeriod's doc comment) -- Exam.TimePeriodId/TeacherAssignment.TimePeriodId are real
+        // FKs now, not Config codes. Do not reintroduce 1024 for anything else; an already-seeded
+        // database's old ClassPeriod Config rows are simply orphaned (harmless, same "leftover
+        // from a removed feature" precedent as the AppConfig rows dropped alongside the exam
+        // seat-arrangement removal).
     }
 }

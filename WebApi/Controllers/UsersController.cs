@@ -85,5 +85,56 @@ namespace WebApi.Controllers
 
             return Ok(response);
         }
+
+        // Per-user menu overrides (2026-08-07) -- same route/body shape as RolesController's
+        // POST /api/roles/claims / DELETE /api/roles/{roleId}/claims/{menuId}, just user-scoped.
+        // Subject to the same privilege-escalation guard (Forbidden if the caller doesn't hold
+        // the menu themselves).
+
+        [HttpGet("{id:guid}/claims")]
+        public async Task<ActionResult<CommonResponse<List<UserClaimDto>>>> GetUserClaims(Guid id, CancellationToken cancellationToken)
+        {
+            var response = await _userService.GetUserClaimsAsync(id, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            return Ok(response);
+        }
+
+        [HttpPost("claims")]
+        public async Task<ActionResult<CommonResponse<UserClaimDto>>> AssignMenuToUser([FromBody] AssignMenuToUserCommand command, CancellationToken cancellationToken)
+        {
+            var response = await _userService.AssignMenuToUserAsync(command, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            if (response.ResponseCode != ResponseCodes.Success)
+            {
+                return BadRequest(response);
+            }
+
+            return Ok(response);
+        }
+
+        [HttpDelete("{id:guid}/claims/{menuId:int}")]
+        public async Task<ActionResult<CommonResponse<bool>>> RemoveMenuFromUser(Guid id, int menuId, CancellationToken cancellationToken)
+        {
+            var response = await _userService.RemoveMenuFromUserAsync(id, menuId, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            if (response.ResponseCode != ResponseCodes.Success)
+            {
+                return BadRequest(response);
+            }
+
+            return Ok(response);
+        }
     }
 }

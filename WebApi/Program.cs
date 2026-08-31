@@ -41,8 +41,15 @@ try
     await CalendarSeeder.SeedAsync(app.Services);
     // Fiscal years + tax slabs (a placeholder FY-SAMPLE plus the real FY 2084/85) -- verify/replace before relying on for real payroll.
     await PayrollSeeder.SeedAsync(app.Services);
+    // Baseline Annual/Sick/Casual leave types -- illustrative, verify against actual policy before real use.
+    await LeaveTypeSeeder.SeedAsync(app.Services);
+    // Illustrative daily class periods + breaks -- verify against the school's real bell schedule; class mapping is admin-driven (POST /api/timeperiods/map), not seeded.
+    await TimePeriodSeeder.SeedAsync(app.Services);
     // Development/demo data (school structure, teachers, students) -- remove for production.
-    await SampleDataSeeder.SeedAsync(app.Services);
+    // Temporarily disabled: the dev DB was intentionally wiped and repopulated with a fresh,
+    // hand-curated Nursery/LKG/UKG dataset (2026-08-05) -- re-enable if the full 100-student demo
+    // set is needed again.
+    // await SampleDataSeeder.SeedAsync(app.Services);
 }
 catch (Exception seedException)
 {

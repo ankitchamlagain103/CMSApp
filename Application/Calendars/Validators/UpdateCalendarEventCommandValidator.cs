@@ -47,6 +47,12 @@ namespace Application.Calendars.Validators
 
             RuleFor(command => command.Language)
                 .MaximumLength(10);
+
+            RuleFor(command => command.ProvinceCode)
+                .MaximumLength(100);
+
+            RuleFor(command => command.BranchCode)
+                .MaximumLength(100);
         }
     }
 }

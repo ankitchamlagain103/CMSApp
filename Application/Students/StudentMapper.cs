@@ -1,3 +1,4 @@
+using Application.Common.Helpers;
 using Application.Students.Dtos;
 using Domain.Entities;
 
@@ -10,6 +11,7 @@ namespace Application.Students
             var studentDto = new StudentDto
             {
                 Id = student.Id,
+                UserId = student.UserId,
                 AdmissionNo = student.AdmissionNo,
                 FirstName = student.FirstName,
                 MiddleName = student.MiddleName,
@@ -31,15 +33,17 @@ namespace Application.Students
         }
 
         // Detail-shape overload: same as above plus the guardian links (each with its Guardian
-        // navigation loaded) flattened into the DTO.
-        public static StudentDto ToDto(Student student, IReadOnlyList<StudentGuardian> guardianLinks)
+        // navigation loaded) flattened into the DTO. Only CreateStudentAsync/UpdateStudentAsync
+        // call this overload as of 2026-08-05 -- GetStudentByIdAsync uses the plain ToDto(student)
+        // above, since the Guardians tab has its own dedicated endpoint now.
+        public static StudentDto ToDto(Student student, IReadOnlyList<StudentGuardian> guardianLinks, IReadOnlyDictionary<string, string> relationshipLabelsByCode)
         {
             var studentDto = ToDto(student);
 
             var guardianDtos = new List<StudentGuardianDto>();
             foreach (var guardianLink in guardianLinks)
             {
-                var guardianDto = ToGuardianLinkDto(guardianLink);
+                var guardianDto = ToGuardianLinkDto(guardianLink, relationshipLabelsByCode);
                 guardianDtos.Add(guardianDto);
             }
 
@@ -47,13 +51,14 @@ namespace Application.Students
             return studentDto;
         }
 
-        public static StudentDocumentDto ToDocumentDto(StudentDocument document)
+        public static StudentDocumentDto ToDocumentDto(StudentDocument document, IReadOnlyDictionary<string, string> labelsByCode = null)
         {
             var documentDto = new StudentDocumentDto
             {
                 Id = document.Id,
                 StudentId = document.StudentId,
                 DocumentTypeCode = document.DocumentTypeCode,
+                DocumentTypeLabel = ConfigLabelHelper.Resolve(labelsByCode, document.DocumentTypeCode),
                 DocumentName = document.DocumentName,
                 FileName = document.FileName,
                 ContentType = document.ContentType,
@@ -68,7 +73,7 @@ namespace Application.Students
 
         // Expects the enrollment's ClassSection -> AcademicClass -> AcademicYear chain to be
         // loaded (the history repository query includes it).
-        public static StudentEnrollmentHistoryDto ToEnrollmentHistoryDto(Enrollment enrollment)
+        public static StudentEnrollmentHistoryDto ToEnrollmentHistoryDto(Enrollment enrollment, IReadOnlyDictionary<string, string> classLabelsByCode)
         {
             var classSection = enrollment.ClassSection;
             var academicClass = classSection.AcademicClass;
@@ -83,8 +88,10 @@ namespace Application.Students
                 AcademicYearStartDate = academicYear.StartDate,
                 AcademicClassId = academicClass.Id,
                 GradeCode = academicClass.GradeCode,
+                GradeLabel = ConfigLabelHelper.Resolve(classLabelsByCode, academicClass.GradeCode),
                 ClassSectionId = classSection.Id,
                 SectionCode = classSection.SectionCode,
+                SectionLabel = ConfigLabelHelper.Resolve(classLabelsByCode, classSection.SectionCode),
                 RollNumber = enrollment.RollNumber,
                 EnrollmentDate = enrollment.EnrollmentDate,
                 Status = enrollment.Status
@@ -94,7 +101,7 @@ namespace Application.Students
         }
 
         // Expects the link's Guardian navigation to be loaded (the repository includes it).
-        public static StudentGuardianDto ToGuardianLinkDto(StudentGuardian link)
+        public static StudentGuardianDto ToGuardianLinkDto(StudentGuardian link, IReadOnlyDictionary<string, string> relationshipLabelsByCode)
         {
             var studentGuardianDto = new StudentGuardianDto
             {
@@ -102,6 +109,7 @@ namespace Application.Students
                 StudentId = link.StudentId,
                 GuardianId = link.GuardianId,
                 RelationshipCode = link.RelationshipCode,
+                RelationshipLabel = ConfigLabelHelper.Resolve(relationshipLabelsByCode, link.RelationshipCode),
                 IsPrimary = link.IsPrimary,
                 GuardianFirstName = link.Guardian != null ? link.Guardian.FirstName : null,
                 GuardianLastName = link.Guardian != null ? link.Guardian.LastName : null,

@@ -1,3 +1,4 @@
+using Application.Common.Helpers;
 using Application.Common.Interfaces;
 using Application.Common.Models;
 using Application.FeeGenerationRuns.Dtos;
@@ -6,6 +7,7 @@ using Application.FeeInvoices;
 using Application.FeeInvoices.Commands;
 using Application.FeeInvoices.Dtos;
 using Domain.Common.Filters;
+using Domain.Constants;
 
 namespace Application.FeeGenerationRuns
 {
@@ -32,6 +34,7 @@ namespace Application.FeeGenerationRuns
             var pagedRuns = await _unitOfWork.FeeGenerationRuns.GetPagedByFilterAsync(filter, query.Page, query.PageSize, cancellationToken);
 
             var runDtos = new List<FeeGenerationRunDto>();
+            // FeeGenerationRunDto carries no Config-code fields of its own -- no label map needed here.
             foreach (var run in pagedRuns.Items)
             {
                 var periodInvoices = await _unitOfWork.FeeInvoices.GetByPeriodWithDetailsAsync(run.AcademicYearId, run.BillingYear, run.BillingMonth, cancellationToken);
@@ -61,7 +64,8 @@ namespace Application.FeeGenerationRuns
             }
 
             var periodInvoices = await _unitOfWork.FeeInvoices.GetByPeriodWithDetailsAsync(run.AcademicYearId, run.BillingYear, run.BillingMonth, cancellationToken);
-            var detailDto = FeeGenerationRunMapper.ToDetailDto(run, periodInvoices);
+            var classLabels = await LoadClassLabelMapAsync(cancellationToken);
+            var detailDto = FeeGenerationRunMapper.ToDetailDto(run, periodInvoices, classLabels);
 
             var successResponse = CommonResponse<FeeGenerationRunDetailDto>.Success(detailDto);
             return successResponse;
@@ -84,7 +88,8 @@ namespace Application.FeeGenerationRuns
             }
 
             var classInvoices = await _unitOfWork.FeeInvoices.GetByPeriodForClassWithDetailsAsync(run.AcademicYearId, run.BillingYear, run.BillingMonth, academicClassId, cancellationToken);
-            var classDto = FeeGenerationRunMapper.ToClassGroupDto(academicClassId, academicClass.GradeCode, classInvoices);
+            var classLabels = await LoadClassLabelMapAsync(cancellationToken);
+            var classDto = FeeGenerationRunMapper.ToClassGroupDto(academicClassId, academicClass.GradeCode, classInvoices, classLabels);
 
             var successResponse = CommonResponse<FeeGenerationClassGroupDto>.Success(classDto);
             return successResponse;
@@ -145,6 +150,20 @@ namespace Application.FeeGenerationRuns
 
             var generateResponse = await _feeInvoiceService.GenerateAsync(command, cancellationToken);
             return generateResponse;
+        }
+
+        // Merged Grade+Section Config label map (2026-08-05) -- resolves GradeCode/SectionCode
+        // on the run detail/class-drill-down DTOs server-side, per the application-wide Config
+        // label resolution sweep. See Docs/config_label_resolution_implementation_guide.md.
+        private async Task<IReadOnlyDictionary<string, string>> LoadClassLabelMapAsync(CancellationToken cancellationToken)
+        {
+            var gradeConfigs = await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.Grade, cancellationToken);
+            var labelsByCode = ConfigLabelHelper.BuildLabelMap(gradeConfigs);
+
+            var sectionConfigs = await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.Section, cancellationToken);
+            ConfigLabelHelper.MergeLabelMap(labelsByCode, sectionConfigs);
+
+            return labelsByCode;
         }
     }
 }

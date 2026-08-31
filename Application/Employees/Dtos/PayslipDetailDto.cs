@@ -14,6 +14,7 @@ namespace Application.Employees.Dtos
         public string EmployeeName { get; set; }
         public string EmployeeCode { get; set; }
         public string JobPositionCode { get; set; }
+        public string JobPositionLabel { get; set; }
         public string PayMonthLabel { get; set; }
         public int MonthDays { get; set; }
         public int PayDays { get; set; }

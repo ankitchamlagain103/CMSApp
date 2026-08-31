@@ -34,8 +34,21 @@ namespace Infrastructure.Persistence.EntityConfigurations
                     .HasColumnName("is_class_teacher")
                     .HasDefaultValue(false);
 
-            builder.HasOne(a => a.Teacher)
-                    .WithMany(t => t.Assignments)
+            builder.Property(a => a.TimePeriodId)
+                    .HasColumnName("time_period_id")
+                    .IsRequired(false);
+
+            builder.HasOne(a => a.TimePeriod)
+                    .WithMany()
+                    .HasForeignKey(a => a.TimePeriodId)
+                    .OnDelete(DeleteBehavior.Restrict);
+
+            // TeacherId now FKs directly to Employee.Id (2026-08-06, Teacher entity removed) --
+            // must stay an explicit HasForeignKey mapping since the FK property name ("TeacherId")
+            // doesn't match the nav name + Id ("EmployeeId"); EF's convention would otherwise
+            // create a shadow FK instead of using this column, same caution as RefreshToken.UserId.
+            builder.HasOne(a => a.Employee)
+                    .WithMany(e => e.Assignments)
                     .HasForeignKey(a => a.TeacherId)
                     .OnDelete(DeleteBehavior.Restrict);
 

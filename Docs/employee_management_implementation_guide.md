@@ -33,7 +33,8 @@ Two ways to end up with a teacher profile:
 
 | Method/Route | Body / Query | Notes |
 |---|---|---|
-| `POST /api/employees` | `{ "employeeCode": null, "firstName", "middleName", "lastName", "gender": 0, "dateOfBirth", "email", "phone", "joinDate", "employeeCategoryCode": "ADMINISTRATION", "jobPositionCode": "RECEPTIONIST", "bankName", "bankAccountNumber", "paymentMode": 1, "panNumber", "providentFundNumber", "ssfNumber", "citNumber", "gratuityNumber" }` | `employeeCode` optional — blank = auto-generated `EMP{year}{seq}` (one sequence shared across every employee type, including teachers). `employeeCategoryCode`/`jobPositionCode` validated against catalogs `1011`/`1012`. `paymentMode`: `1` BankDeposit / `2` Cash / `3` Cheque. The five "Accounts and Codes" fields (2026-07-23) are all optional free-form strings, ≤50 chars, no format enforced |
+| `POST /api/employees` | `{ "employeeCode": null, "firstName", "middleName", "lastName", "gender": 0, "dateOfBirth", "email", "phone", "joinDate", "employeeCategoryCode": "ADMINISTRATION", "jobPositionCode": "RECEPTIONIST", "bankName", "bankAccountNumber", "paymentMode": 1, "panNumber", "providentFundNumber", "ssfNumber", "citNumber", "gratuityNumber", "registerUserAccount": false, "roleIds": [] }` | `employeeCode` optional — blank = auto-generated `EMP{year}{seq}` (one sequence shared across every employee type, including teachers). `employeeCategoryCode`/`jobPositionCode` validated against catalogs `1011`/`1012`. `paymentMode`: `1` BankDeposit / `2` Cash / `3` Cheque. The five "Accounts and Codes" fields (2026-07-23) are all optional free-form strings, ≤50 chars, no format enforced. `registerUserAccount`/`roleIds` (2026-07-27) — see Portal account provisioning below |
+| `POST /api/employees/{id}/register-account` | `{ "roleIds": ["<role-guid>"] }` | Retrofit for an employee created without `registerUserAccount`. `409` if the employee already has a portal account or the email is already registered; `400` if `roleIds` is empty or the employee has no email on file. See Portal account provisioning below |
 | `GET /api/employees?page=1&pageSize=20&search=&phone=&employeeCategoryCode=&jobPositionCode=&employmentStatus=&gender=&dateField=&fromDate=&toDate=` | | All filters optional, same shape as the Student/Teacher list filters |
 | `GET /api/employees/{id}` | | `hasTeacherProfile` in the response tells you whether `/api/teachers/{id}` also resolves |
 | `PUT /api/employees/{id}` | same body plus `employmentStatus` (see enum below); `employeeCode` immutable | |
@@ -50,7 +51,11 @@ Retired.
 scheme identifiers distinct from `bankName`/`bankAccountNumber` (payment routing). All optional,
 no format validated.
 
-`EmployeeDto`: `{ "id", "userId", "employeeCode", "firstName", "middleName", "lastName", "gender", "dateOfBirth", "email", "phone", "joinDate", "employeeCategoryCode", "jobPositionCode", "employmentStatus", "bankName", "bankAccountNumber", "paymentMode", "hasTeacherProfile" }`. `userId` is reserved for a future employee-login feature — nothing sets it today (same "records, not accounts" stance as students/teachers always had).
+`EmployeeDto`: `{ "id", "userId", "employeeCode", "firstName", "middleName", "lastName", "gender", "dateOfBirth", "email", "phone", "joinDate", "employeeCategoryCode", "jobPositionCode", "employmentStatus", "bankName", "bankAccountNumber", "paymentMode", "hasTeacherProfile" }`. `userId` is non-null once a portal account has been provisioned for this employee (2026-07-27, see below) — until then it's the same "records, not accounts" placeholder students/teachers always had.
+
+## Portal account provisioning (2026-07-27)
+
+An employee can optionally get a real login, on request — either at creation (`CreateEmployeeCommand.registerUserAccount: true` + `roleIds`) or afterward via `POST /api/employees/{id}/register-account`. Full reference, including the activation-email mechanic shared with Students: `Docs/portal_account_provisioning_implementation_guide.md`. Short version: `email` must be set, `roleIds` must name at least one existing role (admin-picked, same shape as `POST /api/users`'s `roleIds`); the account is created with no password and an email is sent with a link to set one (`POST /api/auth/reset-password`) — there is no separate "activation" endpoint.
 
 ## Compensation plan — `/api/employees/{id}/salaries`
 

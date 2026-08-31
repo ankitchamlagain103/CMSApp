@@ -1,3 +1,4 @@
+using Domain.Constants;
 using Infrastructure.Persistence.EntityConfigurations;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
@@ -32,6 +33,11 @@ namespace Infrastructure.Identity.EntityConfiguration
             builder.Property(r => r.Description)
                     .HasColumnName("description")
                     .HasMaxLength(500);
+
+            builder.Property(r => r.UserType)
+                    .HasColumnName("user_type")
+                    .HasMaxLength(20)
+                    .HasDefaultValue(MenuAudience.Both);
 
             builder.HasIndex(r => r.NormalizedName)
                     .IsUnique()

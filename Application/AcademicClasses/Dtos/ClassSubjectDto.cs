@@ -11,15 +11,27 @@ namespace Application.AcademicClasses.Dtos
         public Guid Id { get; set; }
         public Guid AcademicClassId { get; set; }
         public string SubjectCode { get; set; }
+        public string SubjectLabel { get; set; }
         public bool IsMandatory { get; set; }
         public int DisplayOrder { get; set; }
         public Guid? ClassSectionId { get; set; }
         public string SectionCode { get; set; }
+        public string SectionLabel { get; set; }
         public SubjectScope Scope { get; set; }
         public decimal? CreditHours { get; set; }
+
+        // FullMarks/PassMarks are READ-ONLY, server-computed from TheoryMarks+PracticalMarks /
+        // TheoryPassMarks+PracticalPassMarks (2026-07-30) -- never accepted as input on
+        // Assign/UpdateClassSubjectCommand. See Domain/Entities/ClassSubject's doc comment.
         public int? FullMarks { get; set; }
         public int? PassMarks { get; set; }
         public int? TheoryMarks { get; set; }
         public int? PracticalMarks { get; set; }
+
+        // Assessment configuration (2026-07-28) -- see the doc comment on Domain/Entities/ClassSubject.
+        public bool HasTheory { get; set; }
+        public bool HasPractical { get; set; }
+        public int? TheoryPassMarks { get; set; }
+        public int? PracticalPassMarks { get; set; }
     }
 }

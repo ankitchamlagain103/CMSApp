@@ -38,6 +38,25 @@ namespace Application.Employees.Validators
             RuleFor(command => command.GratuityNumber)
                 .MaximumLength(50);
 
+            RuleFor(command => command.BranchCode)
+                .MaximumLength(100);
+
+            RuleFor(command => command.ProvinceCode)
+                .MaximumLength(100);
+
+            RuleFor(command => command.LevelCode)
+                .MaximumLength(100);
+
+            RuleFor(command => command.DistrictCode)
+                .MaximumLength(100);
+
+            RuleFor(command => command.LocalLevelCode)
+                .MaximumLength(100);
+
+            RuleFor(command => command.WardNo)
+                .InclusiveBetween(1, 99)
+                .When(command => command.WardNo.HasValue);
+
             RuleFor(command => command.JoinDate)
                 .GreaterThanOrEqualTo(command => command.DateOfBirth)
                     .WithMessage("JoinDate cannot be before DateOfBirth.")

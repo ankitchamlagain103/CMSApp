@@ -1,3 +1,5 @@
+using Domain.Enums;
+
 namespace Application.Employees.Dtos
 {
     // FilePath is deliberately NOT exposed -- the file is fetched via the download endpoint.
@@ -6,6 +8,7 @@ namespace Application.Employees.Dtos
         public Guid Id { get; set; }
         public Guid EmployeeId { get; set; }
         public string DocumentTypeCode { get; set; }
+        public string DocumentTypeLabel { get; set; }
         public string DocumentName { get; set; }
         public string FileName { get; set; }
         public string ContentType { get; set; }
@@ -13,5 +16,9 @@ namespace Application.Employees.Dtos
         public DateTime? ValidUntil { get; set; }
         public string Remarks { get; set; }
         public DateTimeOffset UploadedTs { get; set; }
+        public VerificationStatus VerificationStatus { get; set; }
+        public string VerificationRemarks { get; set; }
+        public DateTimeOffset? VerifiedTs { get; set; }
+        public string VerifiedBy { get; set; }
     }
 }

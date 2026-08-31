@@ -146,6 +146,155 @@ namespace Application.DocumentTemplates
             return Task.FromResult(successResponse);
         }
 
+        public async Task<CommonResponse<DocumentPreviewDto>> GetTemplatePreviewAsync(Guid id, CancellationToken cancellationToken = default)
+        {
+            var documentTemplate = await _unitOfWork.DocumentTemplates.GetByIdAsync(id, cancellationToken);
+            if (documentTemplate == null)
+            {
+                var notFoundResponse = CommonResponse<DocumentPreviewDto>.Fail(ResponseCodes.NotFound, "Document template with id '" + id + "' was not found.");
+                return notFoundResponse;
+            }
+
+            var sampleValues = BuildSampleValues(documentTemplate.TemplateType);
+            var renderedHtml = TemplateRenderer.Render(documentTemplate.HtmlContent, sampleValues);
+
+            var documentPreviewDto = new DocumentPreviewDto
+            {
+                TemplateType = documentTemplate.TemplateType,
+                Html = renderedHtml
+            };
+
+            var successResponse = CommonResponse<DocumentPreviewDto>.Success(documentPreviewDto);
+            return successResponse;
+        }
+
+        // Sample values for every token BuildPlaceholders lists for that type -- same tokens, made
+        // up but representative data, since a template-only preview has no real employee/student/
+        // payment record behind it. Row tokens use the exact <tr> shape each real preview's own
+        // Build*Rows helper produces (EmployeeService/EnrollmentService/FeePaymentService), just
+        // with 1-2 sample rows instead of a real record's actual lines.
+        private static Dictionary<string, string> BuildSampleValues(DocumentTemplateType templateType)
+        {
+            if (templateType == DocumentTemplateType.Payslip)
+            {
+                return new Dictionary<string, string>
+                {
+                    { "EmployeeName", "Sample Employee" },
+                    { "EmployeeCode", "EMP2082001" },
+                    { "JobPositionCode", "TEACHER" },
+                    { "EffectiveFromDate", DateTime.Today.ToString("yyyy-MM-dd") },
+                    { "FiscalYearCode", "2082/83" },
+                    { "GrossMonthly", "50000.00" },
+                    { "NetMonthly", "45666.67" },
+                    { "GrossAnnualIncome", "600000.00" },
+                    { "RetirementContributionAnnual", "60000.00" },
+                    { "RetirementExemption", "60000.00" },
+                    { "InsuranceDeduction", "20000.00" },
+                    { "AnnualTaxableIncome", "520000.00" },
+                    { "AnnualTax", "52000.00" },
+                    { "MonthlyTax", "4333.33" },
+                    {
+                        "ComponentsRows",
+                        "<tr><td>BASIC</td><td>FixedAmount</td><td>30000.00</td><td>Monthly</td></tr>" +
+                        "<tr><td>DEARNESS_ALLOWANCE</td><td>FixedAmount</td><td>5000.00</td><td>Monthly</td></tr>"
+                    },
+                    { "DeductionsRows", "<tr><td>SSF_DEDUCTION</td><td>Percentage</td><td>11.00</td><td>Monthly</td></tr>" },
+                    { "InsurancePremiumsRows", "<tr><td>Life</td><td>20000.00</td></tr>" },
+                    {
+                        "TaxBreakdownRows",
+                        "<tr><td>1.00</td><td>500000.00</td><td>1.00%</td><td>499999.00</td><td>5000.00</td></tr>" +
+                        "<tr><td>500000.00</td><td>-</td><td>10.00%</td><td>20000.00</td><td>2000.00</td></tr>"
+                    }
+                };
+            }
+
+            if (templateType == DocumentTemplateType.FeeReceipt)
+            {
+                return new Dictionary<string, string>
+                {
+                    { "StudentName", "Sample Student" },
+                    { "AdmissionNo", "ADM2082001" },
+                    { "GradeCode", "GRADE_5" },
+                    { "SectionCode", "A" },
+                    { "RollNumber", "12" },
+                    {
+                        "FeeItemsRows",
+                        "<tr><td>TUITION_FEE</td><td>2000.00</td><td>Monthly</td><td>Compulsory</td></tr>" +
+                        "<tr><td>COMPUTER_FEE</td><td>500.00</td><td>Monthly</td><td>Optional</td></tr>"
+                    },
+                    { "DiscountsRows", "<tr><td>SIBLING_DISCOUNT</td><td>10.00 (Percentage)</td></tr>" },
+                    { "ScholarshipsRows", "<tr><td>MERIT_SCHOLARSHIP</td><td>500.00 (FixedAmount)</td></tr>" },
+                    { "MonthlyRecurringTotal", "2500.00" },
+                    { "AnnualInstallmentMonthlyShare", "0.00" },
+                    { "AnnualTotal", "30000.00" },
+                    { "OneTimeTotal", "5000.00" },
+                    { "RefundableDepositTotal", "2000.00" },
+                    { "TotalDiscountReduction", "250.00" },
+                    { "TotalScholarshipReduction", "500.00" },
+                    { "NetMonthlyRecurring", "1750.00" }
+                };
+            }
+
+            if (templateType == DocumentTemplateType.PaymentReceipt)
+            {
+                return new Dictionary<string, string>
+                {
+                    { "SchoolName", "Sample School" },
+                    { "SchoolAddress", "Kathmandu, Nepal" },
+                    { "SchoolPhone", "01-4123456" },
+                    { "ReceiptNo", "RCPT-2082-0001" },
+                    { "PaymentDate", DateTime.Today.ToString("yyyy-MM-dd") },
+                    { "StudentName", "Sample Student" },
+                    { "AdmissionNo", "ADM2082001" },
+                    { "GradeCode", "GRADE_5" },
+                    { "SectionCode", "A" },
+                    { "PaymentMode", "Cash" },
+                    { "ReferenceNo", "(Ref 123456)" },
+                    { "AmountPaid", "2500.00" },
+                    { "Remarks", "Sample payment remarks" },
+                    { "AllocationsRows", "<tr><td>INV-2082-001</td><td>Shrawan 2082</td><td>2500.00</td></tr>" },
+                    {
+                        "InvoiceLinesRows",
+                        "<tr><td>1</td><td>INV-2082-001</td><td>Tuition Fee</td><td>2000.00</td></tr>" +
+                        "<tr><td>2</td><td>INV-2082-001</td><td>Computer Fee</td><td>500.00</td></tr>"
+                    },
+                    { "OutstandingAmount", "0.00" }
+                };
+            }
+
+            if (templateType == DocumentTemplateType.StudentIdCard)
+            {
+                return new Dictionary<string, string>
+                {
+                    { "StudentName", "Sample Student" },
+                    { "AdmissionNo", "ADM2082001" },
+                    { "GradeCode", "GRADE_5" },
+                    { "SectionCode", "A" },
+                    { "RollNumber", "12" },
+                    { "DateOfBirth", "2015-04-10" },
+                    { "GuardianName", "Sample Guardian" },
+                    { "GuardianPhone", "9800000000" }
+                };
+            }
+
+            if (templateType == DocumentTemplateType.TeacherIdCard)
+            {
+                return new Dictionary<string, string>
+                {
+                    { "EmployeeCode", "EMP2082001" },
+                    { "TeacherName", "Sample Teacher" },
+                    { "JobPositionCode", "TEACHER" },
+                    { "TeachingLicenseNo", "TL-2082-001" },
+                    { "Specialization", "Mathematics" },
+                    { "JoinDate", "2082-01-01" },
+                    { "Phone", "9800000000" },
+                    { "Email", "sample.teacher@example.com" }
+                };
+            }
+
+            return new Dictionary<string, string>();
+        }
+
         // The backend is the sole authority on what tokens exist per document type -- this
         // catalog is deliberately hardcoded, not itself admin-configurable.
         private static List<TemplatePlaceholderDto> BuildPlaceholders(DocumentTemplateType templateType)

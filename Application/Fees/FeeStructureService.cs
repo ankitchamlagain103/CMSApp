@@ -321,11 +321,17 @@ namespace Application.Fees
         }
 
         // FeeCategory (1010) code -> Label map so every fee-structure DTO carries the
-        // human-readable category label alongside the stored code (2026-07-19).
+        // human-readable category label alongside the stored code (2026-07-19). Extended
+        // 2026-08-05 to also merge Grade (1001), since FeeStructureDto.GradeLabel reuses this
+        // same map.
         private async Task<Dictionary<string, string>> LoadFeeCategoryLabelMapAsync(CancellationToken cancellationToken)
         {
             var options = await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.FeeCategory, cancellationToken);
             var labelsByCode = ConfigLabelHelper.BuildLabelMap(options);
+
+            var gradeOptions = await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.Grade, cancellationToken);
+            ConfigLabelHelper.MergeLabelMap(labelsByCode, gradeOptions);
+
             return labelsByCode;
         }
 

@@ -1,3 +1,4 @@
+using Application.Common.Helpers;
 using Application.Common.Interfaces;
 using Application.Common.Models;
 using Application.Dashboard;
@@ -8,11 +9,15 @@ using Domain.Enums;
 using Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using System.Linq.Expressions;
 
 namespace Infrastructure.Identity.Services
 {
     public class DashboardService : IDashboardService
     {
+        private const int DefaultGlobalSearchLimit = 5;
+        private const int MaxGlobalSearchLimit = 20;
+
         private readonly ApplicationDbContext _dbContext;
         private readonly IUnitOfWork _unitOfWork;
         private readonly ICurrentUserService _currentUserService;
@@ -81,29 +86,41 @@ namespace Infrastructure.Identity.Services
             return successResponse;
         }
 
+        // Teaching-staff predicate written inline (not a call to EmployeeRoleHelper.IsTeachingStaff)
+        // because EF Core's LINQ-to-SQL translator can't reliably translate an arbitrary C# static
+        // method call inside a query expression -- the helper stays the source of truth for
+        // in-memory checks (e.g. GlobalSearchAsync's per-row IsTeacher flag below), this predicate
+        // must express the same rule directly so it survives translation to SQL.
+        private static readonly Expression<Func<Employee, bool>> IsTeachingStaffExpression =
+            employee => employee.EmployeeCategoryCode == EmployeeCategoryCodes.Academic
+                && (employee.JobPositionCode == JobPositionCodes.Teacher
+                    || employee.JobPositionCode == JobPositionCodes.Principal
+                    || employee.JobPositionCode == JobPositionCodes.VicePrincipal);
+
         public async Task<CommonResponse<TeacherListWidgetDto>> GetTeacherListWidgetAsync(int take, CancellationToken cancellationToken = default)
         {
-            var totalTeachers = await _dbContext.Teachers.CountAsync(cancellationToken);
-            var activeTeachers = await _dbContext.Teachers.CountAsync(teacher => teacher.Employee.EmploymentStatus == EmploymentStatus.Active, cancellationToken);
+            var teachingStaffQuery = _dbContext.Employees.Where(IsTeachingStaffExpression);
 
-            var recentTeacherEntities = await _dbContext.Teachers
-                .Include(teacher => teacher.Employee)
-                .OrderByDescending(teacher => teacher.Employee.CreatedTs)
+            var totalTeachers = await teachingStaffQuery.CountAsync(cancellationToken);
+            var activeTeachers = await teachingStaffQuery.CountAsync(employee => employee.EmploymentStatus == EmploymentStatus.Active, cancellationToken);
+
+            var recentTeacherEntities = await teachingStaffQuery
+                .OrderByDescending(employee => employee.CreatedTs)
                 .Take(take)
                 .ToListAsync(cancellationToken);
 
             var recentTeachers = new List<DashboardTeacherSummaryDto>();
-            foreach (var teacher in recentTeacherEntities)
+            foreach (var employee in recentTeacherEntities)
             {
                 var dashboardTeacherSummaryDto = new DashboardTeacherSummaryDto
                 {
-                    Id = teacher.Id,
-                    EmployeeNo = teacher.Employee.EmployeeCode,
-                    FirstName = teacher.Employee.FirstName,
-                    MiddleName = teacher.Employee.MiddleName,
-                    LastName = teacher.Employee.LastName,
-                    Status = teacher.Employee.EmploymentStatus,
-                    JoiningDate = teacher.Employee.JoinDate
+                    Id = employee.Id,
+                    EmployeeNo = employee.EmployeeCode,
+                    FirstName = employee.FirstName,
+                    MiddleName = employee.MiddleName,
+                    LastName = employee.LastName,
+                    Status = employee.EmploymentStatus,
+                    JoiningDate = employee.JoinDate
                 };
                 recentTeachers.Add(dashboardTeacherSummaryDto);
             }
@@ -249,14 +266,16 @@ namespace Infrastructure.Identity.Services
                 .Distinct()
                 .ToListAsync(cancellationToken);
 
-            // Quick-menu suggestions are visible SUB_MENU rows (the feature list pages that carry a
-            // Url) the current user is actually allowed to open -- PERMISSION leaves and hidden
-            // rows aren't navigable shortcuts, so they're excluded even if granted.
+            // Quick-menu suggestions are visible SUB_MENU rows explicitly curated via
+            // Menu.IsQuickLink (2026-07-28) that the current user is actually allowed to open --
+            // PERMISSION leaves, hidden rows, and any SUB_MENU not flagged as a quick link are
+            // excluded even if granted. IsQuickLink is additive on top of the permission check,
+            // never a substitute for it.
             var quickMenuEntities = await _dbContext.Menus
                 .Where(menu => allowedMenuIds.Contains(menu.Id)
                     && menu.MenuType == MenuTypes.SubMenu
                     && !menu.IsHidden
-                    && menu.Url != null)
+                    && menu.IsQuickLink)
                 .OrderBy(menu => menu.Order)
                 .Take(take)
                 .ToListAsync(cancellationToken);
@@ -278,6 +297,339 @@ namespace Infrastructure.Identity.Services
 
             var successResponse = CommonResponse<List<QuickMenuDto>>.Success(quickMenuDtos);
             return successResponse;
+        }
+
+        public async Task<CommonResponse<AccountsDashboardSummaryDto>> GetAccountsSummaryAsync(int take, CancellationToken cancellationToken = default)
+        {
+            var today = DateTime.UtcNow.Date;
+            var startOfMonth = new DateTime(today.Year, today.Month, 1);
+            var currentFiscalYear = await _unitOfWork.FiscalYears.GetCurrentYearAsync(cancellationToken);
+
+            var payments = _dbContext.Set<FeePayment>().Where(payment => payment.Status != FeePaymentStatus.Voided);
+
+            var feeCollectedToday = await payments
+                .Where(payment => payment.PaymentDate.Date == today)
+                .SumAsync(payment => (decimal?)payment.Amount, cancellationToken) ?? 0m;
+
+            var feeCollectedThisMonth = await payments
+                .Where(payment => payment.PaymentDate.Date >= startOfMonth)
+                .SumAsync(payment => (decimal?)payment.Amount, cancellationToken) ?? 0m;
+
+            var feeCollectedThisFiscalYear = 0m;
+            if (currentFiscalYear != null)
+            {
+                feeCollectedThisFiscalYear = await payments
+                    .Where(payment => payment.PaymentDate.Date >= currentFiscalYear.StartDate.Date && payment.PaymentDate.Date <= currentFiscalYear.EndDate.Date)
+                    .SumAsync(payment => (decimal?)payment.Amount, cancellationToken) ?? 0m;
+            }
+
+            // Same outstanding-balance formula used throughout FeeInvoiceService (e.g.
+            // GetStatementAsync/SearchStudentsAsync): NetAmount - PaidAmount, excluding
+            // Draft (not yet a real charge) and Cancelled (voided/carried-forward) invoices.
+            var openInvoices = _dbContext.Set<FeeInvoice>()
+                .Where(invoice => invoice.Status != FeeInvoiceStatus.Draft && invoice.Status != FeeInvoiceStatus.Cancelled);
+
+            var totalOutstandingDue = await openInvoices
+                .SumAsync(invoice => (decimal?)(invoice.NetAmount - invoice.PaidAmount), cancellationToken) ?? 0m;
+
+            var statusGroups = await _dbContext.Set<FeeInvoice>()
+                .GroupBy(invoice => invoice.Status)
+                .Select(group => new { Status = group.Key, Count = group.Count() })
+                .ToListAsync(cancellationToken);
+
+            var invoiceCountsByStatus = new List<FeeInvoiceStatusCountDto>();
+            foreach (var statusGroup in statusGroups)
+            {
+                invoiceCountsByStatus.Add(new FeeInvoiceStatusCountDto { Status = statusGroup.Status, Count = statusGroup.Count });
+            }
+
+            var pendingFeeAdjustmentCount = await _dbContext.Set<FeeAdjustment>()
+                .CountAsync(adjustment => adjustment.Status == AdjustmentStatus.Pending, cancellationToken);
+
+            var latestPayrollRun = await _dbContext.Set<PayrollRun>()
+                .Include(run => run.FiscalYear)
+                .Include(run => run.Slips)
+                .OrderByDescending(run => run.CreatedTs)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            CurrentPayrollRunSummaryDto currentPayrollRunDto = null;
+            if (latestPayrollRun != null)
+            {
+                var liveSlips = latestPayrollRun.Slips.Where(slip => slip.Status != SalarySlipStatus.Cancelled).ToList();
+                currentPayrollRunDto = new CurrentPayrollRunSummaryDto
+                {
+                    PayrollRunId = latestPayrollRun.Id,
+                    FiscalYearCode = latestPayrollRun.FiscalYear != null ? latestPayrollRun.FiscalYear.Code : null,
+                    MonthIndex = latestPayrollRun.MonthIndex,
+                    Status = latestPayrollRun.Status,
+                    SlipCount = liveSlips.Count,
+                    TotalNetPay = liveSlips.Sum(slip => slip.NetPay)
+                };
+            }
+
+            var recentPaymentEntities = await _dbContext.Set<FeePayment>()
+                .Include(payment => payment.Enrollment)
+                    .ThenInclude(enrollment => enrollment.Student)
+                .OrderByDescending(payment => payment.PaymentDate)
+                .Take(take)
+                .ToListAsync(cancellationToken);
+
+            var recentPayments = new List<RecentFeePaymentDto>();
+            foreach (var payment in recentPaymentEntities)
+            {
+                var student = payment.Enrollment != null ? payment.Enrollment.Student : null;
+                recentPayments.Add(new RecentFeePaymentDto
+                {
+                    Id = payment.Id,
+                    ReceiptNo = payment.ReceiptNo,
+                    StudentName = student != null ? BuildFullName(student.FirstName, student.MiddleName, student.LastName) : null,
+                    Amount = payment.Amount,
+                    PaymentDate = payment.PaymentDate
+                });
+            }
+
+            var accountsDashboardSummaryDto = new AccountsDashboardSummaryDto
+            {
+                FeeCollectedToday = feeCollectedToday,
+                FeeCollectedThisMonth = feeCollectedThisMonth,
+                FeeCollectedThisFiscalYear = feeCollectedThisFiscalYear,
+                TotalOutstandingDue = totalOutstandingDue,
+                InvoiceCountsByStatus = invoiceCountsByStatus,
+                PendingFeeAdjustmentCount = pendingFeeAdjustmentCount,
+                CurrentPayrollRun = currentPayrollRunDto,
+                RecentPayments = recentPayments
+            };
+
+            var successResponse = CommonResponse<AccountsDashboardSummaryDto>.Success(accountsDashboardSummaryDto);
+            return successResponse;
+        }
+
+        public async Task<CommonResponse<HrDashboardSummaryDto>> GetHrSummaryAsync(int take, CancellationToken cancellationToken = default)
+        {
+            var totalEmployees = await _dbContext.Employees.CountAsync(cancellationToken);
+
+            var statusGroups = await _dbContext.Employees
+                .GroupBy(employee => employee.EmploymentStatus)
+                .Select(group => new { Status = group.Key, Count = group.Count() })
+                .ToListAsync(cancellationToken);
+
+            var employeesByStatus = new List<EmploymentStatusCountDto>();
+            foreach (var statusGroup in statusGroups)
+            {
+                employeesByStatus.Add(new EmploymentStatusCountDto { Status = statusGroup.Status, Count = statusGroup.Count });
+            }
+
+            var categoryGroups = await _dbContext.Employees
+                .GroupBy(employee => employee.EmployeeCategoryCode)
+                .Select(group => new { CategoryCode = group.Key, Count = group.Count() })
+                .ToListAsync(cancellationToken);
+
+            var categoryOptions = await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.EmployeeCategory, cancellationToken);
+            var categoryLabels = ConfigLabelHelper.BuildLabelMap(categoryOptions);
+
+            var employeesByCategory = new List<EmployeeCategoryCountDto>();
+            foreach (var categoryGroup in categoryGroups)
+            {
+                employeesByCategory.Add(new EmployeeCategoryCountDto
+                {
+                    CategoryCode = categoryGroup.CategoryCode,
+                    CategoryLabel = ConfigLabelHelper.Resolve(categoryLabels, categoryGroup.CategoryCode),
+                    Count = categoryGroup.Count
+                });
+            }
+
+            // HrStatus is the authoritative gate (LeaveRequest's own design -- HR can decide
+            // regardless of ManagerStatus), so this is the real "needs HR attention" count.
+            var pendingLeaveRequestCount = await _dbContext.Set<LeaveRequest>()
+                .CountAsync(request => request.HrStatus == LeaveApprovalStatus.Pending, cancellationToken);
+
+            var pendingLoanRequestCount = await _dbContext.Set<EmployeeLoan>()
+                .CountAsync(loan => loan.Status == LoanStatus.PendingApproval, cancellationToken);
+
+            var recentHireEntities = await _dbContext.Employees
+                .Where(employee => employee.JoinDate != null)
+                .OrderByDescending(employee => employee.JoinDate)
+                .Take(take)
+                .ToListAsync(cancellationToken);
+
+            var jobPositionOptions = await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.JobPosition, cancellationToken);
+            var jobPositionLabels = ConfigLabelHelper.BuildLabelMap(jobPositionOptions);
+
+            var recentHires = new List<RecentHireDto>();
+            foreach (var employee in recentHireEntities)
+            {
+                recentHires.Add(new RecentHireDto
+                {
+                    EmployeeId = employee.Id,
+                    FullName = BuildFullName(employee.FirstName, employee.MiddleName, employee.LastName),
+                    JobPositionCode = employee.JobPositionCode,
+                    JobPositionLabel = ConfigLabelHelper.Resolve(jobPositionLabels, employee.JobPositionCode),
+                    JoinDate = employee.JoinDate.Value
+                });
+            }
+
+            var today = DateTime.UtcNow.Date;
+            var horizon = today.AddDays(30);
+
+            var activeEmployeesWithDates = await _dbContext.Employees
+                .Where(employee => employee.EmploymentStatus == EmploymentStatus.Active
+                    && (employee.DateOfBirth != null || employee.JoinDate != null))
+                .ToListAsync(cancellationToken);
+
+            var upcomingBirthdays = new List<UpcomingHrEventDto>();
+            var upcomingWorkAnniversaries = new List<UpcomingHrEventDto>();
+            foreach (var employee in activeEmployeesWithDates)
+            {
+                var fullName = BuildFullName(employee.FirstName, employee.MiddleName, employee.LastName);
+
+                if (employee.DateOfBirth.HasValue)
+                {
+                    var nextBirthday = RecurringDateHelper.ResolveNextOccurrence(employee.DateOfBirth.Value, today);
+                    if (nextBirthday <= horizon)
+                    {
+                        upcomingBirthdays.Add(new UpcomingHrEventDto { EmployeeId = employee.Id, FullName = fullName, Date = nextBirthday });
+                    }
+                }
+
+                if (employee.JoinDate.HasValue)
+                {
+                    var nextAnniversary = RecurringDateHelper.ResolveNextOccurrence(employee.JoinDate.Value, today);
+                    if (nextAnniversary <= horizon && nextAnniversary.Year > employee.JoinDate.Value.Year)
+                    {
+                        upcomingWorkAnniversaries.Add(new UpcomingHrEventDto { EmployeeId = employee.Id, FullName = fullName, Date = nextAnniversary });
+                    }
+                }
+            }
+
+            upcomingBirthdays = upcomingBirthdays.OrderBy(item => item.Date).ToList();
+            upcomingWorkAnniversaries = upcomingWorkAnniversaries.OrderBy(item => item.Date).ToList();
+
+            var hrDashboardSummaryDto = new HrDashboardSummaryDto
+            {
+                TotalEmployees = totalEmployees,
+                EmployeesByStatus = employeesByStatus,
+                EmployeesByCategory = employeesByCategory,
+                PendingLeaveRequestCount = pendingLeaveRequestCount,
+                PendingLoanRequestCount = pendingLoanRequestCount,
+                RecentHires = recentHires,
+                UpcomingBirthdays = upcomingBirthdays,
+                UpcomingWorkAnniversaries = upcomingWorkAnniversaries
+            };
+
+            var successResponse = CommonResponse<HrDashboardSummaryDto>.Success(hrDashboardSummaryDto);
+            return successResponse;
+        }
+
+        // Navbar "Ctrl+K"-style global search across Students and Employees (2026-08-05).
+        // Deliberately queries _dbContext.Students/_dbContext.Employees directly rather than
+        // adding search methods to IStudentRepository/IEmployeeRepository -- same reasoning
+        // every other cross-cutting Dashboard widget in this file already follows (this concern
+        // spans two unrelated aggregates for a UI navigation need, not a domain operation either
+        // aggregate's own repository should own).
+        public async Task<CommonResponse<GlobalSearchResultDto>> GlobalSearchAsync(string query, int limit, CancellationToken cancellationToken = default)
+        {
+            var trimmedQuery = query != null ? query.Trim() : null;
+            if (string.IsNullOrWhiteSpace(trimmedQuery))
+            {
+                var validationResponse = CommonResponse<GlobalSearchResultDto>.Fail(ResponseCodes.ValidationError, "A search query is required.");
+                return validationResponse;
+            }
+
+            var effectiveLimit = limit > 0 ? Math.Min(limit, MaxGlobalSearchLimit) : DefaultGlobalSearchLimit;
+            var searchPattern = "%" + trimmedQuery + "%";
+
+            // A pasted Guid (a student's or employee's own id, copied from another screen) is
+            // matched exactly, alongside the usual name/code ILike match -- this is the "Student
+            // ID"/"Employee ID" half of the ask, distinct from AdmissionNo/EmployeeCode.
+            var parsedId = Guid.TryParse(trimmedQuery, out var parsedGuid) ? parsedGuid : (Guid?)null;
+
+            // Same three columns StudentRepository.GetPagedByFilterAsync's own Search filter
+            // matches (FirstName/LastName/AdmissionNo, no MiddleName) -- kept consistent with
+            // that existing convention rather than diverging for this endpoint alone.
+            var matchingStudents = await _dbContext.Students
+                .Where(student => EF.Functions.ILike(student.FirstName, searchPattern)
+                    || EF.Functions.ILike(student.LastName, searchPattern)
+                    || EF.Functions.ILike(student.AdmissionNo, searchPattern)
+                    || (parsedId.HasValue && student.Id == parsedId.Value))
+                .OrderBy(student => student.FirstName)
+                .ThenBy(student => student.LastName)
+                .Take(effectiveLimit)
+                .ToListAsync(cancellationToken);
+
+            var studentResults = new List<GlobalSearchStudentResultDto>();
+            foreach (var student in matchingStudents)
+            {
+                studentResults.Add(new GlobalSearchStudentResultDto
+                {
+                    Id = student.Id,
+                    AdmissionNo = student.AdmissionNo,
+                    FullName = BuildFullName(student.FirstName, student.MiddleName, student.LastName),
+                    Gender = student.Gender,
+                    Status = student.Status
+                });
+            }
+
+            var matchingEmployees = await _dbContext.Employees
+                .Where(employee => EF.Functions.ILike(employee.FirstName, searchPattern)
+                    || EF.Functions.ILike(employee.LastName, searchPattern)
+                    || EF.Functions.ILike(employee.EmployeeCode, searchPattern)
+                    || (parsedId.HasValue && employee.Id == parsedId.Value))
+                .OrderBy(employee => employee.FirstName)
+                .ThenBy(employee => employee.LastName)
+                .Take(effectiveLimit)
+                .ToListAsync(cancellationToken);
+
+            var jobPositionOptions = await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.JobPosition, cancellationToken);
+            var jobPositionLabels = ConfigLabelHelper.BuildLabelMap(jobPositionOptions);
+
+            var employeeResults = new List<GlobalSearchEmployeeResultDto>();
+            foreach (var employee in matchingEmployees)
+            {
+                employeeResults.Add(new GlobalSearchEmployeeResultDto
+                {
+                    Id = employee.Id,
+                    EmployeeCode = employee.EmployeeCode,
+                    FullName = BuildFullName(employee.FirstName, employee.MiddleName, employee.LastName),
+                    JobPositionCode = employee.JobPositionCode,
+                    JobPositionLabel = ConfigLabelHelper.Resolve(jobPositionLabels, employee.JobPositionCode),
+                    EmploymentStatus = employee.EmploymentStatus,
+                    IsTeacher = EmployeeRoleHelper.IsTeachingStaff(employee.EmployeeCategoryCode, employee.JobPositionCode)
+                });
+            }
+
+            var globalSearchResultDto = new GlobalSearchResultDto
+            {
+                Query = trimmedQuery,
+                Students = studentResults,
+                Employees = employeeResults
+            };
+
+            var successResponse = CommonResponse<GlobalSearchResultDto>.Success(globalSearchResultDto);
+            return successResponse;
+        }
+
+        // Small standalone helper, same "not shared with EmployeeMapper.BuildFullName" call as
+        // that mapper's own doc comment already makes for its own duplicate -- Dashboard reads
+        // across every aggregate and shouldn't pull in per-feature mappers for one string.
+        private static string BuildFullName(string firstName, string middleName, string lastName)
+        {
+            var parts = new List<string>();
+            if (!string.IsNullOrWhiteSpace(firstName))
+            {
+                parts.Add(firstName);
+            }
+
+            if (!string.IsNullOrWhiteSpace(middleName))
+            {
+                parts.Add(middleName);
+            }
+
+            if (!string.IsNullOrWhiteSpace(lastName))
+            {
+                parts.Add(lastName);
+            }
+
+            return string.Join(" ", parts);
         }
 
         private async Task<AcademicYear> GetCurrentAcademicYearEntityAsync(CancellationToken cancellationToken)
@@ -438,8 +790,9 @@ namespace Infrastructure.Identity.Services
             // EmploymentStatus has more than two values (OnLeave/Suspended/Resigned/Terminated/
             // Retired) -- this graph keeps the same two-bucket shape as the student one by
             // treating anything other than Active as "inactive".
-            var activeCount = await _dbContext.Teachers.CountAsync(teacher => teacher.Employee.EmploymentStatus == EmploymentStatus.Active, cancellationToken);
-            var inactiveCount = await _dbContext.Teachers.CountAsync(teacher => teacher.Employee.EmploymentStatus != EmploymentStatus.Active, cancellationToken);
+            var teachingStaffQuery = _dbContext.Employees.Where(IsTeachingStaffExpression);
+            var activeCount = await teachingStaffQuery.CountAsync(employee => employee.EmploymentStatus == EmploymentStatus.Active, cancellationToken);
+            var inactiveCount = await teachingStaffQuery.CountAsync(employee => employee.EmploymentStatus != EmploymentStatus.Active, cancellationToken);
 
             var series = new BarGraphSeriesDto { Name = "Teachers", Data = new List<int> { activeCount, inactiveCount } };
             var barGraphDto = new BarGraphDto

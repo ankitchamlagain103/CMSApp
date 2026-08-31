@@ -24,14 +24,27 @@ Conversions outside the configured range fail with `VALIDATION_ERROR`, not a 500
 | `CALENDAR_CONFIG_LIST` | Setup → BS Calendar Setup (`/apps/calendar-config/list`) | `GET /api/calendar-configuration/bs-month-lengths` |
 | `BS_MONTH_LENGTH_UPSERT`, `CALENDAR_LOCALIZATION`, `BS_WEEKDAY_UPDATE` | hidden permissions under it | the other config endpoints |
 | `CALENDAR_VIEW` | Calendar → Calendar (`/apps/calendar`) | `GET /api/calendar/month-view` |
+| `CALENDAR_YEAR_VIEW` | hidden permission under it | `GET /api/calendar/year-view` — gates the page's Month/Year toggle button (2026-08-24) |
 | `CALENDAR_TODAY`, `CALENDAR_CONVERT_*`, `CALENDAR_EVENT_*`, `FESTIVAL_*` | hidden permissions under it | conversion utilities + event/festival CRUD |
+
+`CALENDAR_MANAGEMENT`/`CALENDAR_VIEW` are seeded `menuFor: BOTH` (2026-08-24, changed from the
+original Admin-only default) — a Teacher (Employee-linked `UserType.User` account) or Student
+self-service login resolves `MenuAudience.User`, so an Admin-only tree would never appear in
+their nav even after granting the role claim. Grant `CALENDAR_MANAGEMENT` → `CALENDAR_VIEW` →
+`CALENDAR_YEAR_VIEW` (skip the event/festival CRUD permissions) to the Student role and to
+whichever role your Teacher/Employee self-service accounts hold, via Role Menu Access, to give
+them Month + Year calendar view — nothing here is auto-granted by the seeder except to
+SuperAdmin.
 | `MEETING_LIST` | Calendar → Meetings (`/apps/meeting/list`) | `GET /api/meetings` |
 | `MEETING_SCHEDULE`, `MEETING_DETAIL`, `MEETING_UPDATE`, `MEETING_CANCEL`, `MEETING_RESPOND` | hidden permissions under it | the other meeting endpoints |
 
 **Open to any authenticated user without a permission grant** (via `DefaultEnabledMenu`):
 `GET /api/calendar/today`, both `/api/calendar/convert/*` endpoints,
-`GET /api/calendar-configuration/localization-data`, and `POST /api/meetings/respond` —
-these are utility calls every screen with a date picker or an RSVP button needs.
+`GET /api/calendar/month-view`, `GET /api/calendar/year-view`, `GET /api/calendar/events`,
+`GET /api/calendar/festivals`, `GET /api/calendar-configuration/localization-data`, and
+`POST /api/meetings/respond` — these are utility calls every screen with a date picker or an
+RSVP button needs. The `CALENDAR_VIEW`/`CALENDAR_YEAR_VIEW` menu claims above still gate the
+**frontend's** nav link / toggle button — the API itself doesn't check them.
 
 ---
 
@@ -114,6 +127,32 @@ Failures: `VALIDATION_ERROR` — bad mode/month, or a BS year with no configured
 ("BS month-length configuration is missing for BS year X…" — surface this verbatim, it tells
 the admin exactly what to do).
 
+### GET `/api/calendar/year-view?year=2083&mode=BS`
+(2026-08-24) All 12 months of the requested year in one call — `mode` = `BS` (default) or `AD`;
+`year` is read in that calendar. Each entry in `months` is shaped exactly like a `month-view`
+response (same `days` array, same event/festival/meeting joins), so a Year View screen can reuse
+the same per-day rendering logic as Month View, just smaller.
+
+```json
+{
+  "data": {
+    "mode": "BS", "year": 2083,
+    "months": [
+      { "mode": "BS", "year": 2083, "month": 1, "monthNameEn": "Baisakh", "monthNameNp": "वैशाख", "totalDays": 31, "startAdDate": "…", "endAdDate": "…", "days": [ /* same shape as month-view */ ] },
+      /* …11 more months, in order */
+    ]
+  }
+}
+```
+
+Failures: same as `month-view` — `VALIDATION_ERROR` on a bad mode or an AD year outside
+1944–2200 (checked once up front) or a BS year with missing month-length configuration
+(checked per-month; the first missing month fails the whole call).
+
+**Perf note**: this issues the same per-day AD↔BS conversion work as `month-view`, ×12 — expect
+it to be noticeably slower than a single month-view call. Cache it client-side the same way
+(`keepPreviousData`) and don't poll it.
+
 ### GET `/api/calendar/today`
 ### GET `/api/calendar/convert/ad-to-bs?adDate=2026-07-16`
 ### GET `/api/calendar/convert/bs-to-ad?bsYear=2083&bsMonth=4&bsDay=1`
@@ -133,13 +172,14 @@ either calendar; the other half of the display fills itself):
 `VALIDATION_ERROR` when out of the configured range (before AD 1944-ish / BS 2000, or past
 the last configured BS year) or when `bsDay` exceeds that month's real length.
 
-### Calendar events (notes / public holidays / internal events)
+### Calendar events (notes / public holidays / internal events / birthdays)
 
-Enums: `eventType` — 0 Note, 1 PublicHoliday, 2 InternalEvent.
+Enums: `eventType` — 0 Note, 1 PublicHoliday, 2 InternalEvent, **3 StudentBirthday, 4
+EmployeeBirthday** (added 2026-07-23, see `leave_management_and_employee_profile_implementation_guide.md`).
 
 | Endpoint | Notes |
 |---|---|
-| `GET /api/calendar/events?page=1&pageSize=10&eventType=&fromAdDate=&toAdDate=&bsYear=&isActive=` | paged envelope (`items/page/pageSize/totalCount/…`), ordered by `adDate` |
+| `GET /api/calendar/events?page=1&pageSize=10&eventType=&fromAdDate=&toAdDate=&bsYear=&isActive=&studentId=&employeeId=` | paged envelope (`items/page/pageSize/totalCount/…`), ordered by `adDate` |
 | `POST /api/calendar/events` | create — see body below |
 | `GET /api/calendar/events/{id}` | single `CalendarEventDto` |
 | `PUT /api/calendar/events/{id}` | same body as create |
@@ -156,11 +196,30 @@ and stores the other side:
   "bsYear": 2083, "bsMonth": 6, "bsDay": 3,
   "adDate": null,
   "description": "…", "iconKey": "flag", "colorCode": "#d32f2f",
-  "language": "en", "isActive": true
+  "language": "en", "isActive": true,
+  "provinceCode": null, "branchCode": null,
+  "studentId": null, "employeeId": null
 }
 ```
 `isBsDate: false` → send `adDate` instead and leave the BS fields null. The returned DTO
 always carries both (`adDate` + `bsYear/bsMonth/bsDay`).
+
+**Two new optional field pairs, added 2026-07-23** (no change to any pre-existing behavior —
+both pairs default to `null`/everywhere):
+
+- **`provinceCode`/`branchCode`** (Config catalogs `1020`/`1019`) — holiday scoping. Meaningful
+  only on `eventType: 1` (PublicHoliday); leave both `null` for a holiday that applies
+  everywhere, or set one/both to scope it to a specific province and/or branch. This is how
+  the raw `holidays` table sketch (which had `province`/`branch` columns) was folded into the
+  existing `CalendarEvent` entity instead of becoming a new table.
+- **`studentId`/`employeeId`** — person mapping for the two new birthday event types.
+  `eventType: 3` (StudentBirthday) **requires** `studentId` set and `employeeId` null;
+  `eventType: 4` (EmployeeBirthday) requires the reverse; every other `eventType` requires
+  **both** null. Violating this is a `VALIDATION_ERROR` ("Student birthday events must
+  reference a student and no employee" / the employee equivalent / "…event type does not
+  accept a student or employee mapping"). Use this for a school-wide calendar entry an admin
+  wants to manually pin — it's separate from (and doesn't replace) the live-computed
+  upcoming-birthday figure already returned by `GET /api/employees/{id}/profile`.
 
 ### Festival occurrences (Dashain, Tihar, … — shift every AD year)
 
@@ -297,3 +356,11 @@ said 04-13, which is off by one against every published BS/AD reference date —
 against Nepali New Year 2072/2077/2081/2082/2083 and Constitution Day 2072-06-03 =
 2015-09-20). Attendee uniqueness is per (meeting, **email**), not (meeting, userId), since
 invitees don't need accounts.
+
+**2026-07-23 addition**: `CalendarEvent` gained `provinceCode`/`branchCode` (holiday scoping)
+and `studentId`/`employeeId` (birthday event mapping, new `eventType` values 3/4) — see the
+"Calendar events" section above and `leave_management_and_employee_profile_implementation_guide.md`
+for the full feature this was built for. **Two new columns needed on `dbo.calendar_events`**
+(`province_code`, `branch_code`, `student_id`, `employee_id` — four columns total) plus two
+new `Restrict`-delete FKs to `students`/`employees` — still pending the same
+user-owned-migration process as the rest of this file.

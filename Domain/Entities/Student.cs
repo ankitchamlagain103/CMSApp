@@ -2,10 +2,16 @@ using Domain.Enums;
 
 namespace Domain.Entities
 {
-    // No login/user linkage yet -- same note as Teacher.
     public class Student : SoftDeleteAuditableEntity
     {
         public Guid Id { get; set; }
+
+        // Forward-looking, same convention as Employee.UserId: no navigation property (Domain
+        // cannot reference ApplicationUser), plain nullable Guid, unique when populated (partial
+        // index). Populated only when a portal account is provisioned for this student (2026-07-27,
+        // see EmployeeService/StudentService.RegisterUserAccountAsync).
+        public Guid? UserId { get; set; }
+
         public string AdmissionNo { get; set; }
         public string FirstName { get; set; }
         public string MiddleName { get; set; }

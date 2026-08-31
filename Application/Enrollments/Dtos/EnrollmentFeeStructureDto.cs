@@ -9,6 +9,7 @@ namespace Application.Enrollments.Dtos
         public Guid AcademicYearId { get; set; }
         public Guid AcademicClassId { get; set; }
         public string GradeCode { get; set; }
+        public string GradeLabel { get; set; }
         public List<FeeLineItemDto> FeeItems { get; set; } = new List<FeeLineItemDto>();
         public List<StudentDiscountDto> Discounts { get; set; } = new List<StudentDiscountDto>();
         public List<StudentScholarshipDto> Scholarships { get; set; } = new List<StudentScholarshipDto>();

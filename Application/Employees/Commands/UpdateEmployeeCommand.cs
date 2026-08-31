@@ -27,5 +27,21 @@ namespace Application.Employees.Commands
         public string SsfNumber { get; set; }
         public string CitNumber { get; set; }
         public string GratuityNumber { get; set; }
+
+        public string BranchCode { get; set; }
+        public string ProvinceCode { get; set; }
+        public string LevelCode { get; set; }
+        public Guid? ManagerId { get; set; }
+
+        // Address chain (2026-07-24) -- see the doc comment on CreateEmployeeCommand's copies.
+        public string DistrictCode { get; set; }
+        public string LocalLevelCode { get; set; }
+        public int? WardNo { get; set; }
+
+        // Teaching-specific fields (2026-08-06, ported from the removed standalone Teacher entity)
+        // -- all optional, settable on any employee regardless of category/position.
+        public string TeachingLicenseNo { get; set; }
+        public int? ExperienceYears { get; set; }
+        public string Specialization { get; set; }
     }
 }

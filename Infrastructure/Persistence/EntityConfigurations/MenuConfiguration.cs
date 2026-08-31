@@ -65,10 +65,18 @@ namespace Infrastructure.Persistence.EntityConfigurations
                     .HasColumnName("is_hidden")
                     .HasDefaultValue(false);
 
+            builder.Property(m => m.IsQuickLink)
+                    .HasColumnName("is_quick_link")
+                    .HasDefaultValue(false);
+
+            builder.Property(m => m.IsDashboardWidget)
+                    .HasColumnName("is_dashboard_widget")
+                    .HasDefaultValue(false);
+
             builder.HasOne(m => m.MainMenu)
                     .WithMany(m => m.Childrens)
                     .HasForeignKey(m => m.ParentId)
-                    .OnDelete(DeleteBehavior.Restrict);
+                    .OnDelete(DeleteBehavior.Cascade);
 
             builder.HasIndex(m => m.Code)
                     .IsUnique()

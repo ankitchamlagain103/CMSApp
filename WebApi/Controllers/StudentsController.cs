@@ -49,10 +49,118 @@ namespace WebApi.Controllers
             return Ok(response);
         }
 
+        // Self-service (2026-08-07) -- "a teacher should see his or her students details only".
+        // No {id} route parameter for the list: the caller's own Employee is resolved from the
+        // JWT and their students scoped to the ClassSectionIds they're actually assigned to teach.
+        // DefaultEnabledMenu-gated, no permission row -- same "self access to your own scope isn't
+        // a privilege" reasoning as every other "Me" route in this codebase.
+
+        [HttpGet("me")]
+        public async Task<ActionResult<CommonResponse<PaginatedResponse<StudentDto>>>> GetMyStudents([FromQuery] GetStudentsQuery query, CancellationToken cancellationToken)
+        {
+            var response = await _studentService.GetMyStudentsAsync(query, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            return Ok(response);
+        }
+
+        [HttpGet("me/{id:guid}")]
+        public async Task<ActionResult<CommonResponse<StudentDto>>> GetMyStudentById(Guid id, CancellationToken cancellationToken)
+        {
+            var response = await _studentService.GetMyStudentByIdAsync(id, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            if (response.ResponseCode != ResponseCodes.Success)
+            {
+                return BadRequest(response);
+            }
+
+            return Ok(response);
+        }
+
+        // Student Portal self-service (no {id} route parameter -- the caller's own Student is
+        // resolved from the JWT). DefaultEnabledMenu-gated, no permission row -- same "self
+        // access to your own data isn't a privilege" reasoning as every other "Me" route in this
+        // codebase.
+
+        [HttpGet("me/profile")]
+        public async Task<ActionResult<CommonResponse<StudentDto>>> GetMyProfile(CancellationToken cancellationToken)
+        {
+            var response = await _studentService.GetMyProfileAsync(cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            return Ok(response);
+        }
+
+        [HttpGet("me/timetable")]
+        public async Task<ActionResult<CommonResponse<StudentTimetableDto>>> GetMyTimetable(CancellationToken cancellationToken)
+        {
+            var response = await _studentService.GetMyTimetableAsync(cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            return Ok(response);
+        }
+
+        [HttpGet("me/enrollment-history")]
+        public async Task<ActionResult<CommonResponse<List<StudentEnrollmentHistoryDto>>>> GetMyEnrollmentHistory(CancellationToken cancellationToken)
+        {
+            var response = await _studentService.GetMyEnrollmentHistoryAsync(cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            return Ok(response);
+        }
+
+        [HttpGet("me/dashboard")]
+        public async Task<ActionResult<CommonResponse<StudentDashboardDto>>> GetMyDashboard(CancellationToken cancellationToken)
+        {
+            var response = await _studentService.GetMyDashboardAsync(cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            return Ok(response);
+        }
+
         [HttpPut("{id:guid}")]
         public async Task<ActionResult<CommonResponse<StudentDto>>> UpdateStudent(Guid id, [FromBody] UpdateStudentCommand command, CancellationToken cancellationToken)
         {
             var response = await _studentService.UpdateStudentAsync(id, command, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            if (response.ResponseCode != ResponseCodes.Success)
+            {
+                return BadRequest(response);
+            }
+
+            return Ok(response);
+        }
+
+        // Portal account provisioning retrofit (2026-07-27) -- for a student that didn't get a
+        // login at creation time (CreateStudentCommand.RegisterUserAccount is the create-time
+        // path). No body -- always the fixed RoleNames.Student role.
+        [HttpPost("{id:guid}/register-account")]
+        public async Task<ActionResult<CommonResponse<StudentDto>>> RegisterUserAccount(Guid id, CancellationToken cancellationToken)
+        {
+            var response = await _studentService.RegisterUserAccountAsync(id, cancellationToken);
             if (response.ResponseCode == ResponseCodes.NotFound)
             {
                 return NotFound(response);
@@ -204,6 +312,30 @@ namespace WebApi.Controllers
             if (response.ResponseCode != ResponseCodes.Success)
             {
                 return BadRequest(response);
+            }
+
+            return Ok(response);
+        }
+
+        [HttpGet("{id:guid}/enrollment-history")]
+        public async Task<ActionResult<CommonResponse<List<StudentEnrollmentHistoryDto>>>> GetEnrollmentHistory(Guid id, CancellationToken cancellationToken)
+        {
+            var response = await _studentService.GetEnrollmentHistoryAsync(id, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            return Ok(response);
+        }
+
+        [HttpGet("{id:guid}/timetable")]
+        public async Task<ActionResult<CommonResponse<StudentTimetableDto>>> GetTimetable(Guid id, CancellationToken cancellationToken)
+        {
+            var response = await _studentService.GetTimetableAsync(id, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
             }
 
             return Ok(response);

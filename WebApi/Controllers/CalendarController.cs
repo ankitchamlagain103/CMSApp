@@ -34,6 +34,18 @@ namespace WebApi.Controllers
             return Ok(response);
         }
 
+        [HttpGet("year-view")]
+        public async Task<ActionResult<CommonResponse<CalendarYearViewDto>>> GetYearView([FromQuery] GetYearViewQuery query, CancellationToken cancellationToken)
+        {
+            var response = await _calendarService.GetYearViewAsync(query, cancellationToken);
+            if (response.ResponseCode != ResponseCodes.Success)
+            {
+                return BadRequest(response);
+            }
+
+            return Ok(response);
+        }
+
         [HttpGet("today")]
         public async Task<ActionResult<CommonResponse<DualDateDto>>> GetToday(CancellationToken cancellationToken)
         {

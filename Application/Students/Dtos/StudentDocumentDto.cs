@@ -6,6 +6,7 @@ namespace Application.Students.Dtos
         public Guid Id { get; set; }
         public Guid StudentId { get; set; }
         public string DocumentTypeCode { get; set; }
+        public string DocumentTypeLabel { get; set; }
         public string DocumentName { get; set; }
         public string FileName { get; set; }
         public string ContentType { get; set; }

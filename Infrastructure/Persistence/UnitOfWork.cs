@@ -15,10 +15,13 @@ namespace Infrastructure.Persistence
         private IAppConfigRepository _appConfigRepository;
         private IAcademicYearRepository _academicYearRepository;
         private IAcademicClassRepository _academicClassRepository;
-        private ITeacherRepository _teacherRepository;
         private IGuardianRepository _guardianRepository;
         private IStudentRepository _studentRepository;
         private IEnrollmentRepository _enrollmentRepository;
+        private IExamTermRepository _examTermRepository;
+        private IGradeScaleRepository _gradeScaleRepository;
+        private ITimePeriodRepository _timePeriodRepository;
+        private IStudentPromotionRepository _studentPromotionRepository;
         private IFeeStructureRepository _feeStructureRepository;
         private IFeeRuleRepository _feeRuleRepository;
         private IFeeInvoiceRepository _feeInvoiceRepository;
@@ -31,6 +34,9 @@ namespace Infrastructure.Persistence
         private ICalendarConfigRepository _calendarConfigRepository;
         private ICalendarEventRepository _calendarEventRepository;
         private IMeetingRepository _meetingRepository;
+        private ILeaveTypeRepository _leaveTypeRepository;
+        private ILeaveRequestRepository _leaveRequestRepository;
+        private INotificationRepository _notificationRepository;
 
         public UnitOfWork(ApplicationDbContext dbContext)
         {
@@ -141,19 +147,6 @@ namespace Infrastructure.Persistence
             }
         }
 
-        public ITeacherRepository Teachers
-        {
-            get
-            {
-                if (_teacherRepository == null)
-                {
-                    _teacherRepository = new TeacherRepository(_dbContext);
-                }
-
-                return _teacherRepository;
-            }
-        }
-
         public IGuardianRepository Guardians
         {
             get
@@ -190,6 +183,58 @@ namespace Infrastructure.Persistence
                 }
 
                 return _enrollmentRepository;
+            }
+        }
+
+        public IExamTermRepository ExamTerms
+        {
+            get
+            {
+                if (_examTermRepository == null)
+                {
+                    _examTermRepository = new ExamTermRepository(_dbContext);
+                }
+
+                return _examTermRepository;
+            }
+        }
+
+        public IGradeScaleRepository GradeScales
+        {
+            get
+            {
+                if (_gradeScaleRepository == null)
+                {
+                    _gradeScaleRepository = new GradeScaleRepository(_dbContext);
+                }
+
+                return _gradeScaleRepository;
+            }
+        }
+
+        public ITimePeriodRepository TimePeriods
+        {
+            get
+            {
+                if (_timePeriodRepository == null)
+                {
+                    _timePeriodRepository = new TimePeriodRepository(_dbContext);
+                }
+
+                return _timePeriodRepository;
+            }
+        }
+
+        public IStudentPromotionRepository StudentPromotions
+        {
+            get
+            {
+                if (_studentPromotionRepository == null)
+                {
+                    _studentPromotionRepository = new StudentPromotionRepository(_dbContext);
+                }
+
+                return _studentPromotionRepository;
             }
         }
 
@@ -333,6 +378,45 @@ namespace Infrastructure.Persistence
                 }
 
                 return _meetingRepository;
+            }
+        }
+
+        public ILeaveTypeRepository LeaveTypes
+        {
+            get
+            {
+                if (_leaveTypeRepository == null)
+                {
+                    _leaveTypeRepository = new LeaveTypeRepository(_dbContext);
+                }
+
+                return _leaveTypeRepository;
+            }
+        }
+
+        public ILeaveRequestRepository LeaveRequests
+        {
+            get
+            {
+                if (_leaveRequestRepository == null)
+                {
+                    _leaveRequestRepository = new LeaveRequestRepository(_dbContext);
+                }
+
+                return _leaveRequestRepository;
+            }
+        }
+
+        public INotificationRepository Notifications
+        {
+            get
+            {
+                if (_notificationRepository == null)
+                {
+                    _notificationRepository = new NotificationRepository(_dbContext);
+                }
+
+                return _notificationRepository;
             }
         }
 

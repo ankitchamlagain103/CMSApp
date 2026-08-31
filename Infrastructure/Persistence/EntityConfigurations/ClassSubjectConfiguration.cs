@@ -18,6 +18,10 @@ namespace Infrastructure.Persistence.EntityConfigurations
             {
                 t.HasCheckConstraint("ck_class_subjects_mandatory_classwide", "is_mandatory = false OR class_section_id IS NULL");
                 t.HasCheckConstraint("ck_class_subjects_marks_range", "pass_marks IS NULL OR full_marks IS NULL OR pass_marks <= full_marks");
+                // Assessment configuration (2026-07-28): each enabled component's own pass marks
+                // can't exceed that component's own full marks.
+                t.HasCheckConstraint("ck_class_subjects_theory_marks_range", "theory_pass_marks IS NULL OR theory_marks IS NULL OR theory_pass_marks <= theory_marks");
+                t.HasCheckConstraint("ck_class_subjects_practical_marks_range", "practical_pass_marks IS NULL OR practical_marks IS NULL OR practical_pass_marks <= practical_marks");
             });
 
             builder.HasKey(cs => cs.Id);
@@ -68,6 +72,24 @@ namespace Infrastructure.Persistence.EntityConfigurations
 
             builder.Property(cs => cs.PracticalMarks)
                     .HasColumnName("practical_marks")
+                    .IsRequired(false);
+
+            builder.Property(cs => cs.HasTheory)
+                    .HasColumnName("has_theory")
+                    .HasDefaultValue(true)
+                    .IsRequired();
+
+            builder.Property(cs => cs.HasPractical)
+                    .HasColumnName("has_practical")
+                    .HasDefaultValue(false)
+                    .IsRequired();
+
+            builder.Property(cs => cs.TheoryPassMarks)
+                    .HasColumnName("theory_pass_marks")
+                    .IsRequired(false);
+
+            builder.Property(cs => cs.PracticalPassMarks)
+                    .HasColumnName("practical_pass_marks")
                     .IsRequired(false);
 
             builder.HasOne(cs => cs.AcademicClass)

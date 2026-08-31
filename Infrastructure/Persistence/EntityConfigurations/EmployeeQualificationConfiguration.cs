@@ -46,6 +46,21 @@ namespace Infrastructure.Persistence.EntityConfigurations
                     .HasColumnName("remarks")
                     .HasMaxLength(500);
 
+            builder.Property(q => q.VerificationStatus)
+                    .HasColumnName("verification_status")
+                    .IsRequired();
+
+            builder.Property(q => q.VerificationRemarks)
+                    .HasColumnName("verification_remarks")
+                    .HasMaxLength(500);
+
+            builder.Property(q => q.VerifiedTs)
+                    .HasColumnName("verified_ts");
+
+            builder.Property(q => q.VerifiedBy)
+                    .HasColumnName("verified_by")
+                    .HasMaxLength(256);
+
             builder.HasOne(q => q.Employee)
                     .WithMany(e => e.Qualifications)
                     .HasForeignKey(q => q.EmployeeId)

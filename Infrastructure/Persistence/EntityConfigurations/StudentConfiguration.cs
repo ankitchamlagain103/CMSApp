@@ -17,6 +17,10 @@ namespace Infrastructure.Persistence.EntityConfigurations
             builder.Property(s => s.Id)
                     .HasColumnName("id");
 
+            builder.Property(s => s.UserId)
+                    .HasColumnName("user_id")
+                    .IsRequired(false);
+
             builder.Property(s => s.AdmissionNo)
                     .HasColumnName("admission_no")
                     .IsRequired()
@@ -67,6 +71,12 @@ namespace Infrastructure.Persistence.EntityConfigurations
             builder.HasIndex(s => s.AdmissionNo)
                     .IsUnique()
                     .HasDatabaseName("ix_students_admission_no");
+
+            // Unique only when populated -- most students have no login yet.
+            builder.HasIndex(s => s.UserId)
+                    .IsUnique()
+                    .HasFilter("user_id IS NOT NULL")
+                    .HasDatabaseName("ix_students_user_id");
         }
     }
 }

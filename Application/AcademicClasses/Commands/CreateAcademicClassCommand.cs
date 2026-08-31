@@ -7,6 +7,7 @@ namespace Application.AcademicClasses.Commands
     {
         public Guid AcademicYearId { get; set; }
         public string GradeCode { get; set; }
+        public int Order { get; set; }
         public List<CreateClassSectionCommand> Sections { get; set; } = new List<CreateClassSectionCommand>();
     }
 }

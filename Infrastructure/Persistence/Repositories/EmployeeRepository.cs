@@ -42,6 +42,13 @@ namespace Infrastructure.Persistence.Repositories
                 employeesQuery = employeesQuery.Where(employee => employee.JobPositionCode == filter.JobPositionCode);
             }
 
+            if (!string.IsNullOrWhiteSpace(filter.QualificationCode))
+            {
+                // Ported from the removed TeacherRepository (2026-08-06) -- no more
+                // Teacher.Employee indirection, joins straight on this employee's own Qualifications.
+                employeesQuery = employeesQuery.Where(employee => employee.Qualifications.Any(qualification => qualification.QualificationCode == filter.QualificationCode));
+            }
+
             if (filter.EmploymentStatus.HasValue)
             {
                 employeesQuery = employeesQuery.Where(employee => employee.EmploymentStatus == filter.EmploymentStatus.Value);
@@ -109,10 +116,10 @@ namespace Infrastructure.Persistence.Repositories
             return query;
         }
 
-        public async Task<Employee> GetByIdWithTeacherAsync(Guid id, CancellationToken cancellationToken = default)
+        public async Task<Employee> GetByIdWithManagerAsync(Guid id, CancellationToken cancellationToken = default)
         {
             var employee = await DbSet
-                .Include(e => e.Teacher)
+                .Include(e => e.Manager)
                 .FirstOrDefaultAsync(e => e.Id == id, cancellationToken);
 
             return employee;
@@ -137,6 +144,16 @@ namespace Infrastructure.Persistence.Repositories
                 .ToListAsync(cancellationToken);
 
             return employeeCodes;
+        }
+
+        // Self-service (2026-08-06) -- resolves "which Employee am I" from the caller's own
+        // ApplicationUser id, for the "Me" endpoints in EmployeesController.
+        public async Task<Employee> GetByUserIdAsync(Guid userId, CancellationToken cancellationToken = default)
+        {
+            var employee = await DbSet
+                .FirstOrDefaultAsync(e => e.UserId == userId, cancellationToken);
+
+            return employee;
         }
 
         public async Task<bool> UserIdExistsAsync(Guid userId, CancellationToken cancellationToken = default)
@@ -445,6 +462,170 @@ namespace Infrastructure.Persistence.Repositories
         public void RemoveDocument(EmployeeDocument document)
         {
             DbContext.Set<EmployeeDocument>().Remove(document);
+        }
+
+        // Leave balances (2026-07-23).
+
+        public async Task<IReadOnlyList<EmployeeLeaveBalance>> GetLeaveBalancesByEmployeeIdAsync(Guid employeeId, Guid fiscalYearId, CancellationToken cancellationToken = default)
+        {
+            var balances = await DbContext.Set<EmployeeLeaveBalance>()
+                .Include(b => b.LeaveType)
+                .Include(b => b.FiscalYear)
+                .Where(b => b.EmployeeId == employeeId && b.FiscalYearId == fiscalYearId)
+                .ToListAsync(cancellationToken);
+
+            return balances;
+        }
+
+        public async Task<EmployeeLeaveBalance> GetLeaveBalanceAsync(Guid employeeId, Guid leaveTypeId, Guid fiscalYearId, CancellationToken cancellationToken = default)
+        {
+            var balance = await DbContext.Set<EmployeeLeaveBalance>()
+                .FirstOrDefaultAsync(b => b.EmployeeId == employeeId && b.LeaveTypeId == leaveTypeId && b.FiscalYearId == fiscalYearId, cancellationToken);
+
+            return balance;
+        }
+
+        public async Task<EmployeeLeaveBalance> GetLeaveBalanceByIdAsync(Guid leaveBalanceId, CancellationToken cancellationToken = default)
+        {
+            var balance = await DbContext.Set<EmployeeLeaveBalance>()
+                .FirstOrDefaultAsync(b => b.Id == leaveBalanceId, cancellationToken);
+
+            return balance;
+        }
+
+        public async Task AddLeaveBalanceAsync(EmployeeLeaveBalance leaveBalance, CancellationToken cancellationToken = default)
+        {
+            await DbContext.Set<EmployeeLeaveBalance>().AddAsync(leaveBalance, cancellationToken);
+        }
+
+        // TeacherAssignment (2026-08-06, moved here from the removed TeacherRepository --
+        // TeacherId FKs directly to this aggregate's Id now).
+
+        public async Task<bool> HasAssignmentsAsync(Guid teacherId, CancellationToken cancellationToken = default)
+        {
+            var hasAssignments = await DbContext.Set<TeacherAssignment>()
+                .AnyAsync(assignment => assignment.TeacherId == teacherId, cancellationToken);
+
+            return hasAssignments;
+        }
+
+        public async Task<IReadOnlyList<TeacherAssignment>> GetAssignmentsAsync(Guid teacherId, CancellationToken cancellationToken = default)
+        {
+            // The year chain is included so the employee detail can build service history from
+            // the same query the assignments tab uses.
+            var assignments = await DbContext.Set<TeacherAssignment>()
+                .Include(assignment => assignment.ClassSubject)
+                    .ThenInclude(cs => cs.AcademicClass)
+                        .ThenInclude(c => c.AcademicYear)
+                .Include(assignment => assignment.ClassSection)
+                .Include(assignment => assignment.TimePeriod)
+                .Where(assignment => assignment.TeacherId == teacherId)
+                .OrderBy(assignment => assignment.ClassSubject.AcademicClass.AcademicYear.StartDate)
+                .ThenBy(assignment => assignment.ClassSubject.SubjectCode)
+                .ToListAsync(cancellationToken);
+
+            return assignments;
+        }
+
+        public async Task<IReadOnlyList<TeacherAssignment>> GetAssignmentsByClassSubjectIdsAsync(IReadOnlyCollection<Guid> classSubjectIds, CancellationToken cancellationToken = default)
+        {
+            // Who teaches these subjects -- one batched query for the student profile's
+            // subjects-studying block, the assigned Employee included for the name.
+            var assignments = await DbContext.Set<TeacherAssignment>()
+                .Include(assignment => assignment.Employee)
+                .Where(assignment => classSubjectIds.Contains(assignment.ClassSubjectId))
+                .ToListAsync(cancellationToken);
+
+            return assignments;
+        }
+
+        public async Task<IReadOnlyList<TeacherAssignment>> GetAssignmentsByAcademicClassAsync(Guid academicClassId, Guid? classSectionId, CancellationToken cancellationToken = default)
+        {
+            IQueryable<TeacherAssignment> assignmentsQuery = DbContext.Set<TeacherAssignment>()
+                .Include(assignment => assignment.Employee)
+                .Include(assignment => assignment.ClassSubject)
+                .Include(assignment => assignment.ClassSection)
+                .Include(assignment => assignment.TimePeriod)
+                .Where(assignment => assignment.ClassSubject.AcademicClassId == academicClassId);
+
+            if (classSectionId.HasValue)
+            {
+                assignmentsQuery = assignmentsQuery.Where(assignment => assignment.ClassSectionId == classSectionId.Value);
+            }
+
+            var assignments = await assignmentsQuery
+                .OrderBy(assignment => assignment.ClassSubject.SubjectCode)
+                .ThenBy(assignment => assignment.Employee.FirstName)
+                .ToListAsync(cancellationToken);
+
+            return assignments;
+        }
+
+        public async Task<TeacherAssignment> GetAssignmentByIdAsync(Guid assignmentId, CancellationToken cancellationToken = default)
+        {
+            var assignment = await DbContext.Set<TeacherAssignment>()
+                .Include(a => a.ClassSubject)
+                .Include(a => a.ClassSection)
+                .Include(a => a.TimePeriod)
+                .FirstOrDefaultAsync(a => a.Id == assignmentId, cancellationToken);
+
+            return assignment;
+        }
+
+        public async Task<bool> AssignmentExistsAsync(Guid teacherId, Guid classSubjectId, Guid? classSectionId, CancellationToken cancellationToken = default)
+        {
+            // Exact triple match, null section included -- the unique index can't catch the
+            // duplicate-null case (Postgres treats NULLs as distinct), so this check must.
+            var assignmentExists = await DbContext.Set<TeacherAssignment>()
+                .AnyAsync(assignment => assignment.TeacherId == teacherId
+                    && assignment.ClassSubjectId == classSubjectId
+                    && assignment.ClassSectionId == classSectionId, cancellationToken);
+
+            return assignmentExists;
+        }
+
+        public async Task<bool> ClassTeacherExistsForSectionAsync(Guid classSectionId, CancellationToken cancellationToken = default)
+        {
+            // "At most one class teacher per ClassSection" -- regardless of which subject the
+            // class-teacher assignment rides on.
+            var classTeacherExists = await DbContext.Set<TeacherAssignment>()
+                .AnyAsync(assignment => assignment.IsClassTeacher
+                    && assignment.ClassSectionId == classSectionId, cancellationToken);
+
+            return classTeacherExists;
+        }
+
+        public async Task<bool> TeacherHasTimePeriodConflictAsync(Guid teacherId, Guid timePeriodId, CancellationToken cancellationToken = default)
+        {
+            // TimePeriod.StartTime/EndTime is a fixed, class-independent definition -- only which
+            // periods apply to which class varies, via ClassTimePeriod -- so two assignments for
+            // the same employee sharing the same TimePeriod row necessarily share the same
+            // wall-clock slot, regardless of which class/subject/section either one is for.
+            var hasConflict = await DbContext.Set<TeacherAssignment>()
+                .AnyAsync(assignment => assignment.TeacherId == teacherId
+                    && assignment.TimePeriodId == timePeriodId, cancellationToken);
+
+            return hasConflict;
+        }
+
+        public async Task<bool> TeacherHasTimePeriodConflictAsync(Guid teacherId, Guid timePeriodId, Guid excludeAssignmentId, CancellationToken cancellationToken = default)
+        {
+            var hasConflict = await DbContext.Set<TeacherAssignment>()
+                .AnyAsync(assignment => assignment.TeacherId == teacherId
+                    && assignment.TimePeriodId == timePeriodId
+                    && assignment.Id != excludeAssignmentId, cancellationToken);
+
+            return hasConflict;
+        }
+
+        public async Task AddAssignmentAsync(TeacherAssignment assignment, CancellationToken cancellationToken = default)
+        {
+            await DbContext.Set<TeacherAssignment>().AddAsync(assignment, cancellationToken);
+        }
+
+        public void RemoveAssignment(TeacherAssignment assignment)
+        {
+            DbContext.Set<TeacherAssignment>().Remove(assignment);
         }
     }
 }

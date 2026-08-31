@@ -25,6 +25,17 @@ namespace Application.Configs
 
         Task<CommonResponse<bool>> DeleteConfigAsync(Guid id, CancellationToken cancellationToken = default);
 
-        Task<CommonResponse<List<DropdownItemDto>>> GetConfigsByTypeCodeAsync(int typeCode, CancellationToken cancellationToken = default);
+        // parentCode/search (2026-07-24): generalized cascading/searchable dropdown filter --
+        // parentCode narrows to options whose AdditionalValue1 equals it (District by
+        // ProvinceCode, LocalLevel by DistrictCode, or any future hierarchical catalog), search
+        // does a case-insensitive Label match (the LocalLevel searchable-lookup case). Both null
+        // behaves exactly like the unfiltered call every existing caller already makes.
+        Task<CommonResponse<List<DropdownItemDto>>> GetConfigsByTypeCodeAsync(int typeCode, string parentCode = null, string search = null, CancellationToken cancellationToken = default);
+
+        // 2026-08-27: a dropdown of every ConfigType "table" itself (Grade, Section, Subject, ...),
+        // one level up from GetConfigsByTypeCodeAsync above (which lists the options *within* one
+        // type). search does the same case-insensitive Name match GetConfigsByTypeCodeAsync's
+        // search does against Label.
+        Task<CommonResponse<List<DropdownItemDto>>> GetConfigTypesDropdownAsync(string search = null, CancellationToken cancellationToken = default);
     }
 }

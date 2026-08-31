@@ -15,7 +15,9 @@ namespace Application.FeeRules.Dtos
         public int? DaysBeforeDueDate { get; set; }
         public Guid? AcademicClassId { get; set; }
         public string AcademicClassGradeCode { get; set; }
+        public string AcademicClassGradeLabel { get; set; }
         public string FeeCategoryCode { get; set; }
+        public string FeeCategoryLabel { get; set; }
         public DateTime EffectiveFrom { get; set; }
         public DateTime? EffectiveTo { get; set; }
         public int Priority { get; set; }

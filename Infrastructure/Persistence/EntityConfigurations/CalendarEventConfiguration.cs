@@ -65,11 +65,43 @@ namespace Infrastructure.Persistence.EntityConfigurations
                     .HasColumnName("is_active")
                     .HasDefaultValue(true);
 
+            // Config codes (ConfigTypeCodes.Province/Branch), not database FKs -- same convention
+            // as GradeCode/SubjectCode. Null on both means "applies everywhere".
+            builder.Property(e => e.ProvinceCode)
+                    .HasColumnName("province_code")
+                    .HasMaxLength(100);
+
+            builder.Property(e => e.BranchCode)
+                    .HasColumnName("branch_code")
+                    .HasMaxLength(100);
+
+            builder.Property(e => e.StudentId)
+                    .HasColumnName("student_id");
+
+            builder.Property(e => e.EmployeeId)
+                    .HasColumnName("employee_id");
+
+            builder.HasOne(e => e.Student)
+                    .WithMany()
+                    .HasForeignKey(e => e.StudentId)
+                    .OnDelete(DeleteBehavior.Restrict);
+
+            builder.HasOne(e => e.Employee)
+                    .WithMany()
+                    .HasForeignKey(e => e.EmployeeId)
+                    .OnDelete(DeleteBehavior.Restrict);
+
             builder.HasIndex(e => e.AdDate)
                     .HasDatabaseName("ix_calendar_events_ad_date");
 
             builder.HasIndex(e => new { e.BsYear, e.BsMonth, e.BsDay })
                     .HasDatabaseName("ix_calendar_events_bs_date");
+
+            builder.HasIndex(e => e.StudentId)
+                    .HasDatabaseName("ix_calendar_events_student_id");
+
+            builder.HasIndex(e => e.EmployeeId)
+                    .HasDatabaseName("ix_calendar_events_employee_id");
         }
     }
 }

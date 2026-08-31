@@ -14,6 +14,9 @@ namespace Application.AcademicClasses.Validators
                 .NotEmpty()
                 .MaximumLength(100);
 
+            RuleFor(command => command.Order)
+                .GreaterThanOrEqualTo(0);
+
             RuleForEach(command => command.Sections)
                 .SetValidator(new CreateClassSectionCommandValidator());
         }

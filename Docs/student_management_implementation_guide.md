@@ -57,10 +57,10 @@ A class = **one grade within one academic year** (`(year, gradeCode)` unique); i
 
 | Method/Route | Body / Query | Notes |
 |---|---|---|
-| `POST /api/academicclasses` | `{ "academicYearId": "…", "gradeCode": "GRADE_1", "sections": [ { "sectionCode": "SECTION_A", "capacity": 40 } ] }` | `sections` optional; every code validated against the catalogs; `capacity: 0` = unlimited |
-| `GET /api/academicclasses?page=1&pageSize=20&academicYearId=…&gradeCode=…&status=1` | | Filters optional; every row nests its `sections`. Full filter list: `filters_update.md` |
+| `POST /api/academicclasses` | `{ "academicYearId": "…", "gradeCode": "GRADE_1", "order": 4, "sections": [ { "sectionCode": "SECTION_A", "capacity": 40 } ] }` | `sections` optional; every code validated against the catalogs; `capacity: 0` = unlimited; `order` (2026-07-31) is pure UI display ordering, defaults to `0` |
+| `GET /api/academicclasses?page=1&pageSize=20&academicYearId=…&gradeCode=…&status=1` | | Filters optional; every row nests its `sections`; list is sorted by `order` then `gradeCode`. Full filter list: `filters_update.md` |
 | `GET /api/academicclasses/{id}` | | |
-| `PUT /api/academicclasses/{id}` | `{ "status" }` | **Year/grade immutable** — a class's identity can't move under its enrollments |
+| `PUT /api/academicclasses/{id}` | `{ "order": 4, "status" }` | **Year/grade immutable** — a class's identity can't move under its enrollments; `order` is freely editable (display ordering only) |
 | `DELETE /api/academicclasses/{id}` | | Soft; `409` while it still has sections |
 | `POST /api/academicclasses/{id}/sections` | `{ "sectionCode": "SECTION_B", "capacity": 30 }` | `409` if the section already exists on the class |
 | `GET /api/academicclasses/{id}/sections` | | Ordered by `sectionCode` |
@@ -71,7 +71,7 @@ A class = **one grade within one academic year** (`(year, gradeCode)` unique); i
 | `PUT /api/academicclasses/{id}/subjects/{classSubjectId}` | `{ "displayOrder": 1, "creditHours": 4, "fullMarks": 100, "passMarks": 40, "theoryMarks": 75, "practicalMarks": 25 }` | **New (2026-07-15)**. Only grading metadata + `displayOrder` are editable — `subjectCode`/`isMandatory`/`classSectionId` are identity-like and immutable (re-assign instead) |
 | `DELETE /api/academicclasses/{id}/subjects/{classSubjectId}` | | Hard delete; `409` while teachers are assigned to it or students have elected it |
 
-`AcademicClassDto`: `{ "id", "academicYearId", "gradeCode", "status", "sections": [ { "id", "academicClassId", "sectionCode", "capacity", "status" } ] }`.
+`AcademicClassDto`: `{ "id", "academicYearId", "gradeCode", "order", "status", "sections": [ { "id", "academicClassId", "sectionCode", "capacity", "status" } ] }`. `order` (2026-07-31) is a plain UI-display-ordering integer — no uniqueness enforced, ties break on `gradeCode`.
 `ClassSubjectDto`: `{ "id", "academicClassId", "subjectCode", "isMandatory", "displayOrder", "classSectionId", "sectionCode", "scope", "creditHours", "fullMarks", "passMarks", "theoryMarks", "practicalMarks" }` — **`id` here is the `classSubjectId`** used by teacher assignments and electives; `classSectionId`/`sectionCode` null = offered to all sections. `scope` (2026-07-15) is `0` ClassWide / `1` Section — the same fact as `classSectionId`'s nullability, exposed as an explicit enum so consumers don't have to infer it. Grading fields (2026-07-15) are all nullable — a subject can exist before its marks scheme is finalized. They live on `ClassSubject` rather than the global Subject Config catalog entry because marks schemes commonly vary by grade for the same subject (e.g. Science gains practicals in grade 9-10). See `filters_update.md` for the class/section scoping redesign and `fee_and_payroll_implementation_guide.md` for this addition's rationale.
 
 ## Teachers — `/api/teachers`
@@ -99,7 +99,8 @@ Body: `{ "firstName", "lastName", "email", "phone", "occupation", "address" }` (
 
 | Method/Route | Body / Query | Notes |
 |---|---|---|
-| `POST /api/students` | `{ "admissionNo": "ADM-2026-001", "firstName", "middleName", "lastName", "gender": 0, "dateOfBirth": "2015-06-10", "email", "phone", "address", "admissionDate": "2026-04-01", "guardians": [ { "guardianId": "…", "relationshipCode": "FATHER", "isPrimary": true }, { "firstName": "Maya", "lastName": "Sharma", "phone": "…", "relationshipCode": "MOTHER" } ] }` | `admissionNo` optional — blank = auto-generated `ADM{year}{seq}` (see `auto_number_generation_implementation_guide.md`); if supplied, unique (≤30). Required: first/last + gender. `guardians` optional — each entry is an existing guardian (`guardianId`) or inline new-guardian fields; at most one `isPrimary`; all-or-nothing |
+| `POST /api/students` | `{ "admissionNo": "ADM-2026-001", "firstName", "middleName", "lastName", "gender": 0, "dateOfBirth": "2015-06-10", "email", "phone", "address", "admissionDate": "2026-04-01", "guardians": [ { "guardianId": "…", "relationshipCode": "FATHER", "isPrimary": true }, { "firstName": "Maya", "lastName": "Sharma", "phone": "…", "relationshipCode": "MOTHER" } ], "registerUserAccount": false }` | `admissionNo` optional — blank = auto-generated `ADM{year}{seq}` (see `auto_number_generation_implementation_guide.md`); if supplied, unique (≤30). Required: first/last + gender. `guardians` optional — each entry is an existing guardian (`guardianId`) or inline new-guardian fields; at most one `isPrimary`; all-or-nothing. `registerUserAccount` (2026-07-27) — see Portal account provisioning below |
+| `POST /api/students/{id}/register-account` | none | Retrofit for a student created without `registerUserAccount`. `409` if the student already has a portal account or the email is already registered; `400` if the student has no email on file. Always the fixed `Student` role. See Portal account provisioning below |
 | `GET /api/students?page=1&pageSize=20&search=adm&phone=…&gradeCode=…&academicYearId=…&classSectionId=…&status=1&gender=0&dateField=1&fromDate=2026-01-01&toDate=2026-06-30` | | `search` matches names or admissionNo; `guardians` left empty on list rows. `gradeCode`/`academicYearId`/`classSectionId` match a student's current **Enrolled**-status enrollment (a snapshot, not full history). `dateField` (`0` CreatedDate default / `1` EnrollmentDate) picks which column `fromDate`/`toDate` filters. Full filter list: `filters_update.md` |
 | `GET /api/students/{id}` · `PUT /api/students/{id}` (adds `status` and three-way `guardians`; **no `admissionNo`**) · `DELETE /api/students/{id}` | | Detail (and create/update) responses include `guardians`; detail adds `currentEnrollment` (current year/grade/section/roll + subjects studying) and `enrollmentHistory` (every enrollment, oldest year first — "studying here since") — see `student_profile_enhancements_implementation_guide.md`. Update's `guardians`: null = unchanged, `[]` = unlink all, list = replace-sync. Delete is soft — enrollment history survives |
 | `POST /api/students/{id}/guardians` | `{ "guardianId": "…", "relationshipCode": "FATHER", "isPrimary": true }` | `409` if already linked; `isPrimary: true` automatically demotes the previous primary |
@@ -107,6 +108,10 @@ Body: `{ "firstName", "lastName", "email", "phone", "occupation", "address" }` (
 | `DELETE /api/students/{id}/guardians/{linkId}` | | `linkId` is the link row's `id`, **not** the guardianId |
 | `POST /api/students/{id}/documents` | **multipart/form-data**: `file` + `documentTypeCode` + `documentName` + optional `validUntil`/`remarks` | PDF/JPG/JPEG/PNG, max 10 MB; type from catalog 1007. Same shape as employee documents — `employee_documents_and_qualifications_implementation_guide.md` |
 | `GET /api/students/{id}/documents` · `GET …/documents/{documentId}/download` · `DELETE …/documents/{documentId}` | | List (metadata only) / raw file stream / hard delete incl. the stored file |
+
+## Portal account provisioning (2026-07-27)
+
+A student can optionally get a real login, on request — either at creation (`registerUserAccount: true`, requires `email`) or afterward via `POST /api/students/{id}/register-account`. Unlike Employees there's no role picker — every student account gets the fixed `Student` role (zero permissions granted by default; there's no results/schedule module yet for it to view, this only gets the login itself working). Full reference, including the activation-email mechanic shared with Employees: `Docs/portal_account_provisioning_implementation_guide.md`.
 | `GET /api/students/{id}/id-card-preview` | | Renders an admin-configurable HTML template with this student's profile/enrollment/guardian data — see `document_preview_implementation_guide.md`. Same shape at `GET /api/teachers/{id}/id-card-preview` for teachers |
 
 ## Enrollments — `/api/enrollments`

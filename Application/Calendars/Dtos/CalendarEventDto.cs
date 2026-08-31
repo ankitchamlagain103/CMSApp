@@ -16,5 +16,9 @@ namespace Application.Calendars.Dtos
         public string ColorCode { get; set; }
         public string Language { get; set; }
         public bool IsActive { get; set; }
+        public string ProvinceCode { get; set; }
+        public string BranchCode { get; set; }
+        public Guid? StudentId { get; set; }
+        public Guid? EmployeeId { get; set; }
     }
 }

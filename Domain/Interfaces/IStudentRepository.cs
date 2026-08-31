@@ -13,6 +13,10 @@ namespace Domain.Interfaces
 
         Task<IReadOnlyList<string>> GetAdmissionNosByPrefixAsync(string prefix, CancellationToken cancellationToken = default);
 
+        // Self-service (Student Portal) -- resolves "which Student am I" from the caller's own
+        // ApplicationUser id, mirroring IEmployeeRepository.GetByUserIdAsync.
+        Task<Student> GetByUserIdAsync(Guid userId, CancellationToken cancellationToken = default);
+
         Task<IReadOnlyList<StudentGuardian>> GetGuardianLinksAsync(Guid studentId, CancellationToken cancellationToken = default);
 
         Task<StudentGuardian> GetGuardianLinkByIdAsync(Guid linkId, CancellationToken cancellationToken = default);

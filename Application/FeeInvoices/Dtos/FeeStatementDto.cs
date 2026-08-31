@@ -9,7 +9,9 @@ namespace Application.FeeInvoices.Dtos
         public string StudentName { get; set; }
         public string AdmissionNo { get; set; }
         public string GradeCode { get; set; }
+        public string GradeLabel { get; set; }
         public string SectionCode { get; set; }
+        public string SectionLabel { get; set; }
         public decimal OutstandingAmount { get; set; }
         public List<FeeInvoiceDto> Invoices { get; set; } = new List<FeeInvoiceDto>();
     }

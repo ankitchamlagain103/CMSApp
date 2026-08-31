@@ -20,6 +20,29 @@ namespace Infrastructure.Persistence.Repositories
             return configs;
         }
 
+        public async Task<IReadOnlyList<Config>> GetByTypeCodeAsync(int typeCode, string parentCode, string search, CancellationToken cancellationToken = default)
+        {
+            IQueryable<Config> configsQuery = DbSet.Where(config => config.TypeCode == typeCode);
+
+            if (!string.IsNullOrWhiteSpace(parentCode))
+            {
+                var trimmedParentCode = parentCode.Trim();
+                configsQuery = configsQuery.Where(config => config.AdditionalValue1 == trimmedParentCode);
+            }
+
+            if (!string.IsNullOrWhiteSpace(search))
+            {
+                var searchPattern = "%" + search.Trim() + "%";
+                configsQuery = configsQuery.Where(config => EF.Functions.ILike(config.Label, searchPattern));
+            }
+
+            var configs = await configsQuery
+                .OrderBy(config => config.Order)
+                .ToListAsync(cancellationToken);
+
+            return configs;
+        }
+
         public async Task<Config> GetByTypeCodeAndCodeAsync(int typeCode, string code, CancellationToken cancellationToken = default)
         {
             var config = await DbSet

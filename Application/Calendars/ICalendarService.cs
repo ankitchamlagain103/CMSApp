@@ -21,6 +21,8 @@ namespace Application.Calendars
 
         Task<CommonResponse<CalendarMonthViewDto>> GetMonthViewAsync(GetMonthViewQuery query, CancellationToken cancellationToken = default);
 
+        Task<CommonResponse<CalendarYearViewDto>> GetYearViewAsync(GetYearViewQuery query, CancellationToken cancellationToken = default);
+
         Task<CommonResponse<DualDateDto>> GetTodayAsync(CancellationToken cancellationToken = default);
 
         Task<CommonResponse<DualDateDto>> ConvertAdToBsAsync(DateTime adDate, CancellationToken cancellationToken = default);

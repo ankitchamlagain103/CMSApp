@@ -110,6 +110,60 @@ namespace Infrastructure.Persistence.EntityConfigurations
                     .HasColumnName("gratuity_number")
                     .HasMaxLength(50);
 
+            // Org fields (2026-07-23) -- Config codes (ConfigTypeCodes.Branch/Province/
+            // EmployeeLevel), not database FKs, same convention as EmployeeCategoryCode above.
+            builder.Property(e => e.BranchCode)
+                    .HasColumnName("branch_code")
+                    .HasMaxLength(100);
+
+            builder.Property(e => e.ProvinceCode)
+                    .HasColumnName("province_code")
+                    .HasMaxLength(100);
+
+            builder.Property(e => e.LevelCode)
+                    .HasColumnName("level_code")
+                    .HasMaxLength(100);
+
+            builder.Property(e => e.ManagerId)
+                    .HasColumnName("manager_id");
+
+            // Address chain (2026-07-24) -- Config codes (ConfigTypeCodes.District/LocalLevel),
+            // not database FKs, same convention as BranchCode/ProvinceCode/LevelCode above.
+            builder.Property(e => e.DistrictCode)
+                    .HasColumnName("district_code")
+                    .HasMaxLength(100);
+
+            builder.Property(e => e.LocalLevelCode)
+                    .HasColumnName("local_level_code")
+                    .HasMaxLength(100);
+
+            builder.Property(e => e.WardNo)
+                    .HasColumnName("ward_no");
+
+            builder.Property(e => e.PhotoPath)
+                    .HasColumnName("photo_path")
+                    .HasMaxLength(500);
+
+            // Teaching-specific fields (2026-08-06, ported from the removed Teacher entity/table
+            // -- same column names/lengths as the old dbo.teachers table had).
+            builder.Property(e => e.TeachingLicenseNo)
+                    .HasColumnName("teaching_license_no")
+                    .HasMaxLength(100);
+
+            builder.Property(e => e.ExperienceYears)
+                    .HasColumnName("experience_years");
+
+            builder.Property(e => e.Specialization)
+                    .HasColumnName("specialization")
+                    .HasMaxLength(255);
+
+            // Self-referencing, Restrict like Menu's ParentId (never cascade a self-reference --
+            // deleting a manager must not cascade-delete their reports).
+            builder.HasOne(e => e.Manager)
+                    .WithMany()
+                    .HasForeignKey(e => e.ManagerId)
+                    .OnDelete(DeleteBehavior.Restrict);
+
             builder.HasIndex(e => e.EmployeeCode)
                     .IsUnique()
                     .HasDatabaseName("ix_employees_employee_code");
@@ -119,6 +173,9 @@ namespace Infrastructure.Persistence.EntityConfigurations
                     .IsUnique()
                     .HasFilter("user_id IS NOT NULL")
                     .HasDatabaseName("ix_employees_user_id");
+
+            builder.HasIndex(e => e.ManagerId)
+                    .HasDatabaseName("ix_employees_manager_id");
         }
     }
 }

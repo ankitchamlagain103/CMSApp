@@ -19,5 +19,10 @@ namespace Application.DocumentTemplates
         Task<CommonResponse<bool>> DeleteDocumentTemplateAsync(Guid id, CancellationToken cancellationToken = default);
 
         Task<CommonResponse<List<TemplatePlaceholderDto>>> GetPlaceholdersAsync(DocumentTemplateType templateType, CancellationToken cancellationToken = default);
+
+        // Renders the template's OWN htmlContent against representative sample data (not a real
+        // employee/student/payment record) -- lets an admin see roughly what the layout looks like
+        // straight from the editor, without needing an existing record of that type on hand.
+        Task<CommonResponse<DocumentPreviewDto>> GetTemplatePreviewAsync(Guid id, CancellationToken cancellationToken = default);
     }
 }

@@ -21,13 +21,17 @@ namespace Infrastructure.Persistence.DataSeeder
             await SeedRoleAsync(roleManager, RoleNames.SuperAdmin, "Full, unrestricted system access.");
             await SeedRoleAsync(roleManager, RoleNames.Admin, "Administrative access to manage users and content.");
             await SeedRoleAsync(roleManager, RoleNames.User, "Standard end-user access.");
+            // MenuAudience.User (2026-08-24): the Student role is a portal/self-service role, not
+            // an admin-panel one -- see RoleService.ResolveMenuAudience and MenuSeeder's Student
+            // Portal / My Workspace trees, which are both tagged MenuAudience.User to match.
+            await SeedRoleAsync(roleManager, RoleNames.Student, "Student portal access (view own profile, results, schedule).", MenuAudience.User);
 
             await SeedUserAsync(userManager, configuration, logger, "Seed:SuperAdmin", RoleNames.SuperAdmin, UserType.SuperAdmin);
             await SeedUserAsync(userManager, configuration, logger, "Seed:Admin", RoleNames.Admin, UserType.Admin);
             await SeedUserAsync(userManager, configuration, logger, "Seed:User", RoleNames.User, UserType.User);
         }
 
-        private static async Task SeedRoleAsync(RoleManager<ApplicationRole> roleManager, string roleName, string description)
+        private static async Task SeedRoleAsync(RoleManager<ApplicationRole> roleManager, string roleName, string description, string userType = null)
         {
             var roleExists = await roleManager.RoleExistsAsync(roleName);
             if (roleExists)
@@ -38,7 +42,8 @@ namespace Infrastructure.Persistence.DataSeeder
             var role = new ApplicationRole
             {
                 Name = roleName,
-                Description = description
+                Description = description,
+                UserType = userType ?? MenuAudience.Both
             };
 
             await roleManager.CreateAsync(role);

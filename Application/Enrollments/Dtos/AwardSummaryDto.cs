@@ -4,6 +4,7 @@ namespace Application.Enrollments.Dtos
     public class AwardSummaryDto
     {
         public string TypeCode { get; set; }
+        public string TypeLabel { get; set; }
         public int StudentCount { get; set; }
     }
 }

@@ -8,6 +8,7 @@ namespace Application.PayrollRuns.Dtos
         public SalaryLineType LineType { get; set; }
         public SalaryLineSource Source { get; set; }
         public string ComponentCode { get; set; }
+        public string ComponentLabel { get; set; }
         public string Description { get; set; }
         public decimal Amount { get; set; }
     }

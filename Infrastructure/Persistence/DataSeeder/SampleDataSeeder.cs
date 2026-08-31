@@ -63,7 +63,7 @@ namespace Infrastructure.Persistence.DataSeeder
             var sectionsByClassId = await SeedSectionsAsync(dbContext, classesByGrade);
             var classSubjects = await SeedClassSubjectsAsync(dbContext, classesByGrade);
             var teachers = await SeedTeachersAsync(dbContext);
-            await SeedTeacherAssignmentsAsync(dbContext, teachers, classesByGrade, sectionsByClassId, classSubjects);
+            //await SeedTeacherAssignmentsAsync(dbContext, teachers, classesByGrade, sectionsByClassId, classSubjects);
             await SeedStudentsAsync(dbContext, academicYear, classesByGrade, sectionsByClassId, classSubjects);
         }
 
@@ -89,44 +89,99 @@ namespace Infrastructure.Persistence.DataSeeder
             AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Section, "B", "Section B", 2);
             AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Section, "C", "Section C", 3);
 
-            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "NEPALI", "Nepali", 1);
-            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "ENGLISH", "English", 2);
-            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "MATH", "Mathematics", 3);
-            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "SCIENCE", "Science", 4);
-            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "OPT_MATHS", "Optional Mathematics", 5);
-            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "OPT_ACCOUNT", "Optional Account", 6);
-            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "RHYMES", "Rhymes", 7);
-            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "DRAWING", "Drawing & Coloring", 8);
-            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "GENERAL_AWARENESS", "General Awareness", 9);
-            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "PLAY_ACTIVITIES", "Play Activities", 10);
-            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "MUSIC", "Music", 11);
-            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "PHYSICAL_ACTIVITIES", "Physical Activities", 12);
-            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "ENV_AWARENESS", "Environmental Awareness", 13);
-            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "GAMES", "Games", 14);
-            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "EVS", "Environmental Studies (EVS)", 15);
-            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "GK", "General Knowledge", 16);
-            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "PHYSICAL_EDUCATION", "Physical Education", 17);
-            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "OUR_SURROUNDINGS", "Our Surroundings", 18);
-            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "CREATIVE_ARTS", "Creative Arts", 19);
-            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "HPE", "Health & Physical Education", 20);
-            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "SCIENCE_TECH", "Science & Technology", 21);
-            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "SOCIAL_STUDIES", "Social Studies", 22);
-            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "SOCIAL_HV", "Social Studies & Human Values", 23);
-            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "HPCA", "Health, Physical & Creative Arts", 24);
-            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "LOCAL_SUBJECT", "Local Subject", 25);
-            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "COMPUTER_SCIENCE", "Computer Science", 26);
-            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "SOCIAL_LIFE_SKILLS", "Social Studies & Life Skills", 27);
-            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "PHYSICS", "Physics", 28);
-            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "CHEMISTRY", "Chemistry", 29);
-            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "BIOLOGY", "Biology", 30);
-            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "ACCOUNTANCY", "Accountancy", 31);
-            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "ECONOMICS", "Economics", 32);
-            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "BUSINESS_STUDIES", "Business Studies", 33);
-            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "SOCIOLOGY", "Sociology", 34);
-            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "PSYCHOLOGY", "Psychology", 35);
-            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "HOTEL_MANAGEMENT", "Hotel Management", 36);
+            // GRADE_CODE (AdditionalValue2, 2026-08-03): which grades a subject is actually
+            // applicable to -- "ALL" or a comma-separated GradeCodes list. Computed from the same
+            // BuildMandatorySubjectsByGrade()/BuildOptionalSubjectsByGrade() maps SeedClassSubjectsAsync
+            // itself seeds ClassSubject rows from, rather than a second hand-typed mapping, so this
+            // can never drift out of sync with what's actually assigned per grade below.
+            var subjectGradeCodesByCode = BuildSubjectGradeCodeMap();
+
+            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "NEPALI", "Nepali", 1, additionalValue2: subjectGradeCodesByCode["NEPALI"]);
+            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "ENGLISH", "English", 2, additionalValue2: subjectGradeCodesByCode["ENGLISH"]);
+            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "MATH", "Mathematics", 3, additionalValue2: subjectGradeCodesByCode["MATH"]);
+            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "SCIENCE", "Science", 4, additionalValue2: subjectGradeCodesByCode["SCIENCE"]);
+            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "OPT_MATHS", "Optional Mathematics", 5, additionalValue2: subjectGradeCodesByCode["OPT_MATHS"]);
+            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "OPT_ACCOUNT", "Optional Account", 6, additionalValue2: subjectGradeCodesByCode["OPT_ACCOUNT"]);
+            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "RHYMES", "Rhymes", 7, additionalValue2: subjectGradeCodesByCode["RHYMES"]);
+            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "DRAWING", "Drawing & Coloring", 8, additionalValue2: subjectGradeCodesByCode["DRAWING"]);
+            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "GENERAL_AWARENESS", "General Awareness", 9, additionalValue2: subjectGradeCodesByCode["GENERAL_AWARENESS"]);
+            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "PLAY_ACTIVITIES", "Play Activities", 10, additionalValue2: subjectGradeCodesByCode["PLAY_ACTIVITIES"]);
+            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "MUSIC", "Music", 11, additionalValue2: subjectGradeCodesByCode["MUSIC"]);
+            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "PHYSICAL_ACTIVITIES", "Physical Activities", 12, additionalValue2: subjectGradeCodesByCode["PHYSICAL_ACTIVITIES"]);
+            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "ENV_AWARENESS", "Environmental Awareness", 13, additionalValue2: subjectGradeCodesByCode["ENV_AWARENESS"]);
+            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "GAMES", "Games", 14, additionalValue2: subjectGradeCodesByCode["GAMES"]);
+            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "EVS", "Environmental Studies (EVS)", 15, additionalValue2: subjectGradeCodesByCode["EVS"]);
+            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "GK", "General Knowledge", 16, additionalValue2: subjectGradeCodesByCode["GK"]);
+            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "PHYSICAL_EDUCATION", "Physical Education", 17, additionalValue2: subjectGradeCodesByCode["PHYSICAL_EDUCATION"]);
+            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "OUR_SURROUNDINGS", "Our Surroundings", 18, additionalValue2: subjectGradeCodesByCode["OUR_SURROUNDINGS"]);
+            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "CREATIVE_ARTS", "Creative Arts", 19, additionalValue2: subjectGradeCodesByCode["CREATIVE_ARTS"]);
+            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "HPE", "Health & Physical Education", 20, additionalValue2: subjectGradeCodesByCode["HPE"]);
+            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "SCIENCE_TECH", "Science & Technology", 21, additionalValue2: subjectGradeCodesByCode["SCIENCE_TECH"]);
+            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "SOCIAL_STUDIES", "Social Studies", 22, additionalValue2: subjectGradeCodesByCode["SOCIAL_STUDIES"]);
+            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "SOCIAL_HV", "Social Studies & Human Values", 23, additionalValue2: subjectGradeCodesByCode["SOCIAL_HV"]);
+            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "HPCA", "Health, Physical & Creative Arts", 24, additionalValue2: subjectGradeCodesByCode["HPCA"]);
+            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "LOCAL_SUBJECT", "Local Subject", 25, additionalValue2: subjectGradeCodesByCode["LOCAL_SUBJECT"]);
+            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "COMPUTER_SCIENCE", "Computer Science", 26, additionalValue2: subjectGradeCodesByCode["COMPUTER_SCIENCE"]);
+            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "SOCIAL_LIFE_SKILLS", "Social Studies & Life Skills", 27, additionalValue2: subjectGradeCodesByCode["SOCIAL_LIFE_SKILLS"]);
+            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "PHYSICS", "Physics", 28, additionalValue2: subjectGradeCodesByCode["PHYSICS"]);
+            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "CHEMISTRY", "Chemistry", 29, additionalValue2: subjectGradeCodesByCode["CHEMISTRY"]);
+            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "BIOLOGY", "Biology", 30, additionalValue2: subjectGradeCodesByCode["BIOLOGY"]);
+            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "ACCOUNTANCY", "Accountancy", 31, additionalValue2: subjectGradeCodesByCode["ACCOUNTANCY"]);
+            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "ECONOMICS", "Economics", 32, additionalValue2: subjectGradeCodesByCode["ECONOMICS"]);
+            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "BUSINESS_STUDIES", "Business Studies", 33, additionalValue2: subjectGradeCodesByCode["BUSINESS_STUDIES"]);
+            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "SOCIOLOGY", "Sociology", 34, additionalValue2: subjectGradeCodesByCode["SOCIOLOGY"]);
+            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "PSYCHOLOGY", "Psychology", 35, additionalValue2: subjectGradeCodesByCode["PSYCHOLOGY"]);
+            AddOptionIfMissing(dbContext, existingOptionKeys, ConfigTypeCodes.Subject, "HOTEL_MANAGEMENT", "Hotel Management", 36, additionalValue2: subjectGradeCodesByCode["HOTEL_MANAGEMENT"]);
 
             await dbContext.SaveChangesAsync();
+        }
+
+        // Inverts BuildMandatorySubjectsByGrade()/BuildOptionalSubjectsByGrade() (grade -> subject
+        // codes) into subject code -> "ALL" (every GradeCodes entry references it, mandatory or
+        // optional) or a GradeCodes-ordered comma-separated list of the grades that do.
+        private static Dictionary<string, string> BuildSubjectGradeCodeMap()
+        {
+            var mandatorySubjectsByGrade = BuildMandatorySubjectsByGrade();
+            var optionalSubjectsByGrade = BuildOptionalSubjectsByGrade();
+
+            var gradesBySubjectCode = new Dictionary<string, List<string>>();
+            foreach (var gradeCode in GradeCodes)
+            {
+                var subjectCodesForGrade = new List<string>();
+                if (mandatorySubjectsByGrade.TryGetValue(gradeCode, out var mandatoryCodes))
+                {
+                    subjectCodesForGrade.AddRange(mandatoryCodes);
+                }
+
+                if (optionalSubjectsByGrade.TryGetValue(gradeCode, out var optionalCodes))
+                {
+                    subjectCodesForGrade.AddRange(optionalCodes);
+                }
+
+                foreach (var subjectCode in subjectCodesForGrade)
+                {
+                    if (!gradesBySubjectCode.TryGetValue(subjectCode, out var grades))
+                    {
+                        grades = new List<string>();
+                        gradesBySubjectCode[subjectCode] = grades;
+                    }
+
+                    if (!grades.Contains(gradeCode))
+                    {
+                        grades.Add(gradeCode);
+                    }
+                }
+            }
+
+            var subjectGradeCodesByCode = new Dictionary<string, string>();
+            foreach (var entry in gradesBySubjectCode)
+            {
+                subjectGradeCodesByCode[entry.Key] = entry.Value.Count == GradeCodes.Length
+                    ? "ALL"
+                    : string.Join(",", entry.Value);
+            }
+
+            return subjectGradeCodesByCode;
         }
 
         private static void AddOptionIfMissing(
@@ -135,7 +190,8 @@ namespace Infrastructure.Persistence.DataSeeder
             int typeCode,
             string code,
             string label,
-            int order)
+            int order,
+            string additionalValue2 = null)
         {
             var optionKey = typeCode + "|" + code;
             if (existingOptionKeys.Contains(optionKey))
@@ -148,7 +204,8 @@ namespace Infrastructure.Persistence.DataSeeder
                 TypeCode = typeCode,
                 Code = code,
                 Label = label,
-                Order = order
+                Order = order,
+                AdditionalValue2 = additionalValue2
             };
 
             dbContext.Configs.Add(config);
@@ -211,8 +268,9 @@ namespace Infrastructure.Persistence.DataSeeder
             }
 
             var classesByGrade = new Dictionary<string, AcademicClass>();
-            foreach (var gradeCode in GradeCodes)
+            for (var gradeIndex = 0; gradeIndex < GradeCodes.Length; gradeIndex++)
             {
+                var gradeCode = GradeCodes[gradeIndex];
                 if (existingByGrade.TryGetValue(gradeCode, out var existingClass))
                 {
                     // A soft-deleted class keeps its (year, grade) pair reserved; skip that
@@ -225,10 +283,13 @@ namespace Infrastructure.Persistence.DataSeeder
                     continue;
                 }
 
+                // GradeCodes is already Nursery..Twelve in display order -- reuse its index as
+                // the seeded UI ordering.
                 var academicClass = new AcademicClass
                 {
                     AcademicYearId = academicYear.Id,
                     GradeCode = gradeCode,
+                    Order = gradeIndex,
                     Status = RecordStatus.Active
                 };
 
@@ -441,7 +502,7 @@ namespace Infrastructure.Persistence.DataSeeder
             return true;
         }
 
-        private static async Task<List<Teacher>> SeedTeachersAsync(ApplicationDbContext dbContext)
+        private static async Task<List<Employee>> SeedTeachersAsync(ApplicationDbContext dbContext)
         {
             var teacherFirstNames = new[]
             {
@@ -473,8 +534,7 @@ namespace Infrastructure.Persistence.DataSeeder
 
             var existingEmployees = await dbContext.Employees
                 .IgnoreQueryFilters()
-                .Include(employee => employee.Teacher)
-                .Where(employee => employee.Teacher != null)
+                .Where(employee => employee.EmployeeCategoryCode == EmployeeCategoryCodes.Academic && employee.JobPositionCode == JobPositionCodes.Teacher)
                 .ToListAsync();
 
             var existingByEmployeeCode = new Dictionary<string, Employee>();
@@ -483,7 +543,7 @@ namespace Infrastructure.Persistence.DataSeeder
                 existingByEmployeeCode[employee.EmployeeCode] = employee;
             }
 
-            var seededTeachers = new List<Teacher>();
+            var seededTeachers = new List<Employee>();
             for (var teacherIndex = 0; teacherIndex < TeacherCount; teacherIndex++)
             {
                 var employeeCode = "EMP2026" + (teacherIndex + 1).ToString("000");
@@ -491,7 +551,7 @@ namespace Infrastructure.Persistence.DataSeeder
                 {
                     if (!existingEmployee.IsDeleted)
                     {
-                        seededTeachers.Add(existingEmployee.Teacher);
+                        seededTeachers.Add(existingEmployee);
                     }
 
                     continue;
@@ -514,12 +574,6 @@ namespace Infrastructure.Persistence.DataSeeder
                     PaymentMode = PaymentMode.BankDeposit
                 };
 
-                var teacherEntity = new Teacher
-                {
-                    Employee = employeeEntity
-                };
-                employeeEntity.Teacher = teacherEntity;
-
                 var qualification = new EmployeeQualification
                 {
                     Employee = employeeEntity,
@@ -531,7 +585,7 @@ namespace Infrastructure.Persistence.DataSeeder
 
                 dbContext.Employees.Add(employeeEntity);
                 dbContext.EmployeeQualifications.Add(qualification);
-                seededTeachers.Add(teacherEntity);
+                seededTeachers.Add(employeeEntity);
             }
 
             await dbContext.SaveChangesAsync();
@@ -540,7 +594,7 @@ namespace Infrastructure.Persistence.DataSeeder
 
         private static async Task SeedTeacherAssignmentsAsync(
             ApplicationDbContext dbContext,
-            List<Teacher> teachers,
+            List<Employee> teachers,
             Dictionary<string, AcademicClass> classesByGrade,
             Dictionary<Guid, List<ClassSection>> sectionsByClassId,
             List<ClassSubject> classSubjects)

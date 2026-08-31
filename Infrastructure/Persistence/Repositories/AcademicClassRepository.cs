@@ -36,7 +36,8 @@ namespace Infrastructure.Persistence.Repositories
             var totalCount = await classesQuery.CountAsync(cancellationToken);
             var skipCount = (pageNumber - 1) * pageSize;
             var items = await classesQuery
-                .OrderBy(academicClass => academicClass.GradeCode)
+                .OrderBy(academicClass => academicClass.Order)
+                .ThenBy(academicClass => academicClass.GradeCode)
                 .Skip(skipCount)
                 .Take(pageSize)
                 .ToListAsync(cancellationToken);
@@ -68,7 +69,8 @@ namespace Infrastructure.Persistence.Repositories
                 .Include(c => c.ClassSubjects)
                     .ThenInclude(cs => cs.ClassSection)
                 .Where(c => c.AcademicYearId == academicYearId)
-                .OrderBy(c => c.GradeCode)
+                .OrderBy(c => c.Order)
+                .ThenBy(c => c.GradeCode)
                 .ToListAsync(cancellationToken);
 
             return classes;

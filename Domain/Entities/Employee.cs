@@ -4,14 +4,17 @@ namespace Domain.Entities
 {
     // The umbrella record for every staff member (teacher, principal, accountant, receptionist,
     // librarian, IT officer, driver, security guard, office assistant, cleaner, office help, ...).
-    // Teacher (a thin teaching-specific profile) hangs off this via a SHARED primary key --
-    // Teacher.Id == Employee.Id -- rather than Employee referencing Teacher, so
-    // TeacherAssignment (which FKs to Teacher.Id) needed zero changes when this split was
-    // introduced. Qualifications and Documents (2026-07-23) belong here directly, not to Teacher
-    // -- neither concept is actually teaching-specific. EmployeeCategoryCode/JobPositionCode are
-    // Config codes (ConfigTypeCodes.EmployeeCategory/JobPosition), validated in the service layer,
-    // not database FKs -- same convention as every other Config-backed code column in this
-    // codebase.
+    // The standalone Teacher entity was removed 2026-08-06 -- TeachingLicenseNo/ExperienceYears/
+    // Specialization now live directly on Employee as plain optional fields (settable on any
+    // employee regardless of category/position, no more separate "teacher profile"), and
+    // TeacherAssignment.TeacherId now FKs straight to this table's Id (previously to the
+    // now-gone Teacher.Id, which was always numerically equal anyway under the old shared-PK
+    // design). Qualifications and Documents (2026-07-23) already lived here directly, not on
+    // Teacher -- neither concept was ever actually teaching-specific. EmployeeCategoryCode/
+    // JobPositionCode are Config codes (ConfigTypeCodes.EmployeeCategory/JobPosition), validated
+    // in the service layer, not database FKs -- same convention as every other Config-backed code
+    // column in this codebase. "Is this employee a teacher" is now a read-only derived predicate
+    // (Application/Common/Helpers/EmployeeRoleHelper.IsTeachingStaff), not a separate profile.
     public class Employee : SoftDeleteAuditableEntity
     {
         public Guid Id { get; set; }
@@ -50,10 +53,53 @@ namespace Domain.Entities
         public string CitNumber { get; set; }
         public string GratuityNumber { get; set; }
 
-        public virtual Teacher Teacher { get; set; }
+        // "Org" fields for the Employee Profile page (2026-07-23). BranchCode/ProvinceCode/
+        // LevelCode are Config codes (ConfigTypeCodes.Branch/Province/EmployeeLevel), same
+        // validate-in-service-not-FK convention as EmployeeCategoryCode/JobPositionCode --
+        // Designation on the profile UI is JobPositionCode's label, Department is
+        // EmployeeCategoryCode's label, neither needed a new field. ManagerId is a real
+        // self-referencing FK (Restrict, same reasoning as Menu's self-referencing ParentId) --
+        // an employee's own record for "reporting manager", not a separate concept.
+        public string BranchCode { get; set; }
+        public string ProvinceCode { get; set; }
+        public string LevelCode { get; set; }
+        public Guid? ManagerId { get; set; }
+
+        // Address chain (2026-07-24), extending ProvinceCode above into a full Nepal address:
+        // Province -> District -> LocalLevel (municipality/rural municipality/metro/sub-metro)
+        // -> WardNo. DistrictCode/LocalLevelCode are Config codes (ConfigTypeCodes.District/
+        // LocalLevel), same validate-in-service-not-FK convention as every other Config-backed
+        // column here. WardNo is a plain ward number (1-33 in practice, shape-only validated --
+        // ward counts vary per local level and aren't tracked as catalog metadata). All three
+        // optional; EmployeeService derives DistrictCode/ProvinceCode from LocalLevelCode
+        // automatically when only the local level is supplied (see EmployeeService.ResolveAddressAsync).
+        public string DistrictCode { get; set; }
+        public string LocalLevelCode { get; set; }
+        public int? WardNo { get; set; }
+
+        // Storage-relative path (IFileStorageService handle), never a user-supplied path or a
+        // publicly servable URL -- fetched via the same download-endpoint pattern as
+        // EmployeeDocument, not exposed directly. Null = no photo uploaded yet.
+        public string PhotoPath { get; set; }
+
+        // Teaching-specific fields (2026-08-06, ported from the removed Teacher entity). Plain
+        // optional fields, not gated behind EmployeeCategoryCode/JobPositionCode -- any employee
+        // may have these set. See EmployeeRoleHelper.IsTeachingStaff for the read-only "is this a
+        // teacher" derivation used by the dashboard widget / global search.
+        public string TeachingLicenseNo { get; set; }
+        public int? ExperienceYears { get; set; }
+        public string Specialization { get; set; }
+
+        public virtual Employee Manager { get; set; }
         public virtual ICollection<EmployeeSalary> Salaries { get; set; } = new List<EmployeeSalary>();
         public virtual ICollection<EmployeeLoan> Loans { get; set; } = new List<EmployeeLoan>();
         public virtual ICollection<EmployeeQualification> Qualifications { get; set; } = new List<EmployeeQualification>();
         public virtual ICollection<EmployeeDocument> Documents { get; set; } = new List<EmployeeDocument>();
+        public virtual ICollection<EmployeeLeaveBalance> LeaveBalances { get; set; } = new List<EmployeeLeaveBalance>();
+        public virtual ICollection<LeaveRequest> LeaveRequests { get; set; } = new List<LeaveRequest>();
+
+        // TeacherAssignment.TeacherId now FKs directly to this table (2026-08-06 -- previously to
+        // the removed Teacher entity, which shared this same Id under the old design).
+        public virtual ICollection<TeacherAssignment> Assignments { get; set; } = new List<TeacherAssignment>();
     }
 }

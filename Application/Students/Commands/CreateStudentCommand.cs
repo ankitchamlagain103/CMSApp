@@ -21,5 +21,10 @@ namespace Application.Students.Commands
         // at least one (existing guardian by id, or inline details to create one). Guardians can
         // still be linked later via POST /api/students/{id}/guardians.
         public List<StudentGuardianInput> Guardians { get; set; } = new List<StudentGuardianInput>();
+
+        // Portal account provisioning (2026-07-27), on request -- when true, a login is created
+        // for this student in the same call (Email above must be set). Always gets the fixed
+        // RoleNames.Student role -- no role picker, unlike Employee's RegisterUserAccount.
+        public bool RegisterUserAccount { get; set; }
     }
 }

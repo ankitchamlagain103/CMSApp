@@ -50,5 +50,19 @@ namespace Application.Configs
 
             return dropdownItemDto;
         }
+
+        // ConfigType itself has no Order column (unlike Config) -- the service sorts the list by
+        // Name before mapping, so Order is left at its default 0 for every row here.
+        public static DropdownItemDto ToDropdownItemDto(ConfigType configType)
+        {
+            var dropdownItemDto = new DropdownItemDto
+            {
+                Value = configType.TypeCode.ToString(),
+                Label = configType.Name,
+                AdditionalValue1 = configType.Description
+            };
+
+            return dropdownItemDto;
+        }
     }
 }

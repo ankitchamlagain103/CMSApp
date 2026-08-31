@@ -76,7 +76,8 @@ namespace Application.FeeRules
             await _unitOfWork.FeeRules.AddAsync(rule, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            var ruleDto = FeeRuleMapper.ToDto(rule);
+            var createLabels = await LoadFeeRuleLabelMapAsync(cancellationToken);
+            var ruleDto = FeeRuleMapper.ToDto(rule, createLabels);
             var successResponse = CommonResponse<FeeRuleDto>.Success(ruleDto, "Fee rule created successfully.");
             return successResponse;
         }
@@ -90,7 +91,8 @@ namespace Application.FeeRules
                 return notFoundResponse;
             }
 
-            var ruleDto = FeeRuleMapper.ToDto(rule);
+            var labelsByCode = await LoadFeeRuleLabelMapAsync(cancellationToken);
+            var ruleDto = FeeRuleMapper.ToDto(rule, labelsByCode);
             var successResponse = CommonResponse<FeeRuleDto>.Success(ruleDto);
             return successResponse;
         }
@@ -106,10 +108,11 @@ namespace Application.FeeRules
 
             var pagedRules = await _unitOfWork.FeeRules.GetPagedByFilterAsync(filter, query.Page, query.PageSize, cancellationToken);
 
+            var listLabels = await LoadFeeRuleLabelMapAsync(cancellationToken);
             var ruleDtos = new List<FeeRuleDto>();
             foreach (var rule in pagedRules.Items)
             {
-                var ruleDto = FeeRuleMapper.ToDto(rule);
+                var ruleDto = FeeRuleMapper.ToDto(rule, listLabels);
                 ruleDtos.Add(ruleDto);
             }
 
@@ -179,7 +182,8 @@ namespace Application.FeeRules
             _unitOfWork.FeeRules.Update(rule);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            var ruleDto = FeeRuleMapper.ToDto(rule);
+            var updateLabels = await LoadFeeRuleLabelMapAsync(cancellationToken);
+            var ruleDto = FeeRuleMapper.ToDto(rule, updateLabels);
             var successResponse = CommonResponse<FeeRuleDto>.Success(ruleDto, "Fee rule updated successfully.");
             return successResponse;
         }
@@ -223,6 +227,20 @@ namespace Application.FeeRules
             }
 
             return null;
+        }
+
+        // Merged Grade (1001) + FeeCategory (1010) Config label map (2026-08-05), per the
+        // application-wide Config label resolution sweep. See
+        // Docs/config_label_resolution_implementation_guide.md.
+        private async Task<Dictionary<string, string>> LoadFeeRuleLabelMapAsync(CancellationToken cancellationToken)
+        {
+            var gradeOptions = await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.Grade, cancellationToken);
+            var labelsByCode = ConfigLabelHelper.BuildLabelMap(gradeOptions);
+
+            var feeCategoryOptions = await _unitOfWork.Configs.GetByTypeCodeAsync(ConfigTypeCodes.FeeCategory, cancellationToken);
+            ConfigLabelHelper.MergeLabelMap(labelsByCode, feeCategoryOptions);
+
+            return labelsByCode;
         }
 
         private static FeeRuleTrigger ResolveTriggerStage(FeeRuleType ruleType)

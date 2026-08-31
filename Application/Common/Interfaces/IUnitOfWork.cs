@@ -20,13 +20,19 @@ namespace Application.Common.Interfaces
 
         IAcademicClassRepository AcademicClasses { get; }
 
-        ITeacherRepository Teachers { get; }
-
         IGuardianRepository Guardians { get; }
 
         IStudentRepository Students { get; }
 
         IEnrollmentRepository Enrollments { get; }
+
+        IExamTermRepository ExamTerms { get; }
+
+        IGradeScaleRepository GradeScales { get; }
+
+        ITimePeriodRepository TimePeriods { get; }
+
+        IStudentPromotionRepository StudentPromotions { get; }
 
         IFeeStructureRepository FeeStructures { get; }
 
@@ -49,6 +55,12 @@ namespace Application.Common.Interfaces
         ICalendarEventRepository CalendarEvents { get; }
 
         IMeetingRepository Meetings { get; }
+
+        ILeaveTypeRepository LeaveTypes { get; }
+
+        ILeaveRequestRepository LeaveRequests { get; }
+
+        INotificationRepository Notifications { get; }
 
         Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
     }

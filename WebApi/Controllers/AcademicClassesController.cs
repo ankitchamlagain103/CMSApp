@@ -213,5 +213,34 @@ namespace WebApi.Controllers
 
             return Ok(response);
         }
+
+        [HttpPost("{id:guid}/teacher-assignments/bulk-entry")]
+        public async Task<ActionResult<CommonResponse<ClassTeacherAssignmentBulkEntryResultDto>>> AssignTeachersBulkEntry(Guid id, [FromBody] AssignClassTeachersBulkEntryCommand command, CancellationToken cancellationToken)
+        {
+            var response = await _academicClassService.AssignTeachersBulkEntryAsync(id, command, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            if (response.ResponseCode != ResponseCodes.Success)
+            {
+                return BadRequest(response);
+            }
+
+            return Ok(response);
+        }
+
+        [HttpGet("{id:guid}/teacher-assignments")]
+        public async Task<ActionResult<CommonResponse<List<ClassTeacherAssignmentDto>>>> GetTeacherAssignments(Guid id, [FromQuery] Guid? classSectionId, CancellationToken cancellationToken)
+        {
+            var response = await _academicClassService.GetTeacherAssignmentsAsync(id, classSectionId, cancellationToken);
+            if (response.ResponseCode == ResponseCodes.NotFound)
+            {
+                return NotFound(response);
+            }
+
+            return Ok(response);
+        }
     }
 }

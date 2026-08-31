@@ -54,6 +54,17 @@ namespace Infrastructure.Persistence.Repositories
                     && (!filter.ClassSectionId.HasValue || enrollment.ClassSectionId == filter.ClassSectionId.Value)));
             }
 
+            // Server-computed teacher-scoping (2026-08-07) -- see StudentFilter.ClassSectionIds's
+            // own doc comment. A separate Where (ANDed with everything above) rather than folded
+            // into the single-ClassSectionId predicate, since the two are never both set by the
+            // same caller (one is user input, the other is server-derived scope).
+            if (filter.ClassSectionIds != null && filter.ClassSectionIds.Count > 0)
+            {
+                studentsQuery = studentsQuery.Where(student => student.Enrollments.Any(enrollment =>
+                    enrollment.Status == EnrollmentStatus.Enrolled
+                    && filter.ClassSectionIds.Contains(enrollment.ClassSectionId)));
+            }
+
             if (filter.FromDate.HasValue || filter.ToDate.HasValue)
             {
                 studentsQuery = ApplyDateRange(studentsQuery, filter);
@@ -126,6 +137,14 @@ namespace Infrastructure.Persistence.Repositories
                 .ToListAsync(cancellationToken);
 
             return admissionNos;
+        }
+
+        public async Task<Student> GetByUserIdAsync(Guid userId, CancellationToken cancellationToken = default)
+        {
+            var student = await DbSet
+                .FirstOrDefaultAsync(s => s.UserId == userId, cancellationToken);
+
+            return student;
         }
 
         public async Task<IReadOnlyList<StudentGuardian>> GetGuardianLinksAsync(Guid studentId, CancellationToken cancellationToken = default)

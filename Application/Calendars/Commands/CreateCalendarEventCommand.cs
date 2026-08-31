@@ -19,5 +19,14 @@ namespace Application.Calendars.Commands
         public string ColorCode { get; set; }
         public string Language { get; set; } = "en";
         public bool IsActive { get; set; } = true;
+
+        // 2026-07-23. ProvinceCode/BranchCode scope a PublicHoliday (blank = everywhere).
+        // StudentId/EmployeeId pin a StudentBirthday/EmployeeBirthday to a specific person --
+        // exactly one of the two is expected when EventType is one of those, validated in
+        // CalendarService.
+        public string ProvinceCode { get; set; }
+        public string BranchCode { get; set; }
+        public Guid? StudentId { get; set; }
+        public Guid? EmployeeId { get; set; }
     }
 }

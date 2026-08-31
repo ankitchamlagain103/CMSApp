@@ -230,6 +230,7 @@ namespace Application.AcademicYears
                 {
                     AcademicYearId = targetAcademicYearId,
                     GradeCode = sourceClass.GradeCode,
+                    Order = sourceClass.Order,
                     Status = RecordStatus.Active
                 };
 
